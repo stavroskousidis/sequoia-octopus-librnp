@@ -1,0 +1,95 @@
+* RNP
+** API
+*** conflates certs and key
+    This leads to man functions that are only applicable to either
+    one, e.g. what should rnp_key_get_uid_count do when invoked with a
+    subkey?  Or, rnp_key_remove seemingly allows one to remove a
+    primary key but keep the subkeys.
+*** key store model breaks down in corner cases
+    As soon as a (sub)key belongs to two certificates, what happens is
+    implementation defined.  For example, the results of
+    rnp_key_is_primary and rnp_key_is_sub is unpredictable and depends
+    on the order the keys are in the keyrings.
+*** has many knobs, unclear defaults
+    RNP allows many parameters to be tweaked, but the documentation
+    doesn't state what the defaults are, or if they are sane.  This
+    may lead to downstream users making an explicit choice (better
+    safe than sorry), but making an explicit choice requires domain
+    knowledge, and the choice may become outdated.
+    E.g. rnp_op_generate_set_hash.
+*** key unlock/lock mechanism
+    RNP has the concept of unlocking keys.  When a key is unlocked via
+    rnp_key_unlock, it's encrypted secret part is decrypted and
+    persisted in memory until it is locked again using rnp_key_lock.
+    During this period, the key may be exfiltrated from the process'
+    address space.
+*** unclear documentation
+    "Generally ... not useful" pattern appears a lot, e.g. "Generally
+    lock/unlock are not useful for unencrypted (not protected) keys."
+*** strings as identifiers
+    The API uses strings as identifiers where an enum would have been
+    the better choice: public key algorithms, symmetric algorithms,
+    hash algorithms, curves, armor labels, identifier types.  Possible
+    values are documented with every function, but some lists are
+    incomplete.  Also, the documentation suggests a case-insensitive
+    match in some cases (e.g. rnp_op_generate_create) but not in
+    others (e.g. rnp_op_generate_set_hash).
+*** consistent use of rnp_result_t
+    Every exported function returns a result, checks pointer arguments
+    for NULL, and catches C++ exceptions turning them into error
+    codes.  The consistency is nice, trying hard not to crash is nice,
+    but makes getters unergonomic and cannot handle all cases of
+    course, e.g. bad but non-NULL pointers.
+*** rnp_export_public has odd flag
+    RNP_KEY_EXPORT_PUBLIC.  How can you ever not export the public
+    key?
+*** rnp_key_have_public is odd
+    How can you ever not have the public key?
+*** rnp conflates keys and certs
+    RNP has a certring and a keyring.  When doing rnp_locate_key, RNP
+    searches both rings, and the returned rnp_key_handle_t can thus
+    refer to two certificates, potentially different versions of the
+    same, or even different certificates(!!!) if looked up by userid.
+    It is not clear what to do, because the interface seems so broken.
+*** revocation status is binary
+    This is in stark contrast to the fact that RNP seems to support
+    creating third party revocations using rnp_key_export_revocation:
+
+    > @param key primary key to be revoked. Must have secret key,
+    >            otherwise keyrings will be searched for the
+    >            authorized to issue revocation signature secret key.
+*** there is no way to automatically dearmor inputs
+    There is rnp_input_dearmor_if_needed but it is not public.
+** implementation
+*** very little documentation in the code
+*** C-style runtime polymorphism with explicit vtables in C++ code
+    E.g. struct pgp_dest_t
+*** poorly supported by ADTs
+    E.g. the key iterator uses a json_object_object_add to deduplicate
+    items.
+* TB's use of RNP
+** unlocked keys may be exfiltrated
+   RNP has the concept of unlocking keys.  When a key is unlocked via
+   rnp_key_unlock, it's encrypted secret part is decrypted and
+   persisted in memory until it is locked again using rnp_key_lock.
+   During this period, the key may be exfiltrated from TB's address
+   space.
+
+   Sequoia improves this, because Sequoia encrypts unencrypted secrets
+   in memory.
+
+   In some places, the key is only temporarily unlocked for some
+   operation (e.g. attaching a subkey) and then locked again.  This is
+   fragile, because care must be take to run the locking on all exits
+   (i.e. using try .. finally).
+
+   In other places, the key is not locked again.
+** Tests
+
+   for example right now there is one xpcshell test, only, which you
+   could request with
+   mail/extensions/openpgp/test/unit/rnp/test_encryptAndOrSign.js -
+   and there are many mochitests which you could request with
+   directory mail/test/browser/openpgp as the parameter
+
+   ./mach test mail/test/browser/openpgp/ mail/extensions/openpgp/test

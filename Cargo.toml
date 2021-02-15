@@ -1,0 +1,42 @@
+[package]
+name = "sequoia-octopus-librnp"
+description = "Reimplementation of RNP's interface using Sequoia for use with Thunderbird"
+version = "0.0.0"
+authors = [
+    "Justus Winter <justus@sequoia-pgp.org>",
+]
+homepage = "https://sequoia-pgp.org/"
+repository = "https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp"
+readme = "README.md"
+keywords = ["cryptography", "openpgp", "pgp", "encryption", "signing"]
+categories = ["cryptography", "authentication", "email"]
+license = "GPL-2.0-or-later"
+edition = "2018"
+
+[badges]
+gitlab = { repository = "sequoia-pgp/sequoia-octopus-librnp" }
+maintenance = { status = "actively-developed" }
+
+[dependencies]
+libc = "0.2"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sequoia-openpgp = { version = "1", default-features = false }
+sequoia-autocrypt = { version = "0.23", default-features = false }
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = [
+    "sequoia-openpgp/default",
+]
+crypto-nettle = [
+    "sequoia-openpgp/compression",
+    "sequoia-openpgp/crypto-nettle",
+]
+crypto-cng = [
+    "sequoia-openpgp/compression",
+    "sequoia-openpgp/crypto-cng",
+]
