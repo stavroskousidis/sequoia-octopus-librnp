@@ -13,7 +13,7 @@ use openpgp::{
             UnspecifiedRole,
         },
     },
-    serialize::stream::{*, padding::Padder},
+    serialize::stream::*,
     types::{
         HashAlgorithm,
         SymmetricAlgorithm,
@@ -87,13 +87,12 @@ fn rnp_op_encrypt_execute(op: *mut RnpOpEncrypt) -> RnpResult {
         }
 
         // Encrypt the message.
-        let message =
+        let mut message =
             Encryptor::for_recipients(message, &op.recipients)
             .symmetric_algo(op.cipher.unwrap_or_default())
             .build()?;
 
-        // Pad the message.
-        let mut message = Padder::new(message).build()?;
+        // XXX: Once implementations are more robust, pad the message.
 
         // Maybe sign the message.
         if let Some(key) = op.signers.pop() {
