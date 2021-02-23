@@ -64,7 +64,7 @@ enum SignatureMode<'a> {
     Detached(&'a mut RnpInput),
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct RnpOpVerifyResult {
     // Information about the symmetric encryption.
     mode: RnpProtectionMode,
@@ -106,6 +106,7 @@ impl RnpOpVerifyResult {
     }
 }
 
+#[derive(Debug)]
 pub struct RnpOpVerifySignature {
     ctx: *mut RnpContext,
     status: RnpResult,
@@ -113,7 +114,7 @@ pub struct RnpOpVerifySignature {
     key: Option<Key<UnspecifiedParts, UnspecifiedRole>>,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum RnpProtectionMode {
     None,
     Cfb,
@@ -197,25 +198,35 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
     let op = assert_ptr_mut!(op);
 
     fn f(op: &mut RnpOpVerify) -> openpgp::Result<()> {
-        let secrets = op.ctx.keys.clone();
-        let h = Helper::new(
-            P,
-            VHelper {
-                ctx: op.ctx,
-                result: &mut op.result,
-            },
-            secrets);
-
         match &mut op.mode {
             SignatureMode::Inline(output) => {
+                t!("Inline signature verification or decryption");
+
+                let secrets = op.ctx.keys.clone();
+                let h = Helper::new(
+                    P,
+                    VHelper {
+                        ctx: op.ctx,
+                        result: &mut op.result,
+                    },
+                    secrets);
+
                 let mut v = DecryptorBuilder::from_reader(&mut op.input)?
                     .with_policy(P, None, h)?;
                 io::copy(&mut v, output)?;
+                t!("Decryption successful: {:#?}", op.result);
             },
             SignatureMode::Detached(signature) => {
+                t!("Detached signature verification");
+                let h = VHelper {
+                    ctx: op.ctx,
+                    result: &mut op.result,
+                };
                 let mut v = DetachedVerifierBuilder::from_reader(signature)?
-                    .with_policy(P, None, h.vhelper)?;
+                    .with_policy(P, None, h)?;
                 v.verify_reader(&mut op.input)?;
+                t!("Verification without decryption successful: {:#?}",
+                   op.result);
             },
         }
         Ok(())
