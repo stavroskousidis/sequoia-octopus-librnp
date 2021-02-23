@@ -1,6 +1,7 @@
 use std::{
     io,
     fs::File,
+    path::PathBuf,
 };
 
 use sequoia_openpgp as openpgp;
@@ -14,7 +15,7 @@ use super::*;
 pub enum RnpInput {
     Ref(io::Cursor<&'static [u8]>),
     Buf(io::Cursor<Vec<u8>>),
-    File(File),
+    File(PathBuf, File),
 }
 
 pub enum RnpOutput<'a> {
@@ -23,15 +24,42 @@ pub enum RnpOutput<'a> {
     Armorer(Option<armor::Writer<&'a mut RnpOutput<'a>>>)
 }
 
+impl RnpInput {
+    /// Tries to clone this input.
+    ///
+    /// This may fail if the input refers to a file and reopening the
+    /// file fails.
+    ///
+    /// The input stream is rewound for consistency with the reopened
+    /// file.
+    pub fn try_clone(&self) -> io::Result<Self> {
+        use io::Seek;
+        match self {
+            RnpInput::Ref(c) => {
+                let mut c = c.clone();
+                c.seek(io::SeekFrom::Start(0))?;
+                Ok(RnpInput::Ref(c))
+            },
+            RnpInput::Buf(c) => {
+                let mut c = c.clone();
+                c.seek(io::SeekFrom::Start(0))?;
+                Ok(RnpInput::Buf(c))
+            },
+            RnpInput::File(p, _) =>
+                Ok(RnpInput::File(p.clone(), File::open(p)?)),
+        }
+    }
+}
+
 #[no_mangle] pub unsafe extern "C"
 fn rnp_input_from_path(input: *mut *mut RnpInput,
                        path: *const c_char)
                        -> RnpResult {
     match cstr_to_pathbuf(path) {
         Ok(p) => {
-            if let Ok(f) = File::open(p) {
+            if let Ok(f) = File::open(&p) {
                 *input = Box::into_raw(Box::new(
-                    RnpInput::File(f)
+                    RnpInput::File(p, f)
                 ));
                 RNP_SUCCESS
             } else {
@@ -70,7 +98,7 @@ impl io::Read for RnpInput {
         match self {
             RnpInput::Ref(c) => c.read(buf),
             RnpInput::Buf(c) => c.read(buf),
-            RnpInput::File(f) => f.read(buf),
+            RnpInput::File(_, f) => f.read(buf),
         }
     }
 }
