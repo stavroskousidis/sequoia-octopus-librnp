@@ -188,6 +188,8 @@ impl RnpContext {
     /// results.  If the merge fails, we conservatively fail the
     /// lookup.
     pub fn cert(&self, by: &RnpIdentifier) -> Option<Cert> {
+        rnp_function!(RnpContext::cert, TRACE);
+
         use RnpIdentifier::*;
         let (key, cert) = match by {
             UserID(id) => self.cert_by_userid(id),
@@ -195,6 +197,11 @@ impl RnpContext {
             Fingerprint(fp) => self.cert_by_subkey_fp(fp),
             Keygrip(grip) => self.cert_by_subkey_grip(grip),
         };
+
+        t!("Lookup by {:?} returned cert {:?} and key {:?}",
+           by,
+           cert.as_ref().map(|c| c.fingerprint()),
+           key.as_ref().map(|c| c.fingerprint()));
 
         match (key, cert) {
             (None, None) => None,

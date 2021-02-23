@@ -44,7 +44,7 @@ pub const RNP_ERROR_EOF: RnpResult = 0x13000004;
 pub type Result<T> = std::result::Result<T, RnpResult>;
 
 macro_rules! rnp_function {
-    ( $fn_name: ident, $TRACE: expr ) => {
+    ( $fn_name: path, $TRACE: expr ) => {
         #[allow(unused_macros)]
         macro_rules! _trace {
             ( $msg: expr ) => {
