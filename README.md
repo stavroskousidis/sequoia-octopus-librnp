@@ -20,8 +20,6 @@ recover.
   revoke certificates.
 - `rnp_key_set_expiration` is not implemented, therefore it is not
   possible to extend the expiration times of your keys.
-- Currently, Sequoia does not support the [Cleartext Signature
-  Framework] (see this [tracking issue]).
 - There may be dragons.
 
 [Cleartext Signature Framework]: https://tools.ietf.org/html/rfc4880#section-7

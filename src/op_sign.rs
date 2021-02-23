@@ -36,6 +36,7 @@ pub struct RnpOpSign<'a> {
     signers: Vec<Key<SecretParts, UnspecifiedRole>>,
     hash: Option<HashAlgorithm>,
     armor: bool,
+    csf: bool,
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -57,22 +58,33 @@ fn rnp_op_sign_detached_create<'a>(op: *mut *mut RnpOpSign<'a>,
         signers: Vec::new(),
         hash: None,
         armor: false,
+        csf: false,
     }));
     RNP_SUCCESS
 }
 
 #[no_mangle] pub unsafe extern "C"
-fn rnp_op_sign_cleartext_create(op: *mut *mut RnpOpSign,
-                                ctx: *mut RnpContext,
-                                input: *mut RnpInput,
-                                output: *mut RnpOutput)
-                                -> RnpResult
+fn rnp_op_sign_cleartext_create<'a>(op: *mut *mut RnpOpSign<'a>,
+                                    ctx: *mut RnpContext,
+                                    input: *mut RnpInput,
+                                    output: *mut RnpOutput<'a>)
+                                    -> RnpResult
 {
     assert_ptr!(op);
     assert_ptr!(ctx);
     assert_ptr!(input);
     assert_ptr!(output);
-    RNP_ERROR_NOT_IMPLEMENTED // XXX
+
+    *op = Box::into_raw(Box::new(RnpOpSign {
+        ctx: &mut *ctx,
+        input: &mut *input,
+        output: &mut *output,
+        signers: Vec::new(),
+        hash: None,
+        armor: false,
+        csf: true,
+    }));
+    RNP_SUCCESS
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -90,7 +102,7 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
 
     fn f(op: &mut RnpOpSign) -> openpgp::Result<()> {
         let mut message = Message::new(&mut op.output);
-        if op.armor {
+        if op.armor && ! op.csf {
             message = Armorer::new(message).build()?;
         }
 
@@ -100,8 +112,14 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
                 op.ctx.decrypt_key_for(None, key, RnpPasswordFor::Sign)?
                 .into_keypair()?;
             let mut signer = Signer::new(message, s)
-                .detached()
                 .hash_algo(op.hash.unwrap_or_default())?;
+
+            if op.csf {
+                signer = signer.cleartext();
+            } else {
+                signer = signer.detached();
+            }
+
             for key in op.signers.drain(..) {
                 let s =
                     op.ctx.decrypt_key_for(None, key, RnpPasswordFor::Sign)?

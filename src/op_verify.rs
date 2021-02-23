@@ -202,6 +202,26 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
             SignatureMode::Inline(output) => {
                 t!("Inline signature verification or decryption");
 
+                // We first try to verify without decryption.  This
+                // way, Sequoia will handle messages using the
+                // Cleartext Signature Framework.
+
+                let mut input = op.input.try_clone()?;
+                let h = VHelper {
+                    ctx: op.ctx,
+                    result: &mut op.result,
+                };
+                if VerifierBuilder::from_reader(&mut input)
+                    .and_then(|b| b.with_policy(P, None, h))
+                    .and_then(|mut v|
+                              io::copy(&mut v, output).map_err(Into::into))
+                    .is_ok()
+                {
+                    t!("Verification without decryption successful: {:#?}",
+                       op.result);
+                    return Ok(());
+                }
+
                 let secrets = op.ctx.keys.clone();
                 let h = Helper::new(
                     P,

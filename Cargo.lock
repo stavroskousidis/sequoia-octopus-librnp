@@ -166,9 +166,9 @@ dependencies = [
 
 [[package]]
 name = "buffered-reader"
-version = "1.0.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5711ccfa79a8167779ad2176d3334078f03b1579ddf8f42aa556196eba60a42"
+checksum = "5f76f15096822ca97dcc626a98ce3eb93c8afc795f33994a63e8d4ed767007e4"
 dependencies = [
  "bzip2",
  "flate2",
@@ -929,9 +929,9 @@ dependencies = [
 
 [[package]]
 name = "sequoia-openpgp"
-version = "1.0.0"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "664de0a9388e38d0f350547056f18fcc03f78d85e5a49fa4fa8927ca6aea1424"
+checksum = "d58ef113ced3dfdcf683bde4f30af2310a232a2e826338a5485f97823e583079"
 dependencies = [
  "anyhow",
  "backtrace",
@@ -952,6 +952,7 @@ dependencies = [
  "nettle",
  "num-bigint-dig",
  "regex",
+ "regex-syntax",
  "sha1collisiondetection",
  "thiserror",
  "unicode-normalization",
