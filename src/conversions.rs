@@ -358,6 +358,15 @@ impl From<KeyHandle> for RnpIdentifier {
     }
 }
 
+impl From<&KeyHandle> for RnpIdentifier {
+    fn from(h: &KeyHandle) -> Self {
+        match h {
+            KeyHandle::KeyID(i) => RnpIdentifier::KeyID(i.clone()),
+            KeyHandle::Fingerprint(i) => RnpIdentifier::Fingerprint(i.clone()),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum RnpKeyUsage {
     Sign,

@@ -460,9 +460,9 @@ struct VHelper<'a> {
 }
 
 impl<'a> VerificationHelper for VHelper<'a> {
-    fn get_certs(&mut self, _: &[KeyHandle])
+    fn get_certs(&mut self, ids: &[KeyHandle])
                  -> openpgp::Result<Vec<Cert>> {
-        Ok(self.ctx.certs.clone())
+        Ok(ids.iter().filter_map(|id| self.ctx.cert(&id.into())).collect())
     }
 
     fn check(&mut self, structure: MessageStructure) -> openpgp::Result<()> {
