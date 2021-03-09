@@ -2,6 +2,9 @@ use std::{
     collections::{
         HashSet,
     },
+    cell::{
+        Ref,
+    },
 };
 
 use libc::{
@@ -12,9 +15,6 @@ use sequoia_openpgp as openpgp;
 use openpgp::{
     cert::{
         Cert,
-    },
-    packet::{
-        UserID,
     },
 };
 
@@ -31,8 +31,8 @@ use crate::{
 pub struct RnpIdentifierIterator<'a> {
     ctx: &'a RnpContext,
     typ: RnpIdentifierType,
-    cert_iter: Box<dyn Iterator<Item = &'a Cert> + 'a>,
-    uid_iter: Option<Box<dyn Iterator<Item = &'a UserID> + 'a>>,
+    cert_iter: Box<dyn Iterator<Item = Ref<'a, Cert>> + 'a>,
+    uid_iter: Option<Vec<String>>,
     seen: HashSet<String>,
 }
 
@@ -94,8 +94,12 @@ fn rnp_identifier_iterator_next(iter: *mut RnpIdentifierIterator,
                             },
                         };
 
-                        iter.uid_iter = Some(Box::new(
-                            vcert.userids().map(|u| u.userid())));
+                        iter.uid_iter = Some(
+                            vcert.userids()
+                                .map(|u| u.userid().value())
+                                .filter_map(
+                                    |u| String::from_utf8(u.to_vec()).ok())
+                                .collect());
                     } else {
                         // Exhausted cert iterator.
                         *item = std::ptr::null();
@@ -104,8 +108,8 @@ fn rnp_identifier_iterator_next(iter: *mut RnpIdentifierIterator,
                 }
 
                 let n =
-                    iter.uid_iter.as_mut().unwrap().next()
-                    .and_then(|u| std::str::from_utf8(u.value()).ok())
+                    iter.uid_iter.as_mut()
+                    .and_then(|uids| uids.pop())
                     .map(|u| u.to_string());
                 if let Some(n) = n {
                     n

@@ -110,8 +110,8 @@ fn rnp_import_keys(ctx: *mut RnpContext,
 
             if public {
                 let status;
-                if let Some(known) = ctx.cert_mut_by_fp(&fp) {
-                    if known == &cert {
+                if let Some(mut known) = ctx.cert_mut_by_fp(&fp) {
+                    if *known == cert {
                         status = Unchanged;
                     } else {
                         // XXX: This is not quite correct.  False
@@ -122,6 +122,13 @@ fn rnp_import_keys(ctx: *mut RnpContext,
                     }
                 } else {
                     status = New;
+                    // ctx is still mutably borrowed.  Do the
+                    // insertion in a second step to appease the
+                    // borrow checker.
+                }
+
+                if let New = status {
+                    // Appease the borrow checker.
                     ctx.insert_cert(cert.clone().strip_secret_key_material());
                 }
 
@@ -130,18 +137,26 @@ fn rnp_import_keys(ctx: *mut RnpContext,
 
             if secret && cert.is_tsk() {
                 let status;
-                if let Some(known) = ctx.key_mut_by_fp(&fp) {
-                    if known == &cert {
+                if let Some(mut known) = ctx.key_mut_by_fp(&fp) {
+                    if *known == cert {
                         status = Unchanged;
                     } else {
                         // XXX: This is not quite correct.  False
                         // positive if cert has less information than
                         // known.  Then, it is not really an update.
                         status = Updated;
-                        *known = known.clone().merge_public_and_secret(cert)?;
+                        *known = known.clone()
+                            .merge_public_and_secret(cert.clone())?;
                     }
                 } else {
                     status = New;
+                    // ctx is still mutably borrowed.  Do the
+                    // insertion in a second step to appease the
+                    // borrow checker.
+                }
+
+                if let New = status {
+                    // Appease the borrow checker.
                     ctx.insert_key(cert);
                 }
 

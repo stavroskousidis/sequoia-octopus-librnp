@@ -222,7 +222,8 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
                     return Ok(());
                 }
 
-                let secrets = op.ctx.keys.clone();
+                // XXX: Avoid cloning here, query the context directly.
+                let secrets = op.ctx.keys.iter().map(|c| c.clone()).collect();
                 let h = Helper::new(
                     P,
                     VHelper {

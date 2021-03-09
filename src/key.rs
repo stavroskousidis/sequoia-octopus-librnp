@@ -642,13 +642,13 @@ fn rnp_key_remove(key: *mut RnpKey,
     }
 
     if remove_public {
-        if ! remove_all(&mut ctx.certs, &fp) && ! remove_secret {
+        if ! ctx.certs.remove_all(&fp) && ! remove_secret {
             return RNP_ERROR_KEY_NOT_FOUND;
         }
     }
 
     if remove_secret {
-        if ! remove_all(&mut ctx.keys, &fp) {
+        if ! ctx.keys.remove_all(&fp) {
             return RNP_ERROR_KEY_NOT_FOUND;
         }
     }
@@ -821,7 +821,7 @@ fn rnp_key_protect(key: *mut RnpKey,
         }
 
         let key = key.encrypt_secret(&password.into())?;
-        if let Some(cert) = ctx.key_mut_by_fp(&fp) {
+        if let Some(mut cert) = ctx.key_mut_by_fp(&fp) {
             let key: openpgp::Packet =
                 if key.fingerprint() == cert.fingerprint() {
                     key.role_into_primary().into()
@@ -879,7 +879,7 @@ fn rnp_key_unprotect(key: *mut RnpKey,
             }
         }
 
-        if let Some(cert) = ctx.key_mut_by_fp(&fp) {
+        if let Some(mut cert) = ctx.key_mut_by_fp(&fp) {
             let key: openpgp::Packet =
                 if key.fingerprint() == cert.fingerprint() {
                     key.role_into_primary().into()

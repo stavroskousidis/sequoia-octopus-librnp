@@ -5,6 +5,9 @@ use std::{
     ffi::{
         CStr,
     },
+    cell::{
+        RefMut,
+    },
 };
 use libc::{
     c_char,
@@ -52,6 +55,9 @@ macro_rules! stub {
 mod keygrip;
 use keygrip::*;
 
+mod keystore;
+use keystore::Keystore;
+
 mod buffer;
 use buffer::*;
 
@@ -98,10 +104,10 @@ use keyring::parse_keyring;
 
 pub const P: &StandardPolicy = &StandardPolicy::new();
 
+#[derive(Default)]
 pub struct RnpContext {
-    // XXX need maps for lookups faster than O(n)
-    certs: Vec<Cert>,
-    keys: Vec<Cert>,
+    certs: Keystore,
+    keys: Keystore,
     unlocked_keys: HashMap<Fingerprint, Key<SecretParts, UnspecifiedRole>>,
     password_cb: Option<(RnpPasswordCb, *mut c_void)>,
 }
@@ -128,13 +134,7 @@ fn rnp_ffi_create(ctx: *mut *mut RnpContext,
         return RNP_ERROR_BAD_FORMAT;
     }
 
-    *ctx = Box::into_raw(Box::new(RnpContext {
-        certs: Vec::with_capacity(0),
-        keys: Vec::with_capacity(0),
-        unlocked_keys: Default::default(),
-        password_cb: None,
-    }));
-
+    *ctx = Box::into_raw(Box::new(RnpContext::default()));
     RNP_SUCCESS
 }
 
@@ -165,16 +165,12 @@ fn rnp_ffi_set_pass_provider(ctx: *mut RnpContext,
 impl RnpContext {
     /// Inserts a cert into the certring.
     pub fn insert_cert(&mut self, cert: Cert) {
-        // XXX: Merging, updating structures for better than O(N)
-        // lookups.
-        self.certs.push(cert);
+        self.certs.insert(cert);
     }
 
     /// Inserts a key into the keyring.
     pub fn insert_key(&mut self, key: Cert) {
-        // XXX: Merging, updating structures for better than O(N)
-        // lookups.
-        self.keys.push(key);
+        self.keys.insert(key);
     }
 
     /// Retrieves a certificate from both stores by userid.
@@ -221,19 +217,21 @@ impl RnpContext {
     /// userids are checked while searching by userid." but it is not
     /// clear what that means.
     ///
+    /// XXX: I think it would be better to fail these lookups.  Are
+    /// they used by TB?
     pub fn cert_by_userid(&self, uid: &UserID)
                                -> (Option<Cert>, Option<Cert>) {
         let mut r_key = None;
         let mut r_cert = None;
 
         // XXX O(n)
-        for cert in &self.keys {
+        for cert in self.keys.iter() {
             if cert.userids().any(|u| u.userid() == uid) {
                 r_key = Some(cert.clone());
                 break;
             }
         }
-        for cert in &self.certs {
+        for cert in self.certs.iter() {
             if cert.userids().any(|u| u.userid() == uid) {
                 r_cert = Some(cert.clone());
                 break;
@@ -247,93 +245,48 @@ impl RnpContext {
     /// fingerprint.
     pub fn cert_by_subkey_fp(&self, fp: &Fingerprint)
                                -> (Option<Cert>, Option<Cert>) {
-        let mut r_key = None;
-        let mut r_cert = None;
-
-        // XXX O(n)
-        for cert in &self.keys {
-            if cert.keys().any(|k| k.fingerprint() == *fp) {
-                r_key = Some(cert.clone());
-                break;
-            }
-        }
-        for cert in &self.certs {
-            if cert.keys().any(|k| k.fingerprint() == *fp) {
-                r_cert = Some(cert.clone());
-                break;
-            }
-        }
-
-        (r_key, r_cert)
+        (self.keys.by_primary_fp(fp)
+         .or_else(|| self.keys.by_subkey_fp(fp))
+         .map(|c| c.clone()),
+         self.certs.by_primary_fp(fp)
+         .or_else(|| self.certs.by_subkey_fp(fp))
+         .map(|c| c.clone()))
     }
 
     /// Retrieves a certificate from both stores by (sub)key
     /// keyid.
     pub fn cert_by_subkey_id(&self, id: &KeyID)
                                -> (Option<Cert>, Option<Cert>) {
-        let mut r_key = None;
-        let mut r_cert = None;
-
-        // XXX O(n)
-        for cert in &self.keys {
-            if cert.keys().any(|k| k.keyid() == *id) {
-                r_key = Some(cert.clone());
-                break;
-            }
-        }
-        for cert in &self.certs {
-            if cert.keys().any(|k| k.keyid() == *id) {
-                r_cert = Some(cert.clone());
-                break;
-            }
-        }
-
-        (r_key, r_cert)
+        (self.keys.by_primary_id(id)
+         .or_else(|| self.keys.by_subkey_id(id))
+         .map(|c| c.clone()),
+         self.certs.by_primary_id(id)
+         .or_else(|| self.certs.by_subkey_id(id))
+         .map(|c| c.clone()))
     }
 
     /// Retrieves a certificate from both stores by (sub)key
     /// keygrip.
     pub fn cert_by_subkey_grip(&self, grip: &Keygrip)
                                -> (Option<Cert>, Option<Cert>) {
-        let mut r_key = None;
-        let mut r_cert = None;
-
-        for cert in &self.keys {
-            if cert.keys().any(|k| Keygrip::of(k.mpis())
-                               .map(|g| g == *grip).unwrap_or(false)) {
-                r_key = Some(cert.clone());
-                break;
-            }
-        }
-        for cert in &self.certs {
-            if cert.keys().any(|k| Keygrip::of(k.mpis())
-                               .map(|g| g == *grip).unwrap_or(false)) {
-                r_cert = Some(cert.clone());
-                break;
-            }
-        }
-
-        (r_key, r_cert)
+        (self.keys.by_primary_grip(grip)
+         .or_else(|| self.keys.by_subkey_grip(grip))
+         .map(|c| c.clone()),
+         self.certs.by_primary_grip(grip)
+         .or_else(|| self.certs.by_subkey_grip(grip))
+         .map(|c| c.clone()))
     }
 
-    /// Retrieves a key from the keyring by primary key fingerprint.
-    pub fn key_mut_by_fp(&mut self, fp: &Fingerprint) -> Option<&mut Cert> {
-        for cert in &mut self.keys {
-            if cert.keys().any(|k| k.fingerprint() == *fp) {
-                return Some(cert);
-            }
-        }
-        None
+    /// Retrieves a key from the keyring by (sub)key fingerprint.
+    pub fn key_mut_by_fp(&mut self, fp: &Fingerprint) -> Option<RefMut<Cert>> {
+        self.keys.by_primary_fp_mut(fp)
+            .or(self.keys.by_subkey_fp_mut(fp))
     }
 
-    /// Retrieves a cert from the certring by primary key fingerprint.
-    pub fn cert_mut_by_fp(&mut self, fp: &Fingerprint) -> Option<&mut Cert> {
-        for cert in &mut self.certs {
-            if cert.keys().any(|k| k.fingerprint() == *fp) {
-                return Some(cert);
-            }
-        }
-        None
+    /// Retrieves a cert from the certring by (sub)key fingerprint.
+    pub fn cert_mut_by_fp(&mut self, fp: &Fingerprint) -> Option<RefMut<Cert>> {
+        self.certs.by_primary_fp_mut(fp)
+            .or(self.certs.by_subkey_fp_mut(fp))
     }
 }
 
@@ -537,7 +490,7 @@ fn rnp_save_keys(ctx: *mut RnpContext,
     };
 
     if let Err(e) = (|| -> openpgp::Result<()> {
-        for cert in certs {
+        for cert in certs.iter() {
             if flags & RNP_LOAD_SAVE_SECRET_KEYS > 0 {
                 cert.as_tsk().serialize(output)?;
             } else {
