@@ -19,7 +19,6 @@ use openpgp::{
     KeyID,
     cert::{
         Cert,
-        CertParser,
     },
     crypto::{
         Password,
@@ -29,9 +28,6 @@ use openpgp::{
         Key,
         key::{SecretParts, UnspecifiedRole},
         UserID,
-    },
-    parse::{
-        Parse,
     },
     policy::{
         StandardPolicy,
@@ -98,6 +94,7 @@ use userid::RnpUserID;
 #[allow(dead_code)]
 mod import;
 mod keyring;
+use keyring::parse_keyring;
 
 pub const P: &StandardPolicy = &StandardPolicy::new();
 
@@ -475,7 +472,7 @@ fn rnp_load_keys(ctx: *mut RnpContext,
     }
 
     let input = &mut *input;
-    let certs = CertParser::from_reader(input);
+    let certs = parse_keyring(input);
 
     let certs = match certs {
         Ok(c) => c,
