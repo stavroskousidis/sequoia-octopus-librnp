@@ -16,8 +16,6 @@ recover.
 
 - `rnp_import_signatures` is not implemented, therefore it is not
   possible to import revocation certifications.
-- `rnp_key_revoke` is not implemented, therefore it is not possible to
-  revoke certificates.
 - `rnp_key_set_expiration` is not implemented, therefore it is not
   possible to extend the expiration times of your keys.
 - There may be dragons.

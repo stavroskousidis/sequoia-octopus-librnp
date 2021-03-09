@@ -18,6 +18,7 @@ use openpgp::{
     cert::{
         Cert,
         CertRevocationBuilder,
+        SubkeyRevocationBuilder,
         amalgamation::ValidAmalgamation,
     },
     packet::{
@@ -54,7 +55,6 @@ use crate::{
 };
 
 // XXX: Stubs left to implement.
-stub!(rnp_key_revoke);
 stub!(rnp_key_set_expiration);
 
 #[derive(Debug)]
@@ -975,3 +975,85 @@ fn rnp_key_export_revocation(key: *mut RnpKey,
         RNP_SUCCESS
     }
 }
+
+#[no_mangle] pub unsafe extern "C"
+fn rnp_key_revoke(key: *mut RnpKey,
+                  _flags: u32,
+                  hash: *const c_char,
+                  code: *const c_char,
+                  reason: *const c_char)
+                  -> RnpResult {
+    rnp_function!(rnp_key_revoke, crate::TRACE);
+    let key = assert_ptr_mut!(key);
+    let ctx = &mut *key.ctx;
+
+    let cert = if let Some(cert) = key.cert() {
+        cert.clone()
+    } else {
+        return RNP_ERROR_NO_SUITABLE_KEY;
+    };
+
+    if ! cert.primary_key().has_secret() {
+        warn!("rnp_key_export_revocation: creating third-party revocation \
+               not implemented");
+        return RNP_ERROR_NOT_IMPLEMENTED;
+    }
+
+    let hash = if hash.is_null() {
+        None
+    } else {
+        Some(rnp_try!(HashAlgorithm::from_rnp_id(hash)))
+    };
+
+    let code = if code.is_null() {
+        ReasonForRevocation::Unspecified
+    } else {
+        rnp_try!(ReasonForRevocation::from_rnp_id(code))
+    };
+
+    let reason = if reason.is_null() {
+        b""
+    } else {
+        CStr::from_ptr(reason).to_bytes()
+    };
+
+    fn f(ctx: &mut RnpContext, cert: Cert, key: &RnpKey,
+         hash: Option<HashAlgorithm>, code: ReasonForRevocation, reason: &[u8])
+         -> openpgp::Result<()>
+    {
+        let is_primary = cert.fingerprint() == key.fingerprint();
+
+        let primary_key =
+            cert.primary_key().key().clone().parts_into_secret()?
+            .role_into_unspecified();
+        let mut keypair = ctx.decrypt_key_for(key.cert.as_ref(),
+                                              primary_key,
+                                              // XXX: This is what RNP
+                                              // does, there is no
+                                              // dedicated reason.
+                                              RnpPasswordFor::Unlock)?
+            .into_keypair()?;
+
+        let sig = if is_primary {
+            CertRevocationBuilder::new()
+                .set_reason_for_revocation(code, reason)?
+                .build(&mut keypair, &cert, hash)?
+        } else {
+            SubkeyRevocationBuilder::new()
+                .set_reason_for_revocation(code, reason)?
+                .build(&mut keypair, &cert, key.key.role_as_subordinate(), hash)?
+        };
+
+        // Merge the revocation into the store.
+        ctx.keys.insert(cert.clone().insert_packets(Some(sig))?);
+        Ok(())
+    }
+
+    if let Err(e) = f(ctx, cert, key, hash, code, reason) {
+        _warn!("{}", e);
+        RNP_ERROR_GENERIC
+    } else {
+        RNP_SUCCESS
+    }
+}
+
