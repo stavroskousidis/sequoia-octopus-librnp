@@ -85,10 +85,11 @@ fn rnp_import_keys(ctx: *mut RnpContext,
         let certs = parse_keyring(input)?;
         let mut acc = Vec::new();
         for cert in certs {
+            t!("Considering cert {:?}", cert.as_ref().map(|c| c.fingerprint()));
             match cert {
                 Err(_) if keep_going => continue,
                 Err(e) => {
-                    warn!("rnp_import_keys: {}", e);
+                    _warn!("bad key and !keep_going, aborting: {}", e);
                     return Err(e);
                 },
                 Ok(v) => acc.push(v),
@@ -147,6 +148,7 @@ fn rnp_import_keys(ctx: *mut RnpContext,
                 r.secret = status.into();
             }
 
+            t!("Imported {:?}", r);
             import_results.keys.push(r);
         }
 
