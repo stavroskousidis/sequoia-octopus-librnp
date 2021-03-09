@@ -142,6 +142,20 @@ impl<'a> Iterator for CertParser<'a> {
     }
 }
 
+/// Parses a keyring.
+///
+/// Returns a vector of `Result<Cert>`.  The reason we return
+/// `Result`s and not bare `Cert`s is that we are able to recover from
+/// certain errors.  These show up as `Err`s.
+///
+/// If R is empty or contains junk at the start of the file, then this
+/// immediately returns an error.
+///
+/// If R starts with a valid certificate and then we encounter junk,
+/// we attempt to recover.  If we are able to find a valid packet,
+/// then the iterator returns an error for the junk, and keeps
+/// parsing.  If we are unable to recover, then we return an error and
+/// stop parsing.
 pub(crate) fn parse_keyring<R>(input: R)
     -> openpgp::Result<Vec<openpgp::Result<Cert>>>
     where R: std::io::Read + Send + Sync
