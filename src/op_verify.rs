@@ -603,7 +603,6 @@ struct Helper<'a> {
     vhelper: VHelper<'a>,
     secret_keys:
         HashMap<KeyID, Key<key::SecretParts, key::UnspecifiedRole>>,
-    identities: HashMap<KeyID, Fingerprint>,
 }
 
 impl<'a> Helper<'a> {
@@ -612,7 +611,6 @@ impl<'a> Helper<'a> {
            secrets: Vec<Cert>) -> Self
     {
         let mut secret_keys = HashMap::new();
-        let mut identities: HashMap<KeyID, Fingerprint> = HashMap::new();
         for tsk in secrets {
             for ka in tsk.keys().secret()
                 .with_policy(policy, None)
@@ -621,14 +619,12 @@ impl<'a> Helper<'a> {
             {
                 let id: KeyID = ka.key().fingerprint().into();
                 secret_keys.insert(id.clone(), ka.key().clone().into());
-                identities.insert(id.clone(), tsk.fingerprint());
             }
         }
 
         Helper {
             vhelper,
             secret_keys,
-            identities,
         }
     }
 
@@ -643,13 +639,21 @@ impl<'a> Helper<'a> {
                                  Option<Fingerprint>)>
         where D: FnMut(SymmetricAlgorithm, &SessionKey) -> bool
     {
-        let keyid = keypair.public().fingerprint().into();
+        let fp = keypair.public().fingerprint();
         let (algo, sk) = pkesk.decrypt(keypair, algo)
             .and_then(|(algo, sk)| {
                 if decrypt(algo, &sk) { Some((algo, sk)) } else { None }
             })?;
 
-        Some((algo, sk, self.identities.get(&keyid).map(|fp| fp.clone())))
+        // We need the recipient's fingerprint for the intended
+        // recipient test.  If `keypair` is a subkey, look up its cert
+        // and compute the fingerprint.  Otherwise, `fp` is our
+        // identity.
+        let recipient =
+            self.vhelper.ctx.keys.by_subkey_fp(&fp)
+            .map(|cert| cert.fingerprint()).unwrap_or(fp);
+
+        Some((algo, sk, Some(recipient)))
     }
 }
 
