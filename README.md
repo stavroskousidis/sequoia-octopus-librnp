@@ -20,9 +20,6 @@ recover.
   possible to extend the expiration times of your keys.
 - There may be dragons.
 
-[Cleartext Signature Framework]: https://tools.ietf.org/html/rfc4880#section-7
-[tracking issue]: https://gitlab.com/sequoia-pgp/sequoia/-/issues/151
-
 ## Building & installing
 
 First of all, you will need to [install Sequoia's build dependencies].
