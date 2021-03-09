@@ -204,7 +204,7 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
                 // Cleartext Signature Framework.
 
                 let mut input = op.input.try_clone()?;
-                let h = VHelper {
+                let h = Helper {
                     ctx: op.ctx,
                     result: &mut op.result,
                 };
@@ -219,11 +219,10 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
                     return Ok(());
                 }
 
-                let h = Helper::new(
-                    VHelper {
-                        ctx: op.ctx,
-                        result: &mut op.result,
-                    });
+                let h = Helper {
+                    ctx: op.ctx,
+                    result: &mut op.result,
+                };
 
                 let mut v = DecryptorBuilder::from_reader(&mut op.input)?
                     .with_policy(P, None, h)?;
@@ -232,7 +231,7 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
             },
             SignatureMode::Detached(signature) => {
                 t!("Detached signature verification");
-                let h = VHelper {
+                let h = Helper {
                     ctx: op.ctx,
                     result: &mut op.result,
                 };
@@ -479,12 +478,12 @@ fn rnp_op_verify_get_symenc_count(op: *mut RnpOpVerify,
     RNP_SUCCESS
 }
 
-struct VHelper<'a> {
+struct Helper<'a> {
     ctx: &'a mut RnpContext,
     result: &'a mut RnpOpVerifyResult,
 }
 
-impl<'a> VerificationHelper for VHelper<'a> {
+impl<'a> VerificationHelper for Helper<'a> {
     fn get_certs(&mut self, ids: &[KeyHandle])
                  -> openpgp::Result<Vec<Cert>> {
         Ok(ids.iter().filter_map(|id| self.ctx.cert(&id.into())).collect())
@@ -592,24 +591,13 @@ impl<'a> VerificationHelper for VHelper<'a> {
     }
 }
 
-struct Helper<'a> {
-    vhelper: VHelper<'a>,
-}
-
 impl<'a> Helper<'a> {
-    fn new(vhelper: VHelper<'a>) -> Self
-    {
-        Helper {
-            vhelper,
-        }
-    }
-
     /// Returns the decryption key with the given keyid.
     fn get_decryption_key(&self, id: &KeyID)
                           -> Option<Key<SecretParts, UnspecifiedRole>>
     {
-        self.vhelper.ctx.keys.by_subkey_id(id)
-            .or_else(|| self.vhelper.ctx.keys.by_primary_id(id))
+        self.ctx.keys.by_subkey_id(id)
+            .or_else(|| self.ctx.keys.by_primary_id(id))
             .and_then(|cert| {
                 cert.with_policy(P, None).ok()
                     .and_then(|vcert| vcert.keys()
@@ -643,19 +631,10 @@ impl<'a> Helper<'a> {
         // and compute the fingerprint.  Otherwise, `fp` is our
         // identity.
         let recipient =
-            self.vhelper.ctx.keys.by_subkey_fp(&fp)
+            self.ctx.keys.by_subkey_fp(&fp)
             .map(|cert| cert.fingerprint()).unwrap_or(fp);
 
         Some((algo, sk, Some(recipient)))
-    }
-}
-
-impl<'a> VerificationHelper for Helper<'a> {
-    fn get_certs(&mut self, ids: &[openpgp::KeyHandle]) -> openpgp::Result<Vec<Cert>> {
-        self.vhelper.get_certs(ids)
-    }
-    fn check(&mut self, structure: MessageStructure) -> openpgp::Result<()> {
-        self.vhelper.check(structure)
     }
 }
 
@@ -666,8 +645,8 @@ impl<'a> DecryptionHelper for Helper<'a> {
         where D: FnMut(SymmetricAlgorithm, &SessionKey) -> bool
     {
         // Preserve PKESKs and SKESKs for later inspection.
-        self.vhelper.result.pkesks = pkesks.iter().cloned().collect();
-        self.vhelper.result.skesks = skesks.iter().cloned().collect();
+        self.result.pkesks = pkesks.iter().cloned().collect();
+        self.result.skesks = skesks.iter().cloned().collect();
 
         // First, we try those keys that we can use without prompting
         // for a password.
@@ -680,7 +659,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
                             self.try_decrypt(pkesk, algo, &mut k, &mut decrypt)
                         })
                     {
-                        self.vhelper.result.pkesk_used = Some(pkesk.clone());
+                        self.result.pkesk_used = Some(pkesk.clone());
                         return Ok(fp);
                     }
                 }
@@ -692,7 +671,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
         // prompting for a password.
         for pkesk in pkesks.iter().filter(|p| p.recipient().is_wildcard()) {
             // Get all possible decryption keys from the context.
-            for cert in self.vhelper.ctx.keys.iter() {
+            for cert in self.ctx.keys.iter() {
                 for key in cert.with_policy(P, None).ok()
                     .iter()
                     .flat_map(|vcert| vcert.keys()
@@ -708,7 +687,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
                                                  &mut decrypt)
                             })
                         {
-                            self.vhelper.result.pkesk_used =
+                            self.result.pkesk_used =
                                 Some(pkesk.clone());
                             return Ok(fp);
                         }
@@ -731,7 +710,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
                     if ! key.secret().is_encrypted() {
                         key.clone().into_keypair()?
                     } else {
-                        match self.vhelper.ctx.decrypt_key_for(
+                        match self.ctx.decrypt_key_for(
                             None, // XXX
                             key.clone(),
                             RnpPasswordFor::Decrypt)
@@ -745,7 +724,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
                     self.try_decrypt(pkesk, algo, &mut keypair,
                                      &mut decrypt)
                 {
-                    self.vhelper.result.pkesk_used = Some(pkesk.clone());
+                    self.result.pkesk_used = Some(pkesk.clone());
                     return Ok(fp);
                 }
             }
