@@ -4,6 +4,7 @@ use std::{
     },
     io,
     time::{
+        Duration,
         UNIX_EPOCH,
     },
 };
@@ -53,9 +54,6 @@ use crate::{
     conversions::*,
     error::*,
 };
-
-// XXX: Stubs left to implement.
-stub!(rnp_key_set_expiration);
 
 #[derive(Debug)]
 pub struct RnpKey {
@@ -1057,3 +1055,107 @@ fn rnp_key_revoke(key: *mut RnpKey,
     }
 }
 
+#[no_mangle] pub unsafe extern "C"
+fn rnp_key_set_expiration(key: *mut RnpKey,
+                          expiry: u32)
+                          -> RnpResult {
+    rnp_function!(rnp_key_set_expiration, crate::TRACE);
+    let key = assert_ptr_mut!(key);
+    let ctx = &mut *key.ctx;
+
+    let expiry = if expiry == 0 {
+        None
+    } else {
+        Some(Duration::new(expiry as u64, 0))
+    };
+
+    let cert = if let Some(cert) = key.cert() {
+        cert.clone()
+    } else {
+        return RNP_ERROR_NO_SUITABLE_KEY;
+    };
+
+    fn f(ctx: &mut RnpContext, cert: Cert, key: &RnpKey,
+         expiry: Option<Duration>)
+         -> openpgp::Result<()>
+    {
+        let is_primary = cert.fingerprint() == key.fingerprint();
+        let absolute_expiration_time =
+            expiry.map(|e| key.creation_time() + e);
+
+        let mut primary_signer =
+            match cert.primary_key().key().clone().role_into_unspecified()
+            .parts_into_secret()
+        {
+            Ok(key) => {
+                ctx.decrypt_key_for(Some(&cert),
+                                    key,
+                                    // XXX: This is what RNP
+                                    // does, there is no
+                                    // dedicated reason.
+                                    RnpPasswordFor::Unlock)?
+                    .into_keypair()?
+            },
+            Err(e) => {
+                _warn!("Cannot change expiration time without \
+                        primary secret: {}", e);
+                return Err(e);
+            },
+        };
+
+        let vcert = cert.with_policy(P, None)?;
+        let sigs = if is_primary {
+            vcert.primary_key()
+                .set_expiration_time(
+                    &mut primary_signer,
+                    absolute_expiration_time)?
+        } else {
+            let vka = vcert.keys().key_handle(key.fingerprint()).nth(0)
+                .ok_or(anyhow::anyhow!(
+                    "subkey not bound, cannot change expiration time"))?;
+
+            let mut subkey_signer =
+                if vka.for_signing() || vka.for_authentication() {
+                    match vka.key().clone().role_into_unspecified()
+                        .parts_into_secret()
+                    {
+                        Ok(key) => {
+                            Some(ctx.decrypt_key_for(Some(&cert),
+                                                     key,
+                                                     // XXX: This is what RNP
+                                                     // does, there is no
+                                                     // dedicated reason.
+                                                     RnpPasswordFor::Unlock)?
+                                 .into_keypair()?)
+                        },
+                        Err(e) => {
+                            _warn!("Cannot change expiration time without \
+                                    subkey secret: {}", e);
+                            return Err(e);
+                        },
+                    }
+                } else {
+                    None
+                };
+
+            vka.set_expiration_time(
+                &mut primary_signer,
+                subkey_signer.as_mut()
+                    .map(|pair| -> &mut dyn openpgp::crypto::Signer {
+                        &mut *pair
+                    }),
+                absolute_expiration_time)?
+        };
+
+        // Merge the updated cert into the store.
+        ctx.keys.insert(cert.insert_packets(sigs)?);
+        Ok(())
+    }
+
+    if let Err(e) = f(ctx, cert, key, expiry) {
+        _warn!("{}", e);
+        RNP_ERROR_GENERIC
+    } else {
+        RNP_SUCCESS
+    }
+}
