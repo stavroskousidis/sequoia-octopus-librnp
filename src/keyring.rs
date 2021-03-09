@@ -1,4 +1,5 @@
 use rayon::prelude::*;
+use anyhow::Context;
 
 use sequoia_openpgp as openpgp;
 use openpgp::{
@@ -17,13 +18,12 @@ enum CertParserState {
     // If we have a queued PublicKey or SecretKey packet.
     QueuedHead(Packet),
     // If we encountered a parser error.
-    ParserError,
+    ParserError(Option<anyhow::Error>),
 }
 
 struct CertParser<'a> {
     ppr: PacketParserResult<'a>,
     state: CertParserState,
-    parser_error: &'a mut Option<anyhow::Error>,
 }
 
 impl<'a> Iterator for CertParser<'a> {
@@ -51,11 +51,15 @@ impl<'a> Iterator for CertParser<'a> {
 
                 packets.push(pk);
             }
-            CertParserState::ParserError => {
+            CertParserState::ParserError(oerr) => {
                 // self.state was reset by the replace.  Restore the
                 // error.
-                self.state = CertParserState::ParserError;
-                return None;
+                self.state = CertParserState::ParserError(None);
+                if let Some(err) = oerr {
+                    return Some(Err(err));
+                } else {
+                    return None;
+                }
             }
         }
 
@@ -64,9 +68,13 @@ impl<'a> Iterator for CertParser<'a> {
             // packet.
             let packet = match pp.next() {
                 Err(err) => {
-                    self.state = CertParserState::ParserError;
-                    *self.parser_error = Some(err);
-                    return None;
+                    if packets.is_empty() {
+                        self.state = CertParserState::ParserError(None);
+                        return Some(Err(err));
+                    } else {
+                        self.state = CertParserState::ParserError(Some(err));
+                        return Some(Ok(packets));
+                    }
                 },
                 Ok((packet, next_ppr)) => {
                     self.ppr = next_ppr;
@@ -138,14 +146,12 @@ pub(crate) fn parse_keyring<R>(input: R)
     -> openpgp::Result<Vec<openpgp::Result<Cert>>>
     where R: std::io::Read + Send + Sync
 {
-    let ppr: PacketParserResult =
-        PacketParser::from_reader(input)?;
+    let ppr: PacketParserResult = PacketParser::from_reader(input)
+        .context("Reading keyring")?;
 
-    let mut parser_error = None;
     let parser = CertParser {
         ppr: ppr,
         state: CertParserState::Start,
-        parser_error: &mut parser_error,
     };
 
     // par_bridge doesn't guarantee the order.
@@ -170,10 +176,6 @@ pub(crate) fn parse_keyring<R>(input: R)
             })
         })
         .collect();
-
-    if let Some(err) = parser_error {
-        return Err(err);
-    }
 
     // Restore the order.
     certs.sort_by_key(|(i, _)| *i);
@@ -202,7 +204,15 @@ mod tests {
         // literal: whether to interleave literal packets.
         // bad: whether to insert invalid data (NUL bytes where
         //      the start of a certificate is expected).
-        for n in [1, 100, 0].iter() { for literal in [false, true].iter() { for bad in [ false, true ].iter() {
+
+        // PacketParser is pretty good at recovering from junk in the
+        // middle: it will (as of 1.1) search the next 32kb for a
+        // valid packet.  If it finds it, it will turn the junk into a
+        // reserved packet and resume.  Insert a lot of nuls to
+        // prevent the recovery mechanism from working.
+        let nulls = vec![ 0; 64 * 1024 ];
+
+        for n in [1, 100, 0].iter() { for literal in [false, true].iter() { for bad in [ 0, 1, nulls.len() ].iter() {
             eprintln!("n: {}, literals: {}, bad data: {}",
                       n, literal, bad);
 
@@ -224,24 +234,36 @@ mod tests {
 
                     Packet::from(lit).serialize(&mut data)?;
                 }
-                if *bad {
-                    // Push a NUL byte.
-                    data.push(0);
-                }
+                // Push some NUL bytes.
+                data.extend(&nulls[..*bad]);
             }
-            if *n == 0 && *bad {
-                // Push a NUL byte.
-                data.push(0);
+            if *n == 0 {
+                // Push some NUL bytes even if we didn't add any packets.
+                data.extend(&nulls[..*bad]);
             }
+            assert_eq!(certs_orig.len(), *n);
+
+            eprintln!("Start of data: {} {}",
+                      if let Some(x) = data.get(0) {
+                          format!("{:02X}", x)
+                      } else {
+                          "XX".into()
+                      },
+                      if let Some(x) = data.get(1) {
+                          format!("{:02X}", x)
+                      } else {
+                          "XX".into()
+                      });
 
             let certs_parsed = parse_keyring(std::io::Cursor::new(data));
-            let certs_parsed = if *bad {
-                // If the file includes invalid data, then we
-                // shouldn't get any certificates back.
+
+            let certs_parsed = if *n == 0 && *bad > 0 {
+                // Junk at the beginning of the file results in an
+                // immediate parse error.
                 assert!(certs_parsed.is_err());
                 continue;
             } else {
-                certs_parsed.expect("Valid parse")
+                certs_parsed.expect("Valid init")
             };
 
             certs_parsed.iter().enumerate().for_each(|(i, r)| {
@@ -253,11 +275,35 @@ mod tests {
                           });
             });
 
+            let n = if *bad == nulls.len() {
+                // We stop once we see the junk.
+                certs_orig.drain(1..);
+                std::cmp::min(*n, 1)
+            } else {
+                *n
+            };
+
+            let modulus = if *literal && *bad > 0 {
+                3
+            } else {
+                2
+            };
             let certs_parsed: Vec<Cert> = certs_parsed.into_iter()
                 .enumerate()
                 .filter_map(|(i, c)| {
-                    if *literal && i % 2 == 1 {
+                    if *literal && i % modulus == 1 {
                         // Literals should be errors.
+                        assert!(c.is_err());
+                        None
+                    } else if *bad > 0 && n == 0 && i == 0 {
+                        // The first byte in the input is the NUL
+                        // byte.
+                        assert!(c.is_err());
+                        None
+                    } else if *bad > 0 && i % modulus == modulus - 1 {
+                        // NUL bytes are inserted after the
+                        // certificate / literal data packet.  So the
+                        // second element will be the parse error.
                         assert!(c.is_err());
                         None
                     } else {
@@ -266,8 +312,8 @@ mod tests {
                 })
                 .collect();
 
-            assert_eq!(certs_orig.len(), *n);
-            assert_eq!(certs_orig.len(), certs_parsed.len());
+            assert_eq!(certs_orig.len(), certs_parsed.len(),
+                       "number of parsed certificates: expected vs. got");
 
             assert_eq!(
                 certs_orig.iter()
@@ -291,7 +337,16 @@ mod tests {
             {
                 let ps_orig: Vec<Packet> = c_orig.into_packets().collect();
                 let ps_parsed: Vec<Packet> = c_parsed.into_packets().collect();
-                assert_eq!(ps_orig.len(), ps_parsed.len());
+                if *bad > 0 && ! literal && i == n - 1 {
+                    // On a parse error, we lose the last successfully
+                    // parsed packet.  This is annoying.  But, the
+                    // file is corrupted anyway, so...
+                    assert_eq!(ps_orig.len() - 1, ps_parsed.len(),
+                               "number of packets: expected vs. got");
+                } else {
+                    assert_eq!(ps_orig.len(), ps_parsed.len(),
+                               "number of packets: expected vs. got");
+                }
 
                 for (j, (p_orig, p_parsed)) in
                     ps_orig
