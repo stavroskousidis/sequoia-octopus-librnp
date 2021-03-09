@@ -1045,7 +1045,7 @@ fn rnp_key_revoke(key: *mut RnpKey,
         };
 
         // Merge the revocation into the store.
-        ctx.keys.insert(cert.clone().insert_packets(Some(sig))?);
+        ctx.keys.insert(cert.insert_packets(Some(sig))?);
         Ok(())
     }
 
