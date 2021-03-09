@@ -97,6 +97,7 @@ mod userid;
 use userid::RnpUserID;
 #[allow(dead_code)]
 mod import;
+mod keyring;
 
 pub const P: &StandardPolicy = &StandardPolicy::new();
 
