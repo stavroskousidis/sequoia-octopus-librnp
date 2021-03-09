@@ -1,7 +1,4 @@
 use std::{
-    collections::{
-        HashMap,
-    },
     io,
 };
 use libc::{
@@ -21,6 +18,7 @@ use openpgp::{
         Signature,
         Key,
         key::{
+            SecretParts,
             UnspecifiedParts,
             UnspecifiedRole,
         },
@@ -35,8 +33,7 @@ use openpgp::{
     },
 };
 use openpgp::crypto::{self, SessionKey};
-use openpgp::packet::{key, PKESK, SKESK};
-use openpgp::policy::Policy;
+use openpgp::packet::{PKESK, SKESK};
 
 use crate::{
     P,
@@ -222,15 +219,11 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
                     return Ok(());
                 }
 
-                // XXX: Avoid cloning here, query the context directly.
-                let secrets = op.ctx.keys.iter().map(|c| c.clone()).collect();
                 let h = Helper::new(
-                    P,
                     VHelper {
                         ctx: op.ctx,
                         result: &mut op.result,
-                    },
-                    secrets);
+                    });
 
                 let mut v = DecryptorBuilder::from_reader(&mut op.input)?
                     .with_policy(P, None, h)?;
@@ -601,31 +594,31 @@ impl<'a> VerificationHelper for VHelper<'a> {
 
 struct Helper<'a> {
     vhelper: VHelper<'a>,
-    secret_keys:
-        HashMap<KeyID, Key<key::SecretParts, key::UnspecifiedRole>>,
 }
 
 impl<'a> Helper<'a> {
-    fn new(policy: &'a dyn Policy,
-           vhelper: VHelper<'a>,
-           secrets: Vec<Cert>) -> Self
+    fn new(vhelper: VHelper<'a>) -> Self
     {
-        let mut secret_keys = HashMap::new();
-        for tsk in secrets {
-            for ka in tsk.keys().secret()
-                .with_policy(policy, None)
-                .supported()
-                .for_transport_encryption().for_storage_encryption()
-            {
-                let id: KeyID = ka.key().fingerprint().into();
-                secret_keys.insert(id.clone(), ka.key().clone().into());
-            }
-        }
-
         Helper {
             vhelper,
-            secret_keys,
         }
+    }
+
+    /// Returns the decryption key with the given keyid.
+    fn get_decryption_key(&self, id: &KeyID)
+                          -> Option<Key<SecretParts, UnspecifiedRole>>
+    {
+        self.vhelper.ctx.keys.by_subkey_id(id)
+            .or_else(|| self.vhelper.ctx.keys.by_primary_id(id))
+            .and_then(|cert| {
+                cert.with_policy(P, None).ok()
+                    .and_then(|vcert| vcert.keys()
+                              .secret()
+                              .for_storage_encryption()
+                              .for_transport_encryption()
+                              .key_handle(id).nth(0))
+                    .map(|vka| vka.key().clone())
+            })
     }
 
     /// Tries to decrypt the given PKESK packet with `keypair` and try
@@ -680,7 +673,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
         // for a password.
         for pkesk in pkesks {
             let keyid = pkesk.recipient();
-            if let Some(key) = self.secret_keys.get(&keyid) {
+            if let Some(key) = self.get_decryption_key(&keyid) {
                 if ! key.secret().is_encrypted() {
                     if let Some((_algo, _sk, fp)) =
                         key.clone().into_keypair().ok().and_then(|mut k| {
@@ -698,15 +691,27 @@ impl<'a> DecryptionHelper for Helper<'a> {
         // recipients using those keys that we can use without
         // prompting for a password.
         for pkesk in pkesks.iter().filter(|p| p.recipient().is_wildcard()) {
-            for key in self.secret_keys.values() {
-                if ! key.secret().is_encrypted() {
-                    if let Some((_algo, _sk, fp)) =
-                        key.clone().into_keypair().ok().and_then(|mut k| {
-                            self.try_decrypt(pkesk, algo, &mut k, &mut decrypt)
-                        })
-                    {
-                        self.vhelper.result.pkesk_used = Some(pkesk.clone());
-                        return Ok(fp);
+            // Get all possible decryption keys from the context.
+            for cert in self.vhelper.ctx.keys.iter() {
+                for key in cert.with_policy(P, None).ok()
+                    .iter()
+                    .flat_map(|vcert| vcert.keys()
+                              .secret()
+                              .for_storage_encryption()
+                              .for_transport_encryption()
+                              .map(|vka| vka.key().clone()))
+                {
+                    if ! key.secret().is_encrypted() {
+                        if let Some((_algo, _sk, fp)) =
+                            key.clone().into_keypair().ok().and_then(|mut k| {
+                                self.try_decrypt(pkesk, algo, &mut k,
+                                                 &mut decrypt)
+                            })
+                        {
+                            self.vhelper.result.pkesk_used =
+                                Some(pkesk.clone());
+                            return Ok(fp);
+                        }
                     }
                 }
             }
@@ -721,7 +726,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
             }
 
             let keyid = pkesk.recipient();
-            if let Some(key) = self.secret_keys.get(&keyid) {
+            if let Some(key) = self.get_decryption_key(&keyid) {
                 let mut keypair =
                     if ! key.secret().is_encrypted() {
                         key.clone().into_keypair()?
