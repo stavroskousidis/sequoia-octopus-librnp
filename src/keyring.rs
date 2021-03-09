@@ -209,8 +209,12 @@ mod tests {
     use openpgp::serialize::Serialize;
     use openpgp::types::DataFormat;
 
-    #[test]
-    fn parse_keyring_simple() -> openpgp::Result<()> {
+    // How much junk the packet parser is willing to skip when
+    // recovering (as of 1.1).  This is an internal implementation
+    // detail.
+    const RECOVERY_THRESHOLD: usize = 32 * 1024;
+
+    fn t(n: usize, literal: bool, bad: usize) -> openpgp::Result<()> {
         // Parses keyrings with different numbers of keys and
         // different errors.
 
@@ -224,155 +228,207 @@ mod tests {
         // valid packet.  If it finds it, it will turn the junk into a
         // reserved packet and resume.  Insert a lot of nuls to
         // prevent the recovery mechanism from working.
-        let nulls = vec![ 0; 64 * 1024 ];
+        let nulls = vec![ 0; bad ];
 
-        for n in [1, 100, 0].iter() { for literal in [false, true].iter() { for bad in [ 0, 1, nulls.len() ].iter() {
-            eprintln!("n: {}, literals: {}, bad data: {}",
-                      n, literal, bad);
+        eprintln!("n: {}, literals: {}, bad data: {}",
+                  n, literal, bad);
 
-            let mut data = Vec::new();
+        let mut data = Vec::new();
 
-            let mut certs_orig = vec![];
-            for i in 0..*n {
-                let (cert, _) =
-                    CertBuilder::general_purpose(
-                        None, Some(format!("{}@example.org", i)))
-                    .generate()?;
+        let mut certs_orig = vec![];
+        for i in 0..n {
+            let (cert, _) =
+                CertBuilder::general_purpose(
+                    None, Some(format!("{}@example.org", i)))
+                .generate()?;
 
-                cert.as_tsk().serialize(&mut data)?;
-                certs_orig.push(cert);
+            cert.as_tsk().serialize(&mut data)?;
+            certs_orig.push(cert);
 
-                if *literal {
-                    let mut lit = Literal::new(DataFormat::Text);
-                    lit.set_body(b"data".to_vec());
+            if literal {
+                let mut lit = Literal::new(DataFormat::Text);
+                lit.set_body(b"data".to_vec());
 
-                    Packet::from(lit).serialize(&mut data)?;
-                }
-                // Push some NUL bytes.
-                data.extend(&nulls[..*bad]);
+                Packet::from(lit).serialize(&mut data)?;
             }
-            if *n == 0 {
-                // Push some NUL bytes even if we didn't add any packets.
-                data.extend(&nulls[..*bad]);
-            }
-            assert_eq!(certs_orig.len(), *n);
+            // Push some NUL bytes.
+            data.extend(&nulls[..bad]);
+        }
+        if n == 0 {
+            // Push some NUL bytes even if we didn't add any packets.
+            data.extend(&nulls[..bad]);
+        }
+        assert_eq!(certs_orig.len(), n);
 
-            eprintln!("Start of data: {} {}",
-                      if let Some(x) = data.get(0) {
-                          format!("{:02X}", x)
-                      } else {
-                          "XX".into()
-                      },
-                      if let Some(x) = data.get(1) {
-                          format!("{:02X}", x)
-                      } else {
-                          "XX".into()
+        eprintln!("Start of data: {} {}",
+                  if let Some(x) = data.get(0) {
+                      format!("{:02X}", x)
+                  } else {
+                      "XX".into()
+                  },
+                  if let Some(x) = data.get(1) {
+                      format!("{:02X}", x)
+                  } else {
+                      "XX".into()
+                  });
+
+        let certs_parsed = parse_keyring(std::io::Cursor::new(data));
+
+        let certs_parsed = if n == 0 && bad > 0 {
+            // Junk at the beginning of the file results in an
+            // immediate parse error.
+            assert!(certs_parsed.is_err());
+            return Ok(());
+        } else {
+            certs_parsed.expect("Valid init")
+        };
+
+        certs_parsed.iter().enumerate().for_each(|(i, r)| {
+            eprintln!("{}. {}",
+                      i,
+                      match r {
+                          Ok(c) => c.fingerprint().to_string(),
+                          Err(err) => err.to_string(),
                       });
+        });
 
-            let certs_parsed = parse_keyring(std::io::Cursor::new(data));
+        let n = if bad > RECOVERY_THRESHOLD {
+            // We stop once we see the junk.
+            certs_orig.drain(1..);
+            std::cmp::min(n, 1)
+        } else {
+            n
+        };
 
-            let certs_parsed = if *n == 0 && *bad > 0 {
-                // Junk at the beginning of the file results in an
-                // immediate parse error.
-                assert!(certs_parsed.is_err());
-                continue;
-            } else {
-                certs_parsed.expect("Valid init")
-            };
+        let modulus = if literal && bad > 0 {
+            3
+        } else {
+            2
+        };
+        let certs_parsed: Vec<Cert> = certs_parsed.into_iter()
+            .enumerate()
+            .filter_map(|(i, c)| {
+                if literal && i % modulus == 1 {
+                    // Literals should be errors.
+                    assert!(c.is_err());
+                    None
+                } else if bad > 0 && n == 0 && i == 0 {
+                    // The first byte in the input is the NUL
+                    // byte.
+                    assert!(c.is_err());
+                    None
+                } else if bad > 0 && i % modulus == modulus - 1 {
+                    // NUL bytes are inserted after the
+                    // certificate / literal data packet.  So the
+                    // second element will be the parse error.
+                    assert!(c.is_err());
+                    None
+                } else {
+                    Some(c.unwrap())
+                }
+            })
+            .collect();
 
-            certs_parsed.iter().enumerate().for_each(|(i, r)| {
-                eprintln!("{}. {}",
-                          i,
-                          match r {
-                              Ok(c) => c.fingerprint().to_string(),
-                              Err(err) => err.to_string(),
-                          });
-            });
+        assert_eq!(certs_orig.len(), certs_parsed.len(),
+                   "number of parsed certificates: expected vs. got");
 
-            let n = if *bad == nulls.len() {
-                // We stop once we see the junk.
-                certs_orig.drain(1..);
-                std::cmp::min(*n, 1)
-            } else {
-                *n
-            };
-
-            let modulus = if *literal && *bad > 0 {
-                3
-            } else {
-                2
-            };
-            let certs_parsed: Vec<Cert> = certs_parsed.into_iter()
-                .enumerate()
-                .filter_map(|(i, c)| {
-                    if *literal && i % modulus == 1 {
-                        // Literals should be errors.
-                        assert!(c.is_err());
-                        None
-                    } else if *bad > 0 && n == 0 && i == 0 {
-                        // The first byte in the input is the NUL
-                        // byte.
-                        assert!(c.is_err());
-                        None
-                    } else if *bad > 0 && i % modulus == modulus - 1 {
-                        // NUL bytes are inserted after the
-                        // certificate / literal data packet.  So the
-                        // second element will be the parse error.
-                        assert!(c.is_err());
-                        None
-                    } else {
-                        Some(c.unwrap())
-                    }
+        assert_eq!(
+            certs_orig.iter()
+                .map(|c| {
+                    c.fingerprint()
                 })
-                .collect();
+                .collect::<Vec<_>>(),
+            certs_parsed.iter()
+                .map(|c| {
+                    c.fingerprint()
+                })
+                .collect::<Vec<_>>());
 
-            assert_eq!(certs_orig.len(), certs_parsed.len(),
-                       "number of parsed certificates: expected vs. got");
+        // Go packet by packet.  (This makes finding an error a
+        // lot easier.)
+        for (i, (c_orig, c_parsed)) in
+            certs_orig
+            .into_iter()
+            .zip(certs_parsed.into_iter())
+            .enumerate()
+        {
+            let ps_orig: Vec<Packet> = c_orig.into_packets().collect();
+            let ps_parsed: Vec<Packet> = c_parsed.into_packets().collect();
+            if bad > 0 && ! literal && i == n - 1 {
+                // On a parse error, we lose the last successfully
+                // parsed packet.  This is annoying.  But, the
+                // file is corrupted anyway, so...
+                assert_eq!(ps_orig.len() - 1, ps_parsed.len(),
+                           "number of packets: expected vs. got");
+            } else {
+                assert_eq!(ps_orig.len(), ps_parsed.len(),
+                           "number of packets: expected vs. got");
+            }
 
-            assert_eq!(
-                certs_orig.iter()
-                    .map(|c| {
-                        c.fingerprint()
-                    })
-                    .collect::<Vec<_>>(),
-                certs_parsed.iter()
-                    .map(|c| {
-                        c.fingerprint()
-                    })
-                    .collect::<Vec<_>>());
-
-            // Go packet by packet.  (This makes finding an error a
-            // lot easier.)
-            for (i, (c_orig, c_parsed)) in
-                certs_orig
+            for (j, (p_orig, p_parsed)) in
+                ps_orig
                 .into_iter()
-                .zip(certs_parsed.into_iter())
+                .zip(ps_parsed.into_iter())
                 .enumerate()
             {
-                let ps_orig: Vec<Packet> = c_orig.into_packets().collect();
-                let ps_parsed: Vec<Packet> = c_parsed.into_packets().collect();
-                if *bad > 0 && ! literal && i == n - 1 {
-                    // On a parse error, we lose the last successfully
-                    // parsed packet.  This is annoying.  But, the
-                    // file is corrupted anyway, so...
-                    assert_eq!(ps_orig.len() - 1, ps_parsed.len(),
-                               "number of packets: expected vs. got");
-                } else {
-                    assert_eq!(ps_orig.len(), ps_parsed.len(),
-                               "number of packets: expected vs. got");
-                }
-
-                for (j, (p_orig, p_parsed)) in
-                    ps_orig
-                    .into_iter()
-                    .zip(ps_parsed.into_iter())
-                    .enumerate()
-                {
-                    assert_eq!(p_orig, p_parsed,
-                               "Cert {}, packet: {}", i, j);
-                }
+                assert_eq!(p_orig, p_parsed,
+                           "Cert {}, packet: {}", i, j);
             }
-        }}}
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_keyring_simple() -> openpgp::Result<()> {
+        for n in [1, 100, 0].iter() {
+            t(*n, false, 0)?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_keyring_interleaved_literals() -> openpgp::Result<()> {
+        for n in [1, 100, 0].iter() {
+            t(*n, true, 0)?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_keyring_interleaved_small_junk() -> openpgp::Result<()> {
+        for n in [1, 100, 0].iter() {
+            t(*n, false, 1)?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_keyring_interleaved_unrecoverable_junk() -> openpgp::Result<()> {
+        for n in [1, 100, 0].iter() {
+            t(*n, false, 2 * RECOVERY_THRESHOLD)?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_keyring_interleaved_literal_and_small_junk() -> openpgp::Result<()> {
+        for n in [1, 100, 0].iter() {
+            t(*n, true, 1)?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_keyring_interleaved_literal_and_unrecoverable_junk() -> openpgp::Result<()> {
+        for n in [1, 100, 0].iter() {
+            t(*n, true, 2 * RECOVERY_THRESHOLD)?;
+        }
 
         Ok(())
     }
