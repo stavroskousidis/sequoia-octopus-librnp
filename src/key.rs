@@ -324,13 +324,18 @@ fn rnp_key_get_expiration(key: *mut RnpKey,
     if let Some(cert) = key.cert()
         .and_then(|c| c.with_policy(P, None).ok())
     {
-        let vka = cert
-            .keys().key_handle(fp)
-            .nth(0).expect("subkey must exist");
+        if let Some(vka) = cert.keys().key_handle(fp.clone()).nth(0) {
+            *expiration =
+                vka.key_validity_period().map(|d| d.as_secs() as u32)
+                .unwrap_or(0); // 0 is special and means does not expire.
+        } else {
+            // Not valid under the policy.  Treat as expired.
+            t!("The (sub)key {} is not valid under the standard policy, \
+                treating as expired.", &fp);
 
-        *expiration =
-            vka.key_validity_period().map(|d| d.as_secs() as u32)
-            .unwrap_or(0); // 0 is special and means does not expire.
+            // Expired immediately.  0 is special and means does not expire.
+            *expiration = 1;
+        }
     } else {
         // Not valid under the policy.  Treat as expired.
         t!("The (sub)key {} is not valid under the standard policy, \
@@ -496,11 +501,15 @@ fn rnp_key_allows_usage(key: *mut RnpKey,
     if let Some(cert) = (*key).cert()
         .and_then(|c| c.with_policy(P, None).ok())
     {
-        let vka = cert
+        if let Some(vka) = cert
             .keys().key_handle((*key).fingerprint())
-            .nth(0).expect("subkey must exist");
-
-        *result = vka.has_any_key_flag(usage.to_keyflags());
+            .nth(0)
+        {
+            *result = vka.has_any_key_flag(usage.to_keyflags());
+        } else {
+            // Not valid under the policy.  Don't allow use of key.
+            *result = false;
+        }
     } else {
         // Not valid under the policy.  Don't allow use of key.
         *result = false;
@@ -520,17 +529,21 @@ fn rnp_key_is_revoked(key: *mut RnpKey,
     if let Some(cert) = (*key).cert()
         .and_then(|c| c.with_policy(P, None).ok())
     {
-        let vka = cert
+        if let Some(vka) = cert
             .keys().key_handle((*key).fingerprint())
-            .nth(0).expect("subkey must exist");
-
-        use openpgp::types::RevocationStatus::*;
-        *result =
-            match vka.revocation_status() {
-                Revoked(_) => true,
-                CouldBe(_) => false, // XXX
-                NotAsFarAsWeKnow => false,
-            };
+            .nth(0)
+        {
+            use openpgp::types::RevocationStatus::*;
+            *result =
+                match vka.revocation_status() {
+                    Revoked(_) => true,
+                    CouldBe(_) => false, // XXX
+                    NotAsFarAsWeKnow => false,
+                };
+        } else {
+            // Not valid under the policy.  Treat as revoked.
+            *result = true;
+        }
     } else {
         // Not valid under the policy.  Treat as revoked.
         *result = true;
