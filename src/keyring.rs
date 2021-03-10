@@ -1,4 +1,3 @@
-use rayon::prelude::*;
 use anyhow::Context;
 
 use sequoia_openpgp as openpgp;
@@ -142,6 +141,163 @@ impl<'a> Iterator for CertParser<'a> {
     }
 }
 
+// itertools::chunks doesn't work, because it is not Sized, Send and
+// Sync.
+//
+//   rayon::join(|| certs.extend(p(c).into_iter()),
+//   ^^^^^^^^^^^ `std::cell::RefCell<itertools::groupbylazy::GroupInner<usize, keyring::CertParser<'_>, itertools::groupbylazy::ChunkIndex>>` cannot be shared between threads safely
+struct Chunked<I, E>
+    where I: Iterator<Item=E>
+{
+    elements: usize,
+    iter: I,
+}
+
+impl<I, E> Chunked<I, E>
+    where I: Iterator<Item=E>
+{
+    fn new(n: usize, iter: I) -> Self {
+        Self {
+            elements: n,
+            iter: iter,
+        }
+    }
+}
+
+impl<I, E> Iterator for Chunked<I, E>
+    where I: Iterator<Item=E>
+{
+    type Item = Vec<E>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let elements = std::cmp::max(1, self.elements);
+
+        let mut v: Self::Item = Vec::with_capacity(self.elements);
+        for _ in 0..elements {
+            if let Some(e) = self.iter.next() {
+                v.push(e);
+            } else if v.is_empty() {
+                return None;
+            } else {
+                return Some(v);
+            }
+        }
+
+        Some(v)
+    }
+}
+
+// The tuning parameters.
+//
+// The most important bit: it takes about 3 times as long to parse a
+// certificate as it does to canonicalize it.  Since we can't easily
+// parse a keyring in parallel (we don't know where the packet
+// boundaries are), at most two threads are helpful: one to parse and
+// the other to canonicalize.
+//
+// There are two main concerns.  First, we want to avoid communication
+// overhead.  This means we should hand off multiple uncanonicalized
+// certificates at a time.  Second, we want to start processing the
+// parsed certificates as soon as possible.  This means a small batch
+// size.
+//
+// Using the Debian Keyring (/usr/share/keyrings/debian-keyring.gpg,
+// version 2020.12.24) with its 885 certificates I (Neal, 2021) did
+// the following experiment on my desktop (4 core, 8 thread system): I
+// parsed the whole keyring with different chunk sizes and measured
+// the time both in the parse_keyring function and using 'time', which
+// includes the overhead of starting the process.  The results follow:
+//
+// certs per chunk: 2
+// Total time to process 885 certs: 846.243151ms
+//
+// real	0m0.886s
+// user	0m1.025s
+// sys	0m0.098s
+//
+// certs per chunk: 4
+// Total time to process 885 certs: 817.505522ms
+//
+// real	0m0.858s
+// user	0m0.958s
+// sys	0m0.071s
+//
+// certs per chunk: 8
+// Total time to process 885 certs: 813.635013ms
+//
+// real	0m0.852s
+// user	0m0.903s
+// sys	0m0.093s
+//
+// certs per chunk: 16
+// Total time to process 885 certs: 816.149861ms
+//
+// real	0m0.855s
+// user	0m0.936s
+// sys	0m0.057s
+//
+// certs per chunk: 32
+// Total time to process 885 certs: 828.848489ms
+//
+// real	0m0.872s
+// user	0m0.959s
+// sys	0m0.058s
+//
+// certs per chunk: 64
+// Total time to process 885 certs: 826.119611ms
+//
+// real	0m0.867s
+// user	0m0.948s
+// sys	0m0.048s
+//
+// certs per chunk: 128
+// Total time to process 885 certs: 829.17686ms
+//
+// real	0m0.874s
+// user	0m0.915s
+// sys	0m0.104s
+//
+// certs per chunk: 256
+// Total time to process 885 certs: 851.942463ms
+//
+// real	0m0.898s
+// user	0m0.921s
+// sys	0m0.100s
+//
+// certs per chunk: 512
+// Total time to process 885 certs: 890.484757ms
+//
+// real	0m0.939s
+// user	0m0.927s
+// sys	0m0.096s
+//
+// certs per chunk: 1024
+// Total time to process 885 certs: 909.777735ms
+//
+// real	0m0.951s
+// user	0m0.883s
+// sys	0m0.068s
+//
+// The sweet spot on my system both in terms of wall clock and total
+// computation time is handing off 8 certificates at a time.  Note:
+// with a chunk size of 1024, we have just a single batch, which means
+// we don't both to start an additional thread.  Thus, that is our
+// baseline.
+//
+// Comparing, a batch size of 8 with the baseline, we see, it takes
+// 90% as much wall clock time (1 - 0.852 / 0.951) while using 102% as
+// much CPU time (0.903 / 0.883).
+//
+// I also generated 25,600 standard certificates (ECC, two subkeys and
+// a User ID).  And ran the benchmark again just the first 100, 200,
+// 400, ..., 25,600 of the certificates.  For smaller keyrings, a
+// batch size of 8 remained optimal.  For enormous keyrings slightly
+// larger batches were better (16), but only marginally so.
+//
+// Since we expect few users to have more than a few thousand
+// certificates, we fix the chunk size to 8.
+const CERTS_PER_CHUNK: usize = 8;
+
 /// Parses a keyring.
 ///
 /// Returns a vector of `Result<Cert>`.  The reason we return
@@ -168,36 +324,48 @@ pub(crate) fn parse_keyring<R>(input: R)
         state: CertParserState::Start,
     };
 
-    // par_bridge doesn't guarantee the order.
-    let mut certs: Vec<(usize, openpgp::Result<Cert>)> = parser
-        .enumerate()
-        .par_bridge()
-        .map(|(i, packets)| {
-            (i, match packets {
-                Err(err) => {
-                    Err(err)
-                }
-                Ok(packets) => {
-                    match Cert::from_packets(packets.into_iter()) {
-                        Err(err) => {
-                            Err(err)
-                        }
-                        Ok(cert) => {
-                            Ok(cert)
+    let p = |chunks: Vec<openpgp::Result<Vec<Packet>>>|
+        -> Vec<openpgp::Result<Cert>>
+    {
+        chunks
+            .into_iter()
+            .map(|packets| {
+                match packets {
+                    Err(err) => {
+                        Err(err)
+                    }
+                    Ok(packets) => {
+                        match Cert::from_packets(packets.into_iter()) {
+                            Err(err) => {
+                                Err(err)
+                            }
+                            Ok(cert) => {
+                                Ok(cert)
+                            }
                         }
                     }
                 }
             })
-        })
-        .collect();
+            .collect()
+    };
 
-    // Restore the order.
-    certs.sort_by_key(|(i, _)| *i);
+    let mut parser = Chunked::new(CERTS_PER_CHUNK, parser);
 
-    let certs = certs
-        .into_iter()
-        .map(|(_, cert)| cert)
-        .collect();
+    let mut chunk: Option<Vec<openpgp::Result<Vec<Packet>>>>
+        = parser.next();
+    let mut certs: Vec<openpgp::Result<Cert>> = Vec::new();
+    if chunk.as_ref().map(|v| v.len()).unwrap_or(0) < CERTS_PER_CHUNK {
+        // We have less than a chunk worth of certificates.  Avoid
+        // spinning up a thread.
+        if let Some(c) = chunk.take() {
+            certs.extend(p(c));
+        }
+    } else {
+        while let Some(c) = chunk.take() {
+            rayon::join(|| certs.extend(p(c)),
+                        || chunk = parser.next());
+        }
+    }
 
     Ok(certs)
 }
