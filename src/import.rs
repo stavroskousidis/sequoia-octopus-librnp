@@ -15,20 +15,20 @@ use crate::{
 };
 
 #[derive(serde::Serialize, Debug, Default)]
-struct ImportResults {
-    keys: Vec<ImportResult>,
+struct KeyImportResults {
+    keys: Vec<KeyImportResult>,
 }
 
 #[derive(serde::Serialize, Debug)]
-struct ImportResult {
+struct KeyImportResult {
     public: String,
     secret: String,
     fingerprint: String,
 }
 
-impl Default for ImportResult {
+impl Default for KeyImportResult {
     fn default() -> Self {
-        ImportResult {
+        KeyImportResult {
             public: RnpKeyImportStatus::Unknown.into(),
             secret: RnpKeyImportStatus::Unknown.into(),
             fingerprint: Default::default(),
@@ -50,6 +50,48 @@ impl From<RnpKeyImportStatus> for String {
             Unknown => "unknown".into(),
             Unchanged => "unchanged".into(),
             Updated => "updated".into(),
+            New => "new".into(),
+        }
+    }
+}
+
+#[derive(serde::Serialize, Debug, Default)]
+struct SigImportResults {
+    sigs: Vec<SigImportResult>,
+}
+
+#[derive(serde::Serialize, Debug)]
+struct SigImportResult {
+    public: String,
+    secret: String,
+    #[serde(rename = "signer fingerprint")]
+    signer_fingerprint: String,
+}
+
+impl Default for SigImportResult {
+    fn default() -> Self {
+        SigImportResult {
+            public: RnpSigImportStatus::Unknown.into(),
+            secret: RnpSigImportStatus::Unknown.into(),
+            signer_fingerprint: Default::default(),
+        }
+    }
+}
+
+enum RnpSigImportStatus {
+    Unknown,
+    UnknownKey,
+    Unchanged,
+    New,
+}
+
+impl From<RnpSigImportStatus> for String {
+    fn from(s: RnpSigImportStatus) -> Self {
+        use RnpSigImportStatus::*;
+        match s {
+            Unknown => "unknown".into(),
+            UnknownKey => "unknown key".into(),
+            Unchanged => "unchanged".into(),
             New => "new".into(),
         }
     }
@@ -77,7 +119,7 @@ fn rnp_import_keys(ctx: *mut RnpContext,
     t!("public = {}, secret = {}, keep_going = {}, single = {}",
        public, secret, keep_going, single);
 
-    let mut import_results = ImportResults::default();
+    let mut import_results = KeyImportResults::default();
 
     let f = || -> openpgp::Result<()> {
         // First, load into an accumulator.  If any cert is bad, and
@@ -104,7 +146,7 @@ fn rnp_import_keys(ctx: *mut RnpContext,
         for cert in acc {
             use RnpKeyImportStatus::*;
 
-            let mut r = ImportResult::default();
+            let mut r = KeyImportResult::default();
             let fp = cert.fingerprint();
             r.fingerprint = fp.to_string();
 
