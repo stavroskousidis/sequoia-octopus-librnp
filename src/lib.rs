@@ -106,6 +106,7 @@ use keyring::parse_keyring;
 #[allow(dead_code)]
 mod gpg;
 
+mod tbprofile;
 pub const P: &StandardPolicy = &StandardPolicy::new();
 
 #[derive(Default)]
@@ -422,6 +423,8 @@ impl RnpContext {
     }
 }
 
+static mut TBPROFILE: Option<tbprofile::TBProfile> = None;
+
 fn load_gpg_keyring(ctx: &mut RnpContext,
                     gpg_ctx: Option<&gpg::Ctx>)
     -> openpgp::Result<()>
@@ -460,6 +463,15 @@ fn rnp_load_keys(ctx: *mut RnpContext,
     assert_ptr!(ctx);
     assert_ptr!(format);
     assert_ptr!(input);
+
+    if TBPROFILE.is_none() {
+        match tbprofile::TBProfile::load() {
+            Ok(p) => TBPROFILE = Some(p),
+            Err(err) => eprintln!("sequoia-octopus: \
+                                   Loading TB Profile: {}", err),
+        }
+    }
+
     if CStr::from_ptr(format).to_bytes() != b"GPG" {
         return RNP_ERROR_BAD_FORMAT;
     }

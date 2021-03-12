@@ -269,6 +269,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "configparser"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2616d8c1fbf887d76dd8e067ec1bc3be7669994378428b4415a8e4ad57baae1"
+
+[[package]]
 name = "constant_time_eq"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1073,6 +1079,7 @@ name = "sequoia-octopus-librnp"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "configparser",
  "libc",
  "rayon",
  "sequoia-autocrypt",
