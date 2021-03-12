@@ -101,6 +101,10 @@ use userid::RnpUserID;
 mod import;
 mod keyring;
 use keyring::parse_keyring;
+// The gpg module is copied from OpenPGP CA.  We don't want to modify
+// it.
+#[allow(dead_code)]
+mod gpg;
 
 pub const P: &StandardPolicy = &StandardPolicy::new();
 
