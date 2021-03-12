@@ -25,7 +25,8 @@ use crate::{
 
 #[derive(Default)]
 pub struct Keystore {
-    by_primary_fp: HashMap<Fingerprint, Rc<RefCell<Cert>>>,
+    // The bool indicates whether the key is considered external.
+    by_primary_fp: HashMap<Fingerprint, (Rc<RefCell<Cert>>, bool)>,
     by_primary_id: HashMap<KeyID, Rc<RefCell<Cert>>>,
     by_primary_grip: HashMap<Keygrip, Rc<RefCell<Cert>>>,
     by_subkey_fp: HashMap<Fingerprint, Rc<RefCell<Cert>>>,
@@ -37,7 +38,7 @@ impl Keystore {
     /// Returns a reference to the cert with the given fingerprint, if
     /// any.
     pub fn by_primary_fp(&self, fp: &Fingerprint) -> Option<Ref<Cert>> {
-        self.by_primary_fp.get(fp).map(|c| c.borrow())
+        self.by_primary_fp.get(fp).map(|c| c.0.borrow())
     }
 
     /// Returns a mutable reference to the cert with the given
@@ -46,7 +47,7 @@ impl Keystore {
     /// A stern warning: Do not use the mutable reference to remove
     /// subkeys.  Use Keystore::remove_all for that.
     pub fn by_primary_fp_mut(&self, fp: &Fingerprint) -> Option<RefMut<Cert>> {
-        self.by_primary_fp.get(fp).map(|c| c.borrow_mut())
+        self.by_primary_fp.get(fp).map(|c| c.0.borrow_mut())
     }
 
     /// Returns a reference to the cert with the given keyid, if any.
@@ -89,7 +90,18 @@ impl Keystore {
 
     /// Returns an iterator over the certs.
     pub fn iter(&self) -> impl Iterator<Item = Ref<Cert>> {
-        self.by_primary_fp.values().map(|c| c.borrow())
+        self.by_primary_fp.values().map(|c| c.0.borrow())
+    }
+
+    /// Returns an iterator over the certs.
+    pub fn to_save(&self) -> impl Iterator<Item = Ref<Cert>> {
+        self.by_primary_fp.values().filter_map(|(cert, external)| {
+            if *external {
+                None
+            } else {
+                Some(cert.borrow())
+            }
+        })
     }
 
     /// Returns the number of certs in the keyring.
@@ -98,19 +110,23 @@ impl Keystore {
     }
 
     /// Inserts a cert.
-    pub fn insert(&mut self, mut cert: Cert) {
+    fn insert_(&mut self, mut cert: Cert, is_external: bool) {
         let fp = cert.fingerprint();
         let id = KeyID::from(&fp);
         let grip = Keygrip::of(cert.primary_key().mpis()).ok();
 
-        if let Some(existing) = self.by_primary_fp.get(&fp) {
-            assert_eq!(existing.borrow().fingerprint(), fp);
-            cert = existing.borrow().clone().merge_public(cert)
+        let mut was_external = true;
+        if let Some(ref mut existing) = self.by_primary_fp.get_mut(&fp) {
+            assert_eq!(existing.0.borrow().fingerprint(), fp);
+            cert = existing.0.borrow().clone().merge_public(cert)
                 .expect("does not fail if the primary keys are equal");
+            was_external = existing.1;
         }
 
         let cert = Rc::new(RefCell::new(cert));
-        self.by_primary_fp.insert(fp, cert.clone());
+        self.by_primary_fp.insert(fp,
+                                  (cert.clone(),
+                                   was_external && is_external));
         self.by_primary_id.insert(id, cert.clone());
         if let Some(g) = grip {
             self.by_primary_grip.insert(g, cert.clone());
@@ -130,6 +146,16 @@ impl Keystore {
         }
     }
 
+    /// Inserts a cert.
+    pub fn insert(&mut self, cert: Cert) {
+        self.insert_(cert, false)
+    }
+
+    /// Inserts a cert, which comes from an external source.
+    pub fn insert_external(&mut self, cert: Cert) {
+        self.insert_(cert, true)
+    }
+
     /// Removes the subkey or certificate with fingerprint `fp`.
     ///
     /// Returns true if at least one key/cert has been removed.
@@ -142,14 +168,14 @@ impl Keystore {
 
             // Remove indices.
             let id = KeyID::from(fp);
-            let grip = Keygrip::of(cert.borrow().primary_key().mpis()).ok();
+            let grip = Keygrip::of(cert.0.borrow().primary_key().mpis()).ok();
             self.by_primary_id.remove(&id);
             if let Some(g) = grip {
                 self.by_primary_grip.remove(&g);
             }
 
             // Remove subkey indices.
-            for sk in cert.borrow().keys().subkeys() {
+            for sk in cert.0.borrow().keys().subkeys() {
                 let fp = sk.fingerprint();
                 let id = KeyID::from(&fp);
                 let grip = Keygrip::of(sk.mpis()).ok();
@@ -165,13 +191,13 @@ impl Keystore {
         // Then, remove all subkeys with that fingerprint.
         let mut remove_subkey_grip = None;
         self.by_primary_fp.values_mut().for_each(|c| {
-            if c.borrow().keys().subkeys().key_handle(fp).count() == 0 {
+            if c.0.borrow().keys().subkeys().key_handle(fp).count() == 0 {
                 // Shortcut to avoid the clone.
                 return;
             }
 
-            let cert = c.borrow().clone();
-            c.replace(cert.retain_subkeys(|ska| if ska.fingerprint() == *fp {
+            let cert = c.0.borrow().clone();
+            c.0.replace(cert.retain_subkeys(|ska| if ska.fingerprint() == *fp {
                 removed_one = true;
                 remove_subkey_grip = Keygrip::of(ska.mpis()).ok();
                 false

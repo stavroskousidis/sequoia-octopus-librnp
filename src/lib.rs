@@ -172,6 +172,13 @@ impl RnpContext {
         self.certs.insert(cert);
     }
 
+    /// Inserts a cert from an external source into the certring.
+    ///
+    /// certs from external sources won't be serialized.
+    pub fn insert_cert_external(&mut self, cert: Cert) {
+        self.certs.insert_external(cert);
+    }
+
     /// Inserts a key into the keyring.
     pub fn insert_key(&mut self, key: Cert) {
         self.keys.insert(key);
@@ -494,7 +501,7 @@ fn rnp_save_keys(ctx: *mut RnpContext,
     };
 
     if let Err(e) = (|| -> openpgp::Result<()> {
-        for cert in certs.iter() {
+        for cert in certs.to_save() {
             if flags & RNP_LOAD_SAVE_SECRET_KEYS > 0 {
                 cert.as_tsk().serialize(output)?;
             } else {
