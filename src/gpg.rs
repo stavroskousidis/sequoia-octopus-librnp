@@ -15,6 +15,10 @@ use std::process::Command;
 use std::process::Stdio;
 
 use anyhow::{Context, Result};
+use csv::StringRecord;
+
+use sequoia_openpgp as openpgp;
+use openpgp::Fingerprint;
 
 pub fn make_context() -> Result<Ctx> {
     let ctx = Ctx::ephemeral().context(
@@ -341,4 +345,128 @@ pub fn export(ctx: &Ctx, search: Option<&str>) -> Result<String> {
     };
 
     Ok(doit().context("Running gpg --export")?)
+}
+
+fn list_keys_raw(ctx: &Ctx) -> Result<Vec<StringRecord>> {
+    let doit = || -> Result<_> {
+        let mut gpg = Command::new("gpg");
+        gpg
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .arg("--homedir")
+            .arg(ctx.directory("homedir")?)
+            .arg("--list-keys")
+            .arg("--with-colons");
+
+        let gpg = gpg.output()?;
+
+        // Although csv takes a byte string, it expects valid UTF-8.
+        // Doing a lossy conversion might break a few User IDs, but
+        // everyone uses UTF-8 these days.
+        let output = String::from_utf8_lossy(&gpg.stdout);
+        let output = output.as_bytes();
+        let mut rdr = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .delimiter(b':')
+            .flexible(true)
+            .from_reader(std::io::Cursor::new(output));
+
+        // We don't expect gpg to return invalid records.  But, let's
+        // ignore any just in case.
+        Ok(rdr.records().filter_map(|rec| {
+            match rec {
+                Ok(rec) => Some(rec),
+                Err(err) => {
+                    warn!("Parsing gpg --list-keys --with-colons:\n  {}",
+                          err);
+                    None
+                }
+            }
+        }).collect())
+    };
+
+    Ok(doit().context("Running gpg --list-keys --with-colons")?)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Validity {
+    Marginal,
+    Fully,
+    Ultimately,
+}
+
+pub fn list_validity(ctx: &Ctx)
+    -> Result<Vec<(Fingerprint, Vec<(String, Validity)>)>>
+{
+    rnp_function!(list_validity, super::TRACE);
+
+    let res = list_keys_raw(&ctx)?;
+
+    let mut validity: Vec<(Fingerprint, Vec<(String, Validity)>)>
+        = Vec::new();
+    let mut key_validity: Vec<(String, Validity)> = Vec::new();
+
+    let mut fingerprint: Option<Fingerprint> = None;
+    for line in res.into_iter() {
+        match line.get(0) {
+            Some("pub") => {
+                if ! key_validity.is_empty() {
+                    validity.push((fingerprint.expect("set"),
+                                   key_validity));
+                    key_validity = Vec::new();
+                }
+
+                t!("Start of new certificate");
+                fingerprint = None;
+            }
+            // The first fpr is for the primary key; ignore subkeys.
+            Some("fpr") => if fingerprint.is_none() {
+                fingerprint = if let Some(fingerprint) = line.get(9) {
+                    t!("  Considering {}", fingerprint);
+                    fingerprint.parse().ok()
+                } else {
+                    continue;
+                }
+            }
+            Some("uid") if fingerprint.is_some() => {
+                let uid: String = if let Some(uid) = line.get(9) {
+                    // XXX: Unquote it:
+                    //
+                    //   The value is quoted like a C string to avoid
+                    //   control characters (the colon is quoted
+                    //   =\x3a=).
+                    t!("  Considering {}", uid);
+                    uid.into()
+                } else {
+                    continue;
+                };
+
+                match line.get(1).unwrap_or("") {
+                    // Marginal.
+                    "m" => {
+                        t!("{}: {} is marginally trusted.",
+                           fingerprint.as_ref().expect("set"), uid);
+                        key_validity.push((uid, Validity::Marginal));
+                    }
+                    "f" => {
+                        t!("{}: {} is fully trusted.",
+                           fingerprint.as_ref().expect("set"), uid);
+                        key_validity.push((uid, Validity::Fully));
+                    }
+                    "u" => {
+                        t!("{}: {} is ultimately trusted.",
+                           fingerprint.as_ref().expect("set"), uid);
+                        key_validity.push((uid, Validity::Ultimately));
+                    }
+                    _ => (),
+                }
+            }
+            _ => {
+                continue;
+            }
+        }
+    }
+
+    Ok(validity)
 }
