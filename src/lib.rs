@@ -107,6 +107,8 @@ use keyring::parse_keyring;
 mod gpg;
 
 mod tbprofile;
+mod wot;
+
 pub const P: &StandardPolicy = &StandardPolicy::new();
 
 #[derive(Default)]
@@ -521,6 +523,12 @@ fn rnp_load_keys(ctx: *mut RnpContext,
             Ok(gpg_ctx) => {
                 if let Err(err) = load_gpg_keyring(&mut *ctx, Some(&gpg_ctx)) {
                     warn!("Import gpg's keyring: {}", err);
+                }
+
+                if let Some(p) = TBPROFILE.as_ref() {
+                    if let Err(err) = wot::update_acceptance(&gpg_ctx, p) {
+                        warn!("Updating web of trust: {}", err);
+                    }
                 }
             }
             Err(err) => {

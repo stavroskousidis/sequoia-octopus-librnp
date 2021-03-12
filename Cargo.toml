@@ -29,6 +29,10 @@ sequoia-openpgp =   { version = "1.1", default-features = false }
 sequoia-autocrypt = { version = "0.23", default-features = false }
 tempfile = "3.0"
 
+[dependencies.rusqlite]
+version = "0.24"
+features = ["bundled"]
+
 [lib]
 crate-type = ["cdylib"]
 
