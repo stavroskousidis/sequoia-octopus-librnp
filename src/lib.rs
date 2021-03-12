@@ -38,6 +38,7 @@ use openpgp::{
 /// Controls tracing.
 const TRACE: bool = cfg!(debug_assertions);
 
+#[allow(unused_macros)]
 macro_rules! stub {
     ($s: ident) => {
         #[no_mangle] pub extern "C"
