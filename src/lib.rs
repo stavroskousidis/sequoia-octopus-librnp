@@ -422,6 +422,35 @@ impl RnpContext {
     }
 }
 
+fn load_gpg_keyring(ctx: &mut RnpContext,
+                    gpg_ctx: Option<&gpg::Ctx>)
+    -> openpgp::Result<()>
+{
+    let gpg_ctx_;
+    let gpg_ctx = if let Some(gpg_ctx) = gpg_ctx {
+        gpg_ctx
+    } else {
+        gpg_ctx_ = Some(gpg::Ctx::new()?);
+        &gpg_ctx_.as_ref().unwrap()
+    };
+    let export = gpg::export(&gpg_ctx, None)?;
+
+    for cert in parse_keyring(std::io::Cursor::new(export))? {
+        match cert {
+            Ok(c) =>
+                (*ctx).insert_cert_external(c),
+            Err(e) => {
+                // We definitely don't want to error out when
+                // importing stuff from gpg.  So, warn, but don't
+                // stop.
+                warn!("sequoia-octopus: Error parsing cert: {}", e);
+            },
+        }
+    }
+
+    Ok(())
+}
+
 #[no_mangle] pub unsafe extern "C"
 fn rnp_load_keys(ctx: *mut RnpContext,
                  format: *const c_char,
@@ -472,6 +501,20 @@ fn rnp_load_keys(ctx: *mut RnpContext,
                        {:x}", f);
             return RNP_ERROR_BAD_PARAMETERS;
         },
+    }
+
+    if flags == RNP_LOAD_SAVE_PUBLIC_KEYS {
+        // Also load GPG's public key database.
+        match gpg::Ctx::new() {
+            Ok(gpg_ctx) => {
+                if let Err(err) = load_gpg_keyring(&mut *ctx, Some(&gpg_ctx)) {
+                    warn!("Import gpg's keyring: {}", err);
+                }
+            }
+            Err(err) => {
+                warn!("Creating a gpg context: {}", err);
+            }
+        }
     }
 
     RNP_SUCCESS
