@@ -7,17 +7,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::collections::BTreeMap;
-use std::collections::HashMap;
 
 use std::fmt;
-use std::io::Read;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::process::Stdio;
 
 use anyhow::{Context, Result};
-use csv::StringRecord;
 
 pub fn make_context() -> Result<Ctx> {
     let ctx = Ctx::ephemeral().context(
@@ -46,11 +43,6 @@ impl Ctx {
     /// Creates a new context for the default GnuPG home directory.
     pub fn new() -> Result<Self> {
         Self::make(None, None)
-    }
-
-    /// get the homedir Path
-    pub fn get_homedir(&self) -> &Path {
-        self.homedir.as_ref().unwrap().as_path()
     }
 
     /// Creates a new context for the given GnuPG home directory.
@@ -309,234 +301,44 @@ pub enum GnupgError {
     ProtocolError(String),
 }
 
-pub fn import(ctx: &Ctx, what: &[u8]) {
-    let mut gpg = Command::new("gpg")
-        .stdin(Stdio::piped())
-        .arg("--homedir")
-        .arg(ctx.directory("homedir").unwrap())
-        .arg("--import")
-        .spawn()
-        .expect("failed to start gpg");
-    gpg.stdin.as_mut().unwrap().write_all(what).unwrap();
-    let status = gpg.wait().unwrap();
-    assert!(status.success());
-}
+pub fn import(ctx: &Ctx, what: &[u8]) -> Result<()> {
+    let doit = || -> Result<()> {
+        let mut gpg = Command::new("gpg")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .arg("--homedir")
+            .arg(ctx.directory("homedir")?)
+            .arg("--import")
+            .spawn()?;
+        gpg.stdin.as_mut().expect("attached").write_all(what)?;
+        gpg.wait()?;
+        Ok(())
+    };
 
-pub fn export(ctx: &Ctx, search: &str) -> String {
-    let mut out = String::new();
-
-    let mut gpg = Command::new("gpg")
-        .stdout(Stdio::piped())
-        .arg("--homedir")
-        .arg(ctx.directory("homedir").unwrap())
-        .arg("--armor")
-        .arg("--export")
-        .arg(search)
-        .spawn()
-        .expect("failed to start gpg");
-    let status = gpg.wait().unwrap();
-    gpg.stdout
-        .as_mut()
-        .unwrap()
-        .read_to_string(&mut out)
-        .unwrap();
-    assert!(status.success());
-
-    out
-}
-
-pub fn export_secret(ctx: &Ctx, search: &str) -> String {
-    let mut out = String::new();
-
-    let mut gpg = Command::new("gpg")
-        .stdout(Stdio::piped())
-        .arg("--homedir")
-        .arg(ctx.directory("homedir").unwrap())
-        .arg("--armor")
-        .arg("--export-secret-keys")
-        .arg(search)
-        .spawn()
-        .expect("failed to start gpg");
-    let status = gpg.wait().unwrap();
-    gpg.stdout
-        .as_mut()
-        .unwrap()
-        .read_to_string(&mut out)
-        .unwrap();
-    assert!(status.success());
-
-    out
-}
-
-pub fn list_keys(ctx: &Ctx) -> Result<HashMap<String, String>> {
-    let res = list_keys_raw(&ctx).unwrap();
-
-    // filter: keep only the "uid" lines
-    let uids = res
-        .iter()
-        .filter(|&line| line.get(0) == Some("uid"))
-        .cloned()
-        .collect::<Vec<_>>();
-
-    // map: uid -> trust
-    Ok(uids
-        .iter()
-        .map(|u| (u.get(9).unwrap().to_owned(), u.get(1).unwrap().to_owned()))
-        .collect())
-}
-
-fn list_keys_raw(ctx: &Ctx) -> Result<Vec<StringRecord>> {
-    let gpg = Command::new("gpg")
-        .stdin(Stdio::piped())
-        .arg("--homedir")
-        .arg(ctx.directory("homedir").unwrap())
-        .arg("--list-keys")
-        .arg("--with-colons")
-        .output()
-        .expect("failed to start gpg");
-
-    let mut rdr = csv::ReaderBuilder::new()
-        .has_headers(false)
-        .delimiter(b':')
-        .flexible(true)
-        .from_reader(gpg.stdout.as_slice());
-
-    let status = gpg.status;
-    assert!(status.success());
-
-    Ok(rdr.records().map(|rec| rec.unwrap()).collect())
-}
-
-pub fn edit_trust(ctx: &Ctx, user_id: &str, trust: u8) -> Result<()> {
-    let homedir =
-        String::from(ctx.directory("homedir").unwrap().to_str().unwrap());
-
-    let cmd = format!("gpg --homedir {} --edit-key {}", homedir, user_id);
-
-    let mut p = rexpect::spawn(&cmd, Some(10_000)).unwrap();
-    p.exp_string("gpg>").unwrap();
-    p.send_line("trust").unwrap();
-    p.exp_string("Your decision?").unwrap();
-    p.send_line(&format!("{}", trust)).unwrap();
-    p.exp_string(
-        "Do you really want to set this key to ultimate trust? (y/N)",
-    )
-    .unwrap();
-    p.send_line("y").unwrap();
-    p.exp_string("gpg>").unwrap();
-    p.send_line("quit").unwrap();
-    p.exp_eof().unwrap();
-
+    doit().context("Running gpg --import")?;
     Ok(())
 }
 
-pub fn make_revocation(
-    ctx: &Ctx,
-    user_id: &str,
-    filename: &str,
-    reason: u8,
-) -> Result<()> {
-    let homedir =
-        String::from(ctx.directory("homedir").unwrap().to_str().unwrap());
+pub fn export(ctx: &Ctx, search: Option<&str>) -> Result<String> {
+    let doit = || -> Result<String> {
+        let mut gpg = Command::new("gpg");
+        gpg
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .arg("--homedir")
+            .arg(ctx.directory("homedir")?)
+            .arg("--armor")
+            .arg("--export");
+        if let Some(search) = search {
+            gpg.arg(search);
+        }
 
-    let cmd = format!(
-        "gpg --homedir {} --output {} --gen-revoke {}",
-        homedir, filename, user_id
-    );
+        let gpg = gpg.output()?;
 
-    let mut p = rexpect::spawn(&cmd, Some(10_000)).unwrap();
-    p.exp_string("Create a revocation certificate for this key? (y/N)")
-        .unwrap();
-    p.send_line("y").unwrap();
-    p.exp_string("Your decision?").unwrap();
-    p.send_line(&format!("{}", reason)).unwrap();
-    p.exp_string(">").unwrap();
-    p.send_line("").unwrap();
-    p.exp_string("Is this okay? (y/N)").unwrap();
-    p.send_line("y").unwrap();
-    p.exp_eof().unwrap();
+        Ok(String::from_utf8_lossy(&gpg.stdout).into_owned())
+    };
 
-    Ok(())
-}
-
-pub fn edit_expire(ctx: &Ctx, user_id: &str, expires: &str) -> Result<()> {
-    let homedir =
-        String::from(ctx.directory("homedir").unwrap().to_str().unwrap());
-
-    let cmd = format!("gpg --homedir {} --edit-key {}", homedir, user_id);
-
-    let mut p = rexpect::spawn(&cmd, Some(10_000)).unwrap();
-    p.exp_string("gpg>").unwrap();
-    p.send_line("expire").unwrap();
-    p.exp_string("Key is valid for? (0)").unwrap();
-    p.send_line(expires).unwrap();
-    p.exp_string("Is this correct? (y/N)").unwrap();
-    p.send_line("y").unwrap();
-    p.exp_string("gpg>").unwrap();
-    p.send_line("quit").unwrap();
-    p.exp_string("Save changes? (y/N)").unwrap();
-    p.send_line("y").unwrap();
-    p.exp_eof().unwrap();
-
-    Ok(())
-}
-
-pub fn create_user(ctx: &Ctx, user_id: &str) {
-    let mut gpg = Command::new("gpg")
-        .stdin(Stdio::piped())
-        .arg("--homedir")
-        .arg(ctx.directory("homedir").unwrap())
-        .arg("--quick-generate-key")
-        .arg("--batch")
-        .arg("--passphrase")
-        .arg("")
-        .arg(user_id.to_string())
-        .spawn()
-        .expect("failed to start gpg");
-    let status = gpg.wait().unwrap();
-    assert!(status.success());
-}
-
-pub fn sign(ctx: &Ctx, user_id: &str) -> Result<()> {
-    let homedir =
-        String::from(ctx.directory("homedir").unwrap().to_str().unwrap());
-
-    let cmd = format!("gpg --homedir {} --edit-key {}", homedir, user_id);
-
-    let mut p = rexpect::spawn(&cmd, Some(10_000)).unwrap();
-    p.exp_string("gpg>").unwrap();
-    p.send_line("sign").unwrap();
-    p.exp_string("Really sign? (y/N)").unwrap();
-    p.send_line("y").unwrap();
-    p.exp_string("gpg>").unwrap();
-    p.send_line("save").unwrap();
-    p.exp_eof().unwrap();
-
-    Ok(())
-}
-
-pub fn tsign(ctx: &Ctx, user_id: &str, level: u8, trust: u8) -> Result<()> {
-    let homedir =
-        String::from(ctx.directory("homedir").unwrap().to_str().unwrap());
-
-    let cmd = format!("gpg --homedir {} --edit-key {}", homedir, user_id);
-
-    let mut p = rexpect::spawn(&cmd, Some(10_000)).unwrap();
-    p.exp_string("gpg>").unwrap();
-    p.send_line("tsign").unwrap();
-    p.exp_string("Your selection?").unwrap();
-    p.send_line(&format!("{}", trust)).unwrap();
-    p.exp_string("Your selection?").unwrap();
-    p.send_line(&format!("{}", level)).unwrap();
-    p.exp_string("Your selection?").unwrap();
-    p.send_line("").unwrap(); // domain
-    p.exp_string("Really sign? (y/N)").unwrap();
-    p.send_line("y").unwrap();
-    p.exp_string("gpg>").unwrap();
-    p.send_line("quit").unwrap();
-    p.exp_string("Save changes? (y/N)").unwrap();
-    p.send_line("y").unwrap();
-    p.exp_eof().unwrap();
-
-    Ok(())
+    Ok(doit().context("Running gpg --export")?)
 }
