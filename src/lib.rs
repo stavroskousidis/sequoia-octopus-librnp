@@ -78,6 +78,7 @@ use utils::*;
 mod conversions;
 use conversions::*;
 
+mod version;
 #[allow(dead_code)]
 mod op_verify;
 #[allow(dead_code)]
