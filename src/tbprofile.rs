@@ -24,6 +24,8 @@ const PROFILES_INI: &[&'static str] = &[
 
     // Windows: prefix with %APPDATA%.
     #[cfg(windows)]
+    "Thunderbird",
+    #[cfg(windows)]
     "Thunderbird\\Profiles",
 ];
 
@@ -44,9 +46,13 @@ impl TBProfile {
     pub fn load() -> openpgp::Result<Self> {
         rnp_function!(TBProfile::load, super::TRACE);
 
-        #[allow(deprecated)]
-        let prefix = std::env::home_dir()
-            .ok_or(anyhow::anyhow!("Failed to find home directory"))?;
+        let prefix = if cfg!(windows) {
+            PathBuf::from(std::env::var("APPDATA")?)
+        } else {
+            #[allow(deprecated)]
+            std::env::home_dir()
+                .ok_or(anyhow::anyhow!("Failed to find home directory"))?
+        };
 
         let mut base: PathBuf = PathBuf::new();
         base.push(&prefix);
