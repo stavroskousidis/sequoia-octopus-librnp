@@ -15,7 +15,6 @@ use libc::{
 
 use sequoia_openpgp as openpgp;
 use openpgp::{
-    Fingerprint,
     cert::{
         Cert,
         CertRevocationBuilder,
@@ -624,33 +623,6 @@ fn rnp_key_remove(key: *mut RnpKey,
     }
 
     let fp = key.fingerprint();
-
-    /// Removes the subkey or certificate with fingerprint `fp`.
-    ///
-    /// Returns true if at least one key/cert has been removed.
-    fn remove_all(certs: &mut Vec<Cert>, fp: &Fingerprint) -> bool {
-        let mut removed_one = false;
-
-        // First, remove all certs with that fingerprint.
-        certs.retain(|c| if c.fingerprint() == *fp {
-            removed_one = true;
-            false
-        } else {
-            true
-        });
-
-        // Then, remove all subkeys with that fingerprint.
-        certs.iter_mut().for_each(|c| {
-            *c = c.clone().retain_subkeys(|ska| if ska.fingerprint() == *fp {
-                removed_one = true;
-                false
-            } else {
-                true
-            });
-        });
-
-        removed_one
-    }
 
     if remove_public {
         if ! ctx.certs.remove_all(&fp) && ! remove_secret {
