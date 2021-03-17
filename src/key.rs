@@ -814,6 +814,7 @@ fn rnp_key_protect(key: *mut RnpKey,
     let fp = key.fingerprint();
     assert_ptr!(password);
     let password = rnp_try!(cstr_to_str(password));
+    t!("password = {:?}", password);
 
     let ctx = &mut *key.ctx;
     let mut key =
@@ -868,6 +869,7 @@ fn rnp_key_unprotect(key: *mut RnpKey,
     } else {
         Some(rnp_try!(cstr_to_str(password)))
     };
+    t!("password = {:?}", password);
 
     let ctx = &mut *key.ctx;
     let mut key =

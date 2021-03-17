@@ -305,6 +305,7 @@ impl RnpContext {
     }
 }
 
+#[derive(Debug)]
 pub enum RnpPasswordFor {
     AddSubkey,
     AddUserID,
@@ -338,6 +339,9 @@ impl RnpContext {
     pub fn request_password(&mut self,
                             cert: Option<&Cert>,
                             reason: RnpPasswordFor) -> Option<Password> {
+        rnp_function!(RnpContext::request_password, TRACE);
+        t!("cert = {:?}, reason = {:?}", cert.map(|c| c.fingerprint()), reason);
+
         if let Some((f, cookie)) = self.password_cb {
             let mut buf: Protected = vec![0; 128].into();
             let len = buf.len();
@@ -351,16 +355,20 @@ impl RnpContext {
             };
 
             if ! ok {
+                t!("password_cb returned failure");
                 return None;
             }
 
             if let Some(got) = buf.iter().position(|b| *b == 0) {
+                t!("password_cb returned {:?}",
+                   String::from_utf8_lossy(&buf[..got]));
                 Some(Password::from(&buf[..got]))
             } else {
                 eprintln!("sequoia-octopus: given password exceeded buffer");
                 None
             }
         } else {
+            t!("No password_cb set");
             None
         }
     }
@@ -372,19 +380,29 @@ impl RnpContext {
                            reason: RnpPasswordFor)
                            -> openpgp::Result<Key<SecretParts, UnspecifiedRole>>
     {
+        rnp_function!(RnpContext::decrypt_key_for, TRACE);
+        t!("cert = {:?}, key = {}, reason = {:?}",
+           cert.map(|c| c.fingerprint()),
+           key.fingerprint(),
+           reason);
+
         if ! key.has_unencrypted_secret() {
             if let Some(k) = self.unlocked_keys.get(&key.fingerprint()) {
                 // Use the unlocked key instead of prompting for a
                 // password.
+                t!("Found unlocked key in cache");
                 return Ok(k.clone());
             }
 
             let pk_algo = key.pk_algo();
             if let Some(pw) = self.request_password(cert, reason) {
                 key.secret_mut().decrypt_in_place(pk_algo, &pw)?;
+                t!("Key decrypted successfully")
             } else {
                 return Err(anyhow::anyhow!("no password given"));
             }
+        } else {
+            t!("Key is not encrypted, nothing to do");
         }
         Ok(key)
     }
