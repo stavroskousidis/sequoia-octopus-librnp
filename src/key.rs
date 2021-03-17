@@ -802,7 +802,7 @@ fn rnp_key_is_protected(key: *mut RnpKey,
 }
 
 #[no_mangle] pub unsafe extern "C"
-fn rnp_key_protect(key: *mut RnpKey,
+fn rnp_key_protect(rnp_key: *mut RnpKey,
                    password: *const c_char,
                    _cipher: *const c_char,
                    _cipher_mode: *const c_char,
@@ -810,15 +810,15 @@ fn rnp_key_protect(key: *mut RnpKey,
                    _iterations: size_t)
                    -> RnpResult {
     rnp_function!(rnp_key_protect, crate::TRACE);
-    let key = assert_ptr_mut!(key);
-    let fp = key.fingerprint();
+    let rnp_key = assert_ptr_mut!(rnp_key);
+    let fp = rnp_key.fingerprint();
     assert_ptr!(password);
     let password = rnp_try!(cstr_to_str(password));
     t!("password = {:?}", password);
 
-    let ctx = &mut *key.ctx;
+    let ctx = &mut *rnp_key.ctx;
     let mut key =
-        if let Ok(key) = key.key.clone().parts_into_secret() {
+        if let Ok(key) = rnp_key.key.clone().parts_into_secret() {
             key
         } else {
             return RNP_ERROR_NO_SUITABLE_KEY;
@@ -833,6 +833,10 @@ fn rnp_key_protect(key: *mut RnpKey,
         }
 
         let key = key.encrypt_secret(&password.into())?;
+
+        // Update the copy of the key in this handle.
+        rnp_key.key = key.clone().parts_into_unspecified();
+
         if let Some(mut cert) = ctx.key_mut_by_fp(&fp) {
             let key: openpgp::Packet =
                 if key.fingerprint() == cert.fingerprint() {
@@ -858,12 +862,12 @@ fn rnp_key_protect(key: *mut RnpKey,
 }
 
 #[no_mangle] pub unsafe extern "C"
-fn rnp_key_unprotect(key: *mut RnpKey,
+fn rnp_key_unprotect(rnp_key: *mut RnpKey,
                      password: *const c_char)
                      -> RnpResult {
     rnp_function!(rnp_key_unprotect, crate::TRACE);
-    let key = assert_ptr_mut!(key);
-    let fp = key.fingerprint();
+    let rnp_key = assert_ptr_mut!(rnp_key);
+    let fp = rnp_key.fingerprint();
     let password = if password.is_null() {
         None
     } else {
@@ -871,9 +875,9 @@ fn rnp_key_unprotect(key: *mut RnpKey,
     };
     t!("password = {:?}", password);
 
-    let ctx = &mut *key.ctx;
+    let ctx = &mut *rnp_key.ctx;
     let mut key =
-        if let Ok(key) = key.key.clone().parts_into_secret() {
+        if let Ok(key) = rnp_key.key.clone().parts_into_secret() {
             key
         } else {
             return RNP_ERROR_NO_SUITABLE_KEY;
@@ -891,6 +895,9 @@ fn rnp_key_unprotect(key: *mut RnpKey,
                 key = ctx.decrypt_key_for(None, key, RnpPasswordFor::Protect)?;
             }
         }
+
+        // Update the copy of the key in this handle.
+        rnp_key.key = key.clone().parts_into_unspecified();
 
         if let Some(mut cert) = ctx.key_mut_by_fp(&fp) {
             let key: openpgp::Packet =
