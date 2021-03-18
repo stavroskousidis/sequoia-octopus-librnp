@@ -597,7 +597,8 @@ impl<'a> Helper<'a> {
                           -> Option<Key<SecretParts, UnspecifiedRole>>
     {
         self.ctx.keys.by_subkey_id(id)
-            .or_else(|| self.ctx.keys.by_primary_id(id))
+            .chain(self.ctx.keys.by_primary_id(id))
+            .nth(0)
             .and_then(|cert| {
                 cert.with_policy(P, None).ok()
                     .and_then(|vcert| vcert.keys()
@@ -632,7 +633,9 @@ impl<'a> Helper<'a> {
         // identity.
         let recipient =
             self.ctx.keys.by_subkey_fp(&fp)
-            .map(|cert| cert.fingerprint()).unwrap_or(fp);
+            .nth(0)
+            .map(|cert| cert.fingerprint())
+            .unwrap_or(fp);
 
         Some((algo, sk, Some(recipient)))
     }

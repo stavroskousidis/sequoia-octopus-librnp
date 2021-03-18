@@ -51,6 +51,11 @@ macro_rules! stub {
     };
 }
 
+#[allow(dead_code)]
+#[macro_use]
+mod error;
+use error::*;
+
 // XXX: This is a copy of sequoia/ipc/src/keygrip.rs.
 mod keygrip;
 use keygrip::*;
@@ -61,10 +66,6 @@ use keystore::Keystore;
 mod buffer;
 use buffer::*;
 
-#[allow(dead_code)]
-#[macro_use]
-mod error;
-use error::*;
 #[allow(dead_code)]
 mod flags;
 use flags::*;
@@ -260,23 +261,21 @@ impl RnpContext {
     /// fingerprint.
     pub fn cert_by_subkey_fp(&self, fp: &Fingerprint)
                                -> (Option<Cert>, Option<Cert>) {
-        (self.keys.by_primary_fp(fp)
-         .or_else(|| self.keys.by_subkey_fp(fp))
-         .map(|c| c.clone()),
-         self.certs.by_primary_fp(fp)
-         .or_else(|| self.certs.by_subkey_fp(fp))
-         .map(|c| c.clone()))
+        (self.keys.by_primary_fp(fp).map(|c| c.clone())
+         .or_else(|| self.keys.by_subkey_fp(fp).nth(0).map(|c| c.clone())),
+         self.certs.by_primary_fp(fp).map(|c| c.clone())
+         .or_else(|| self.certs.by_subkey_fp(fp).nth(0).map(|c| c.clone())))
     }
 
     /// Retrieves a certificate from both stores by (sub)key
     /// keyid.
     pub fn cert_by_subkey_id(&self, id: &KeyID)
                                -> (Option<Cert>, Option<Cert>) {
-        (self.keys.by_primary_id(id)
-         .or_else(|| self.keys.by_subkey_id(id))
+        (self.keys.by_primary_id(id).nth(0)
+         .or_else(|| self.keys.by_subkey_id(id).nth(0))
          .map(|c| c.clone()),
-         self.certs.by_primary_id(id)
-         .or_else(|| self.certs.by_subkey_id(id))
+         self.certs.by_primary_id(id).nth(0)
+         .or_else(|| self.certs.by_subkey_id(id).nth(0))
          .map(|c| c.clone()))
     }
 
@@ -284,24 +283,30 @@ impl RnpContext {
     /// keygrip.
     pub fn cert_by_subkey_grip(&self, grip: &Keygrip)
                                -> (Option<Cert>, Option<Cert>) {
-        (self.keys.by_primary_grip(grip)
-         .or_else(|| self.keys.by_subkey_grip(grip))
+        (self.keys.by_primary_grip(grip).nth(0)
+         .or_else(|| self.keys.by_subkey_grip(grip).nth(0))
          .map(|c| c.clone()),
-         self.certs.by_primary_grip(grip)
-         .or_else(|| self.certs.by_subkey_grip(grip))
+         self.certs.by_primary_grip(grip).nth(0)
+         .or_else(|| self.certs.by_subkey_grip(grip).nth(0))
          .map(|c| c.clone()))
     }
 
     /// Retrieves a key from the keyring by (sub)key fingerprint.
     pub fn key_mut_by_fp(&mut self, fp: &Fingerprint) -> Option<RefMut<Cert>> {
-        self.keys.by_primary_fp_mut(fp)
-            .or(self.keys.by_subkey_fp_mut(fp))
+        if let Some(c) = self.keys.by_primary_fp_mut(fp) {
+            Some(c)
+        } else {
+            self.keys.by_subkey_fp_mut(fp).nth(0)
+        }
     }
 
     /// Retrieves a cert from the certring by (sub)key fingerprint.
     pub fn cert_mut_by_fp(&mut self, fp: &Fingerprint) -> Option<RefMut<Cert>> {
-        self.certs.by_primary_fp_mut(fp)
-            .or(self.certs.by_subkey_fp_mut(fp))
+        if let Some(c) = self.certs.by_primary_fp_mut(fp) {
+            Some(c)
+        } else {
+            self.certs.by_subkey_fp_mut(fp).nth(0)
+        }
     }
 }
 
