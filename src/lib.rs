@@ -396,7 +396,8 @@ impl RnpContext {
 
             let pk_algo = key.pk_algo();
             if let Some(pw) = self.request_password(cert, reason) {
-                key.secret_mut().decrypt_in_place(pk_algo, &pw)?;
+                key.secret_mut().decrypt_in_place(pk_algo, &pw)
+                    .map_err(|_| Error::BadPassword)?;
                 t!("Key decrypted successfully")
             } else {
                 return Err(anyhow::anyhow!("no password given"));
@@ -433,7 +434,8 @@ impl RnpContext {
                 .or_else(|| self.request_password(
                     None, RnpPasswordFor::Unlock))
             {
-                key.secret_mut().decrypt_in_place(pk_algo, &pw)?;
+                key.secret_mut().decrypt_in_place(pk_algo, &pw)
+                    .map_err(|_| Error::BadPassword)?;
             } else {
                 return Err(anyhow::anyhow!("no password given"));
             }

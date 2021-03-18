@@ -1,5 +1,6 @@
 //! Error handling.
 
+/// Native RNP result type.
 pub type RnpResult = u32;
 pub const RNP_SUCCESS: RnpResult = 0x00000000;
 
@@ -39,6 +40,122 @@ pub const RNP_ERROR_UNKNOWN_TAG: RnpResult = 0x13000001;
 pub const RNP_ERROR_PACKET_NOT_CONSUMED: RnpResult = 0x13000002;
 pub const RNP_ERROR_NO_USERID: RnpResult = 0x13000003;
 pub const RNP_ERROR_EOF: RnpResult = 0x13000004;
+
+/// Rustic-errors resembling the native RNP errors.
+///
+/// These errors can be used in functions returning standard errors to
+/// return a specific native RNP error.
+///
+/// # Examples
+///
+/// ```rust,no-compile
+/// #[no_mangle] pub unsafe extern "C"
+/// fn rnp_something(rnp_key: *mut RnpKey) -> RnpResult {
+///     rnp_function!(rnp_key_protect, crate::TRACE);
+///
+///     let f = || -> openpgp::Result<()> {
+///         Err(Error::NotImplemented)
+///     };
+///
+///     rnp_return!(f())
+/// }
+/// ```
+#[derive(thiserror::Error, Debug, Clone)]
+pub enum Error {
+    #[error("Generic")]
+    Generic,
+    #[error("BadFormat")]
+    BadFormat,
+    #[error("BadParameters")]
+    BadParameters,
+    #[error("NotImplemented")]
+    NotImplemented,
+    #[error("NotSupported")]
+    NotSupported,
+    #[error("OutOfMemory")]
+    OutOfMemory,
+    #[error("ShortBuffer")]
+    ShortBuffer,
+    #[error("NullPointer")]
+    NullPointer,
+    #[error("Access")]
+    Access,
+    #[error("Read")]
+    Read,
+    #[error("Write")]
+    Write,
+    #[error("BadState")]
+    BadState,
+    #[error("MacInvalid")]
+    MacInvalid,
+    #[error("SignatureInvalid")]
+    SignatureInvalid,
+    #[error("KeyGeneration")]
+    KeyGeneration,
+    #[error("BadPassword")]
+    BadPassword,
+    #[error("KeyNotFound")]
+    KeyNotFound,
+    #[error("NoSuitableKey")]
+    NoSuitableKey,
+    #[error("DecryptFailed")]
+    DecryptFailed,
+    #[error("RNG")]
+    RNG,
+    #[error("SigningFailed")]
+    SigningFailed,
+    #[error("NoSignaturesFound")]
+    NoSignaturesFound,
+    #[error("SignatureExpired")]
+    SignatureExpired,
+    #[error("NotEnoughData")]
+    NotEnoughData,
+    #[error("UnknownTag")]
+    UnknownTag,
+    #[error("PacketNotConsumed")]
+    PacketNotConsumed,
+    #[error("NoUserID")]
+    NoUserID,
+    #[error("EOF")]
+    EOF,
+}
+
+impl From<Error> for RnpResult {
+    fn from(e: Error) -> RnpResult {
+        use Error::*;
+        match e {
+            Generic => RNP_ERROR_GENERIC,
+            BadFormat => RNP_ERROR_BAD_FORMAT,
+            BadParameters => RNP_ERROR_BAD_PARAMETERS,
+            NotImplemented => RNP_ERROR_NOT_IMPLEMENTED,
+            NotSupported => RNP_ERROR_NOT_SUPPORTED,
+            OutOfMemory => RNP_ERROR_OUT_OF_MEMORY,
+            ShortBuffer => RNP_ERROR_SHORT_BUFFER,
+            NullPointer => RNP_ERROR_NULL_POINTER,
+            Access => RNP_ERROR_ACCESS,
+            Read => RNP_ERROR_READ,
+            Write => RNP_ERROR_WRITE,
+            BadState => RNP_ERROR_BAD_STATE,
+            MacInvalid => RNP_ERROR_MAC_INVALID,
+            SignatureInvalid => RNP_ERROR_SIGNATURE_INVALID,
+            KeyGeneration => RNP_ERROR_KEY_GENERATION,
+            BadPassword => RNP_ERROR_BAD_PASSWORD,
+            KeyNotFound => RNP_ERROR_KEY_NOT_FOUND,
+            NoSuitableKey => RNP_ERROR_NO_SUITABLE_KEY,
+            DecryptFailed => RNP_ERROR_DECRYPT_FAILED,
+            RNG => RNP_ERROR_RNG,
+            SigningFailed => RNP_ERROR_SIGNING_FAILED,
+            NoSignaturesFound => RNP_ERROR_NO_SIGNATURES_FOUND,
+            SignatureExpired => RNP_ERROR_SIGNATURE_EXPIRED,
+            NotEnoughData => RNP_ERROR_NOT_ENOUGH_DATA,
+            UnknownTag => RNP_ERROR_UNKNOWN_TAG,
+            PacketNotConsumed => RNP_ERROR_PACKET_NOT_CONSUMED,
+            NoUserID => RNP_ERROR_NO_USERID,
+            EOF => RNP_ERROR_EOF,
+        }
+    }
+}
+
 
 // Used by helper functions.
 pub type Result<T> = std::result::Result<T, RnpResult>;
@@ -141,6 +258,23 @@ macro_rules! rnp_function {
                 _assert_ptr!($param);
                 &mut *$param
             }};
+        }
+
+        #[allow(unused_macros)]
+        macro_rules! rnp_return {
+            ( $expr: expr ) => {
+                if let Err(e) = $expr {
+                    _warn!("{}", e);
+                    if let Ok(e) = e.downcast::<crate::error::Error>() {
+                        e.into()
+                    } else {
+                        RNP_ERROR_GENERIC
+                    }
+                } else {
+                    t!("Leaving function: success");
+                    RNP_SUCCESS
+                }
+            };
         }
 
         t!("Entering function");

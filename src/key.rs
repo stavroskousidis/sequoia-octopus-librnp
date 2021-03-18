@@ -829,7 +829,8 @@ fn rnp_key_protect(rnp_key: *mut RnpKey,
             t!("Key {:X} is NOT currently protected", fp);
         } else {
             t!("Key {:X} is currently protected", fp);
-            key = ctx.decrypt_key_for(None, key, RnpPasswordFor::Protect)?;
+            key = ctx.decrypt_key_for(None, key, RnpPasswordFor::Protect)
+                .map_err(|_| Error::BadPassword)?;
         }
 
         let key = key.encrypt_secret(&password.into())?;
@@ -853,12 +854,7 @@ fn rnp_key_protect(rnp_key: *mut RnpKey,
         }
     };
 
-    if let Err(e) = f() {
-        _warn!("{}", e);
-        RNP_ERROR_GENERIC
-    } else {
-        RNP_SUCCESS
-    }
+    rnp_return!(f())
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -890,9 +886,11 @@ fn rnp_key_unprotect(rnp_key: *mut RnpKey,
         } else {
             t!("Key {:X} is currently protected", fp);
             if let Some(p) = password {
-                key = key.decrypt_secret(&p.into())?;
+                key = key.decrypt_secret(&p.into())
+                    .map_err(|_| Error::BadPassword)?;
             } else {
-                key = ctx.decrypt_key_for(None, key, RnpPasswordFor::Protect)?;
+                key = ctx.decrypt_key_for(None, key, RnpPasswordFor::Protect)
+                    .map_err(|_| Error::BadPassword)?;
             }
         }
 
@@ -915,12 +913,7 @@ fn rnp_key_unprotect(rnp_key: *mut RnpKey,
         }
     };
 
-    if let Err(e) = f() {
-        _warn!("{}", e);
-        RNP_ERROR_GENERIC
-    } else {
-        RNP_SUCCESS
-    }
+    rnp_return!(f())
 }
 
 
