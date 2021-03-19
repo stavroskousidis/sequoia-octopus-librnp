@@ -599,10 +599,9 @@ impl<'a> Helper<'a> {
     fn get_decryption_key(&self, id: &KeyID)
                           -> Option<Key<SecretParts, UnspecifiedRole>>
     {
-        self.ctx.keys.by_subkey_id(id)
-            .chain(self.ctx.keys.by_primary_id(id))
-            .nth(0)
-            .and_then(|cert| {
+        self.ctx.certs.by_subkey_id(id)
+            .chain(self.ctx.certs.by_primary_id(id))
+            .filter_map(|cert| {
                 cert.with_policy(P, None).ok()
                     .and_then(|vcert| vcert.keys()
                               .secret()
@@ -611,6 +610,7 @@ impl<'a> Helper<'a> {
                               .key_handle(id).nth(0))
                     .map(|vka| vka.key().clone())
             })
+            .nth(0)
     }
 
     /// Tries to decrypt the given PKESK packet with `keypair` and try
@@ -634,11 +634,13 @@ impl<'a> Helper<'a> {
         // recipient test.  If `keypair` is a subkey, look up its cert
         // and compute the fingerprint.  Otherwise, `fp` is our
         // identity.
+
         let recipient =
-            self.ctx.keys.by_subkey_fp(&fp)
-            .nth(0)
-            .map(|cert| cert.fingerprint())
-            .unwrap_or(fp);
+            self.ctx.certs.by_subkey_fp(&fp)
+                .filter(|fp| fp.is_tsk())
+                .nth(0)
+                .map(|cert| cert.fingerprint())
+                .unwrap_or(fp);
 
         Some((algo, sk, Some(recipient)))
     }
@@ -677,7 +679,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
         // prompting for a password.
         for pkesk in pkesks.iter().filter(|p| p.recipient().is_wildcard()) {
             // Get all possible decryption keys from the context.
-            for cert in self.ctx.keys.iter() {
+            for cert in self.ctx.certs.iter().filter(|cert| cert.is_tsk()) {
                 for key in cert.with_policy(P, None).ok()
                     .iter()
                     .flat_map(|vcert| vcert.keys()

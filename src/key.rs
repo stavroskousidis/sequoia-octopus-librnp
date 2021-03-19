@@ -101,7 +101,6 @@ impl RnpKey {
 
             let mut candidates = Vec::new();
             for cert in ctx.certs.by_fp(&fp)
-                .chain(ctx.keys.by_fp(&fp))
             {
                 for k in cert.keys().key_handle(&fp) {
                     // Eq compares the secret parts.
@@ -668,13 +667,12 @@ fn rnp_key_remove(key: *mut RnpKey,
     let fp = key.fingerprint();
 
     if remove_public {
-        if ! ctx.certs.remove_all(&fp) && ! remove_secret {
+        if ! ctx.certs.remove_all(&fp) {
             return RNP_ERROR_KEY_NOT_FOUND;
         }
     }
-
-    if remove_secret {
-        if ! ctx.keys.remove_all(&fp) {
+    else if remove_secret {
+        if ! ctx.certs.remove_secret_key_material(&fp) {
             return RNP_ERROR_KEY_NOT_FOUND;
         }
     }
@@ -853,20 +851,29 @@ fn rnp_key_protect(rnp_key: *mut RnpKey,
         // Update the copy of the key in this handle.
         rnp_key.key = key.clone().parts_into_unspecified();
 
-        if let Some(mut cert) = ctx.key_mut_by_fp(&fp) {
-            let key: openpgp::Packet =
-                if key.fingerprint() == cert.fingerprint() {
-                    key.role_into_primary().into()
-                } else {
-                    key.role_into_subordinate().into()
-                };
+        if let Some(cert_copy) = rnp_key.cert() {
+            if let Some(mut cert)
+                = ctx.certs.by_primary_fp_mut(&cert_copy.fingerprint())
+            {
+                let key: openpgp::Packet =
+                    if key.fingerprint() == cert.fingerprint() {
+                        key.role_into_primary().into()
+                    } else {
+                        key.role_into_subordinate().into()
+                    };
 
-            *cert = cert.clone().insert_packets(Some(key))?;
-            rnp_key.cert = Some(cert.clone());
-            Ok(())
+                *cert = cert.clone().insert_packets(Some(key))?;
+                // In case the certificate was updated in the mean
+                // time, update the stashed copy.
+                rnp_key.cert = Some(cert.clone());
+                Ok(())
+            } else {
+                _warn!("Key {:X} not found in keyring", fp);
+                Err(anyhow::anyhow!("Key {:X} not found in keyring", fp))
+            }
         } else {
-            _warn!("Key {:X} not found in keyring", fp);
-            Err(anyhow::anyhow!("Key {:X} not found in keyring", fp))
+            Err(anyhow::anyhow!("Key for {:X} not found in keyring",
+                                fp))
         }
     };
 
@@ -913,20 +920,32 @@ fn rnp_key_unprotect(rnp_key: *mut RnpKey,
         // Update the copy of the key in this handle.
         rnp_key.key = key.clone().parts_into_unspecified();
 
-        if let Some(mut cert) = ctx.key_mut_by_fp(&fp) {
-            let key: openpgp::Packet =
-                if key.fingerprint() == cert.fingerprint() {
-                    key.role_into_primary().into()
-                } else {
-                    key.role_into_subordinate().into()
-                };
+        // XXX: Are we sure that we are updating the correct key?!?
+        // If this is a subkey present on multiple certificates, we
+        // might get the wrong one.
+        if let Some(cert_copy) = rnp_key.cert() {
+            if let Some(mut cert)
+                = ctx.certs.by_primary_fp_mut(&cert_copy.fingerprint())
+            {
+                let key: openpgp::Packet =
+                    if key.fingerprint() == cert.fingerprint() {
+                        key.role_into_primary().into()
+                    } else {
+                        key.role_into_subordinate().into()
+                    };
 
-            *cert = cert.clone().insert_packets(Some(key))?;
-            rnp_key.cert = Some(cert.clone());
-            Ok(())
+                *cert = cert.clone().insert_packets(Some(key))?;
+                // In case the certificate was updated in the mean
+                // time, update the stashed copy.
+                rnp_key.cert = Some(cert.clone());
+                Ok(())
+            } else {
+                _warn!("Key {:X} not found in keyring", fp);
+                Err(anyhow::anyhow!("Key {:X} not found in keyring", fp))
+            }
         } else {
-            _warn!("Key {:X} not found in keyring", fp);
-            Err(anyhow::anyhow!("Key {:X} not found in keyring", fp))
+            Err(anyhow::anyhow!("Key for {:X} not found in keyring",
+                                fp))
         }
     };
 
@@ -1075,7 +1094,7 @@ fn rnp_key_revoke(key: *mut RnpKey,
         };
 
         // Merge the revocation into the store.
-        ctx.keys.insert(cert.insert_packets(Some(sig))?);
+        ctx.certs.insert(cert.insert_packets(Some(sig))?);
         Ok(())
     }
 
@@ -1180,7 +1199,7 @@ fn rnp_key_set_expiration(key: *mut RnpKey,
         };
 
         // Merge the updated cert into the store.
-        ctx.keys.insert(cert.insert_packets(sigs)?);
+        ctx.certs.insert(cert.insert_packets(sigs)?);
         Ok(())
     }
 

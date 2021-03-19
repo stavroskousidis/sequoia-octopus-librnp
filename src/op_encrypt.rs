@@ -108,7 +108,7 @@ fn rnp_op_encrypt_execute(op: *mut RnpOpEncrypt) -> RnpResult {
                 signer = signer.add_signer(s);
             }
             for r in &op.recipients {
-                if let (Some(key), _) = op.ctx.cert_by_subkey_fp(&r.fingerprint()) {
+                if let Some(key) = op.ctx.cert_by_subkey_fp(&r.fingerprint()) {
                     signer = signer.add_intended_recipient(&key);
                 }
             }

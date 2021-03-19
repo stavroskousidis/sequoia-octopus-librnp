@@ -52,7 +52,7 @@ fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
     *iter = Box::into_raw(Box::new(RnpIdentifierIterator {
         ctx,
         typ,
-        cert_iter: Box::new(ctx.certs.iter().chain(ctx.keys.iter())),
+        cert_iter: Box::new(ctx.certs.iter()),
         uid_iter: None,
         seen: Default::default(),
     }));

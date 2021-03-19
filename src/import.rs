@@ -108,59 +108,39 @@ fn rnp_import_keys(ctx: *mut RnpContext,
             let fp = cert.fingerprint();
             r.fingerprint = fp.to_string();
 
-            if public {
-                let status;
-                if let Some(mut known) = ctx.cert_mut_by_fp(&fp) {
-                    if *known == cert {
-                        status = Unchanged;
-                    } else {
-                        // XXX: This is not quite correct.  False
-                        // positive if cert has less information than
-                        // known.  Then, it is not really an update.
-                        status = Updated;
-                        *known = known.clone().merge_public(cert.clone())?;
-                    }
+            let status;
+            if let Some(known) = ctx.certs.by_primary_fp(&fp) {
+                if *known == cert {
+                    status = Unchanged;
                 } else {
-                    status = New;
-                    // ctx is still mutably borrowed.  Do the
-                    // insertion in a second step to appease the
-                    // borrow checker.
+                    // XXX: This is not quite correct.  False
+                    // positive if cert has less information than
+                    // known.  Then, it is not really an update.
+                    status = Updated;
                 }
-
-                if let New = status {
-                    // Appease the borrow checker.
-                    ctx.insert_cert(cert.clone().strip_secret_key_material());
-                }
-
-                r.public = status.into();
+            } else {
+                status = New;
+                // ctx is still mutably borrowed.  Do the
+                // insertion in a second step to appease the
+                // borrow checker.
             }
 
-            if secret && cert.is_tsk() {
-                let status;
-                if let Some(mut known) = ctx.key_mut_by_fp(&fp) {
-                    if *known == cert {
-                        status = Unchanged;
-                    } else {
-                        // XXX: This is not quite correct.  False
-                        // positive if cert has less information than
-                        // known.  Then, it is not really an update.
-                        status = Updated;
-                        *known = known.clone()
-                            .merge_public_and_secret(cert.clone())?;
-                    }
-                } else {
-                    status = New;
-                    // ctx is still mutably borrowed.  Do the
-                    // insertion in a second step to appease the
-                    // borrow checker.
-                }
+            let imported_secret = secret && cert.is_tsk();
 
-                if let New = status {
-                    // Appease the borrow checker.
+            if let Unchanged = status {
+                // Nothing to do.
+            } else {
+                // Appease the borrow checker.
+                if secret {
                     ctx.insert_key(cert);
+                } else {
+                    ctx.insert_cert(cert);
                 }
+            }
 
-                r.secret = status.into();
+            r.public = status.into();
+            if imported_secret {
+                r.secret = r.public.clone();
             }
 
             t!("Imported {:?}", r);

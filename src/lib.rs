@@ -116,7 +116,6 @@ pub const P: &StandardPolicy = &StandardPolicy::new();
 #[derive(Default)]
 pub struct RnpContext {
     certs: Keystore,
-    keys: Keystore,
     unlocked_keys: HashMap<Fingerprint, Key<SecretParts, UnspecifiedRole>>,
     password_cb: Option<(RnpPasswordCb, *mut c_void)>,
 }
@@ -172,62 +171,55 @@ fn rnp_ffi_set_pass_provider(ctx: *mut RnpContext,
 }
 
 impl RnpContext {
-    /// Inserts a cert into the certring.
+    /// Inserts a cert into the keystore.
+    ///
+    /// This strips any secret key material.
     pub fn insert_cert(&mut self, cert: Cert) {
-        self.certs.insert(cert);
+        self.certs.insert(cert.strip_secret_key_material());
     }
 
-    /// Inserts a cert from an external source into the certring.
+    /// Inserts a cert from an external source into the keystore.
+    ///
+    /// This strips any secret key material.
     ///
     /// certs from external sources won't be serialized.
     pub fn insert_cert_external(&mut self, cert: Cert) {
-        self.certs.insert_external(cert);
+        self.certs.insert_external(cert.strip_secret_key_material());
     }
 
-    /// Inserts a key into the keyring.
-    pub fn insert_key(&mut self, key: Cert) {
-        self.keys.insert(key);
+    /// Inserts a key into the keystore.
+    ///
+    /// Secret key material is preserved.
+    pub fn insert_key(&mut self, cert: Cert) {
+        self.certs.insert(cert);
     }
 
-    /// Retrieves a certificate from both stores by userid.
+    /// Retrieves a certificate from the keystore by userid.
     ///
     /// RNP searches both the certring and the keyring, and the
     /// keyhandle can thus refer to two certificates, potentially
     /// different versions of the same, or even different
-    /// certificates!  We also search both rings, but merge the
-    /// results.  If the merge fails, we conservatively fail the
-    /// lookup.
+    /// certificates!  Since we merge the key keyrings, this is not a
+    /// problem for us.
     pub fn cert(&self, by: &RnpIdentifier) -> Option<Cert> {
         rnp_function!(RnpContext::cert, TRACE);
 
         use RnpIdentifier::*;
-        let (key, cert) = match by {
+        let cert = match by {
             UserID(id) => self.cert_by_userid(id),
             KeyID(id) => self.cert_by_subkey_id(id),
             Fingerprint(fp) => self.cert_by_subkey_fp(fp),
             Keygrip(grip) => self.cert_by_subkey_grip(grip),
         };
 
-        t!("Lookup by {:?} returned cert {:?} and key {:?}",
+        t!("Lookup by {:?} returned cert {:?}",
            by,
-           cert.as_ref().map(|c| c.fingerprint()),
-           key.as_ref().map(|c| c.fingerprint()));
+           cert.as_ref().map(|c| c.fingerprint()));
 
-        match (key, cert) {
-            (None, None) => None,
-            (Some(key), None) => Some(key),
-            (None, Some(cert)) => Some(cert),
-            (Some(key), Some(cert)) => match key.merge_public(cert) {
-                Ok(cert) => Some(cert),
-                Err(e) => {
-                    warn!("Error merging certificates: {}", e);
-                    None
-                },
-            },
-        }
+        cert
     }
 
-    /// Retrieves a certificate from both stores by userid.
+    /// Retrieves a certificate by userid.
     ///
     /// XXX: This is super dodgy.  rnp.h says "Note: only valid
     /// userids are checked while searching by userid." but it is not
@@ -235,18 +227,10 @@ impl RnpContext {
     ///
     /// XXX: I think it would be better to fail these lookups.  Are
     /// they used by TB?
-    pub fn cert_by_userid(&self, uid: &UserID)
-                               -> (Option<Cert>, Option<Cert>) {
-        let mut r_key = None;
+    pub fn cert_by_userid(&self, uid: &UserID) -> Option<Cert> {
         let mut r_cert = None;
 
         // XXX O(n)
-        for cert in self.keys.iter() {
-            if cert.userids().any(|u| u.userid() == uid) {
-                r_key = Some(cert.clone());
-                break;
-            }
-        }
         for cert in self.certs.iter() {
             if cert.userids().any(|u| u.userid() == uid) {
                 r_cert = Some(cert.clone());
@@ -254,53 +238,33 @@ impl RnpContext {
             }
         }
 
-        (r_key, r_cert)
+        r_cert
     }
 
-    /// Retrieves a certificate from both stores by (sub)key
+    /// Retrieves a certificate from the keystore by (sub)key
     /// fingerprint.
-    pub fn cert_by_subkey_fp(&self, fp: &Fingerprint)
-                               -> (Option<Cert>, Option<Cert>) {
-        (self.keys.by_primary_fp(fp).map(|c| c.clone())
-         .or_else(|| self.keys.by_subkey_fp(fp).nth(0).map(|c| c.clone())),
-         self.certs.by_primary_fp(fp).map(|c| c.clone())
-         .or_else(|| self.certs.by_subkey_fp(fp).nth(0).map(|c| c.clone())))
+    pub fn cert_by_subkey_fp(&self, fp: &Fingerprint) -> Option<Cert> {
+        self.certs.by_fp(fp).nth(0).map(|c| c.clone())
     }
 
-    /// Retrieves a certificate from both stores by (sub)key
+    /// Retrieves a certificate from the keystore by (sub)key
     /// keyid.
-    pub fn cert_by_subkey_id(&self, id: &KeyID)
-                               -> (Option<Cert>, Option<Cert>) {
-        (self.keys.by_primary_id(id).nth(0)
-         .or_else(|| self.keys.by_subkey_id(id).nth(0))
-         .map(|c| c.clone()),
+    pub fn cert_by_subkey_id(&self, id: &KeyID) -> Option<Cert> {
          self.certs.by_primary_id(id).nth(0)
          .or_else(|| self.certs.by_subkey_id(id).nth(0))
-         .map(|c| c.clone()))
+         .map(|c| c.clone())
     }
 
-    /// Retrieves a certificate from both stores by (sub)key
+    /// Retrieves a certificate from the keystore by (sub)key
     /// keygrip.
-    pub fn cert_by_subkey_grip(&self, grip: &Keygrip)
-                               -> (Option<Cert>, Option<Cert>) {
-        (self.keys.by_primary_grip(grip).nth(0)
-         .or_else(|| self.keys.by_subkey_grip(grip).nth(0))
-         .map(|c| c.clone()),
+    pub fn cert_by_subkey_grip(&self, grip: &Keygrip) -> Option<Cert> {
          self.certs.by_primary_grip(grip).nth(0)
          .or_else(|| self.certs.by_subkey_grip(grip).nth(0))
-         .map(|c| c.clone()))
+         .map(|c| c.clone())
     }
 
-    /// Retrieves a key from the keyring by (sub)key fingerprint.
-    pub fn key_mut_by_fp(&mut self, fp: &Fingerprint) -> Option<RefMut<Cert>> {
-        if let Some(c) = self.keys.by_primary_fp_mut(fp) {
-            Some(c)
-        } else {
-            self.keys.by_subkey_fp_mut(fp).nth(0)
-        }
-    }
-
-    /// Retrieves a cert from the certring by (sub)key fingerprint.
+    /// Retrieves a certificate from the keystore by (sub)key
+    /// fingerprint.
     pub fn cert_mut_by_fp(&mut self, fp: &Fingerprint) -> Option<RefMut<Cert>> {
         if let Some(c) = self.certs.by_primary_fp_mut(fp) {
             Some(c)
@@ -580,26 +544,32 @@ fn rnp_save_keys(ctx: *mut RnpContext,
     }
 
     let output = &mut *output;
-    let certs = match flags {
-        RNP_LOAD_SAVE_PUBLIC_KEYS => &(*ctx).certs,
-        RNP_LOAD_SAVE_SECRET_KEYS => &(*ctx).keys,
+    let mut r = Ok(());
+    match flags {
+        RNP_LOAD_SAVE_PUBLIC_KEYS => {
+            for cert in (*ctx).certs.to_save().filter(|cert| ! cert.is_tsk()) {
+                if let Err(err) = cert.serialize(output) {
+                    r = Err(err);
+                    break;
+                }
+            }
+        },
+        RNP_LOAD_SAVE_SECRET_KEYS => {
+            for cert in (*ctx).certs.to_save().filter(|cert| cert.is_tsk()) {
+                if let Err(err) = cert.as_tsk().serialize(output) {
+                    r = Err(err);
+                    break;
+                }
+            }
+        }
         f => {
             warn!("unexpected flags to rnp_load_keys: {:x}", f);
             return RNP_ERROR_BAD_PARAMETERS;
         },
     };
 
-    if let Err(e) = (|| -> openpgp::Result<()> {
-        for cert in certs.to_save() {
-            if flags & RNP_LOAD_SAVE_SECRET_KEYS > 0 {
-                cert.as_tsk().serialize(output)?;
-            } else {
-                cert.serialize(output)?;
-            }
-        }
-        Ok(())
-    })() {
-        warn!("failed saving keys: {}", e);
+    if let Err(err) = r {
+        warn!("failed saving keys: {}", err);
         RNP_ERROR_GENERIC
     } else {
         RNP_SUCCESS
@@ -611,7 +581,7 @@ fn rnp_get_public_key_count(ctx: *mut RnpContext,
                             count: *mut size_t)
                             -> RnpResult {
     assert_ptr!(ctx);
-    *count = (*ctx).certs.len();
+    *count = (*ctx).certs.iter().filter(|cert| ! cert.is_tsk()).count();
     RNP_SUCCESS
 }
 
@@ -620,7 +590,7 @@ fn rnp_get_secret_key_count(ctx: *mut RnpContext,
                             count: *mut size_t)
                             -> RnpResult {
     assert_ptr!(ctx);
-    *count = (*ctx).keys.len();
+    *count = (*ctx).certs.iter().filter(|cert| cert.is_tsk()).count();
     RNP_SUCCESS
 }
 

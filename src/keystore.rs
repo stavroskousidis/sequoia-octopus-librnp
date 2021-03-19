@@ -19,6 +19,7 @@ use openpgp::{
     Fingerprint,
     KeyID,
     Cert,
+    packet::prelude::*,
 };
 
 use crate::{
@@ -259,11 +260,6 @@ impl Keystore {
         })
     }
 
-    /// Returns the number of certs in the keyring.
-    pub fn len(&self) -> usize {
-        self.by_primary_fp.len()
-    }
-
     /// Inserts a cert.
     fn insert_(&mut self, cert: Cert, is_external: bool) {
         rnp_function!(Keystore::insert_, super::TRACE);
@@ -284,7 +280,8 @@ impl Keystore {
                 let e = oe.get_mut();
                 cert_slot = Rc::clone(&e.cert);
 
-                let new = cert_slot.borrow().clone().merge_public(cert)
+                let new = cert_slot.borrow().clone()
+                    .insert_packets(cert.into_packets())
                     .expect("does not fail if the primary keys are equal");
                 e.cert.replace(new);
 
@@ -465,6 +462,53 @@ impl Keystore {
 
         removed_one
     }
+
+    /// Removes secret key material associated with `fp`.
+    ///
+    /// Returns true if any secret key material has been removed.
+    pub fn remove_secret_key_material(&mut self, fp: &Fingerprint) -> bool {
+        let mut removed_one = false;
+
+        // First, remove the cert with that fingerprint.
+        if let Some(e) = self.by_primary_fp.get_mut(fp) {
+            if e.cert().is_tsk() {
+                removed_one = true;
+                e.cert.replace_with(|cert| {
+                    cert.clone().strip_secret_key_material()
+                });
+            }
+        }
+
+        // Then, remove secret key material from all subkeys with that
+        // fingerprint.
+        if let Some(v) = self.by_subkey_fp.get_mut(fp) {
+            for e in v {
+                // There's no easy way to remove secret key material
+                // from an individual subkey.  Instead we convert it
+                // to packets, strip the secret key material, and then
+                // convert it back.
+                e.cert.replace_with(|cert| {
+                    Cert::from_packets(
+                        cert.clone()
+                            .into_packets()
+                            .map(|packet| {
+                                match packet {
+                                    Packet::SecretSubkey(k)
+                                        if &k.fingerprint() == fp =>
+                                    {
+                                        removed_one = true;
+                                        Packet::PublicSubkey(k.take_secret().0)
+                                    }
+                                    packet => packet,
+                                }
+                            }))
+                        .expect("still valid")
+                });
+            }
+        }
+
+        removed_one
+    }
 }
 
 #[cfg(test)]
@@ -477,7 +521,6 @@ mod tests {
     use openpgp::policy::StandardPolicy;
     use openpgp::types::SignatureType;
     use openpgp::packet::signature::subpacket::SubpacketTag;
-    use openpgp::packet::prelude::*;
 
     // Makes sure the maps contain the specified number of keys.
     //

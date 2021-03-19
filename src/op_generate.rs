@@ -186,7 +186,7 @@ fn rnp_op_generate_execute(op: *mut RnpOpGenerate) -> RnpResult {
                 generated_key = cert.primary_key().key().clone()
                     .parts_into_unspecified()
                     .role_into_unspecified();
-                op.ctx.keys.insert(cert);
+                op.ctx.certs.insert(cert);
             },
             Mode::SubKey { primary } => {
                 use PublicKeyAlgorithm::*;
@@ -211,7 +211,7 @@ fn rnp_op_generate_execute(op: *mut RnpOpGenerate) -> RnpResult {
                     key = key.encrypt_secret(p)?;
                 }
 
-                let cert = op.ctx.key_mut_by_fp(primary)
+                let cert = op.ctx.cert_mut_by_fp(primary)
                     .ok_or_else(|| anyhow::anyhow!("key not found"))?.clone();
 
                 let primary_key = op.ctx.decrypt_key_for(
@@ -230,7 +230,7 @@ fn rnp_op_generate_execute(op: *mut RnpOpGenerate) -> RnpResult {
                                        .set_transport_encryption())?
                         .set_key_validity_period(op.expiration)?)?;
 
-                let mut c = op.ctx.key_mut_by_fp(primary)
+                let mut c = op.ctx.cert_mut_by_fp(primary)
                     .ok_or_else(|| anyhow::anyhow!("key not found"))?;
                 *c = cert.clone().insert_packets(vec![Packet::from(key.clone()),
                                                       binding.into()])?;
