@@ -862,6 +862,7 @@ fn rnp_key_protect(rnp_key: *mut RnpKey,
                 };
 
             *cert = cert.clone().insert_packets(Some(key))?;
+            rnp_key.cert = Some(cert.clone());
             Ok(())
         } else {
             _warn!("Key {:X} not found in keyring", fp);
@@ -921,6 +922,7 @@ fn rnp_key_unprotect(rnp_key: *mut RnpKey,
                 };
 
             *cert = cert.clone().insert_packets(Some(key))?;
+            rnp_key.cert = Some(cert.clone());
             Ok(())
         } else {
             _warn!("Key {:X} not found in keyring", fp);
