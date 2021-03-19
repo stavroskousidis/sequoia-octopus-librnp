@@ -108,7 +108,7 @@ pub struct RnpOpVerifySignature {
     ctx: *mut RnpContext,
     status: RnpResult,
     sig: Signature,
-    key: Option<Key<UnspecifiedParts, UnspecifiedRole>>,
+    key: Option<(Key<UnspecifiedParts, UnspecifiedRole>, Cert)>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -319,7 +319,7 @@ fn rnp_op_verify_signature_get_key(sig: *mut RnpOpVerifySignature,
     assert_ptr!(sig);
     assert_ptr!(key);
     *key = if let Some(key) = (*sig).key.as_ref().cloned() {
-        Box::into_raw(Box::new(RnpKey::new((*sig).ctx, key)))
+        Box::into_raw(Box::new(RnpKey::with_cert((*sig).ctx, key.0, key.1)))
     } else {
         std::ptr::null_mut()
     };
@@ -506,8 +506,9 @@ impl<'a> VerificationHelper for Helper<'a> {
                                         ctx: self.ctx as *mut _,
                                         status: RNP_SUCCESS,
                                         sig: sig.clone(),
-                                        key: Some(ka.key().clone()
-                                                  .parts_into_unspecified()),
+                                        key: Some((ka.key().clone()
+                                                   .parts_into_unspecified(),
+                                                   ka.cert().clone())),
                                     });
                             },
                             Err(MalformedSignature { sig, .. }) => {
@@ -543,8 +544,9 @@ impl<'a> VerificationHelper for Helper<'a> {
                                         ctx: self.ctx as *mut _,
                                         status: RNP_ERROR_SIGNATURE_INVALID,
                                         sig: sig.clone(),
-                                        key: Some(ka.key().clone()
-                                                  .parts_into_unspecified()),
+                                        key: Some((ka.key().clone()
+                                                   .parts_into_unspecified(),
+                                                   ka.cert().clone())),
                                     });
                             },
                             Err(BadSignature { sig, ka, .. }) => {
@@ -557,8 +559,9 @@ impl<'a> VerificationHelper for Helper<'a> {
                                             RNP_ERROR_SIGNATURE_INVALID
                                         },
                                         sig: sig.clone(),
-                                        key: Some(ka.key().clone()
-                                                  .parts_into_unspecified()),
+                                        key: Some((ka.key().clone()
+                                                   .parts_into_unspecified(),
+                                                   ka.cert().clone())),
                                     });
                             },
                         }
