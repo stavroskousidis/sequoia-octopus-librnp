@@ -217,6 +217,18 @@ impl Keystore {
             .map(|e| e.cert())
     }
 
+    /// Returns a reference to each cert containing a primary key or
+    /// subkey with the given fingerprint.
+    ///
+    /// If a certificate contains a primary key and a subkey with the
+    /// same fingerprint, that certificate is returned twice.
+    pub fn by_fp(&self, fp: &Fingerprint) -> impl Iterator<Item=Ref<Cert>> {
+        self.by_primary_fp(fp)
+            .into_iter()
+            .chain(self.by_subkey_fp(fp))
+    }
+
+
     /// Returns a reference to each cert containing a subkey with the
     /// given keygrip, if any.
     ///
