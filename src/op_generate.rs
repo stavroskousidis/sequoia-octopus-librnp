@@ -266,7 +266,7 @@ fn rnp_op_generate_get_key(op: *mut RnpOpGenerate,
     match &op.mode {
         Mode::Generated { key } => {
             *key_out =
-                Box::into_raw(Box::new(RnpKey::new(op.ctx, key.clone())));
+                Box::into_raw(Box::new(RnpKey::without_cert(op.ctx, key.clone())));
             RNP_SUCCESS
         },
         _ => RNP_ERROR_BAD_PARAMETERS,

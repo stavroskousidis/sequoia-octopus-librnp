@@ -62,8 +62,16 @@ pub struct RnpKey {
 }
 
 impl RnpKey {
-    pub fn new(ctx: *mut RnpContext,
-               key: Key<UnspecifiedParts, UnspecifiedRole>) -> Self {
+    /// Creates a new RnpKey without reference to the containing certificate.
+    ///
+    /// If at all possible you should use the `new` variant.  This is
+    /// because when the certificate is needed and it is not
+    /// available, it is looked up in the keystore.  This introduces
+    /// two failure modes: the key is not present, there are multiple
+    /// keys that have the same fingerprint.  In the latter case, we
+    /// return the best match, which should usually be good enough.
+    pub fn without_cert(ctx: *mut RnpContext,
+                        key: Key<UnspecifiedParts, UnspecifiedRole>) -> Self {
         RnpKey {
             ctx,
             key,
@@ -71,9 +79,9 @@ impl RnpKey {
         }
     }
 
-    pub fn with_cert(ctx: *mut RnpContext,
-                     key: Key<UnspecifiedParts, UnspecifiedRole>,
-                     cert: Cert) -> Self {
+    pub fn new(ctx: *mut RnpContext,
+               key: Key<UnspecifiedParts, UnspecifiedRole>,
+               cert: Cert) -> Self {
         RnpKey {
             ctx,
             key,
