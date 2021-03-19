@@ -27,10 +27,13 @@ bullseye:
     - cargo build
     - cargo test
     - if ! git diff --quiet Cargo.lock ; then echo "Cargo.lock changed.  Please add the change to the corresponding commit." ; false ; fi
+    - cp $CARGO_TARGET_DIR/debug/libsequoia_octopus_librnp.so libsequoia_octopus_librnp.so
 
   variables:
     CARGO_TARGET_DIR: $CI_PROJECT_DIR/../target.$CI_CONCURRENT_ID.bullseye
     RUSTFLAGS: -D warnings -A unused-parens
+  artifacts:
+    paths: [libsequoia_octopus_librnp.so]
 
 codespell:
   tags:
@@ -86,6 +89,36 @@ windows-msvc:
   after_script: []
   variables:
     CFLAGS: "" # Silence some C warnings when compiling with MSVC
+
+thunderbird-tests:
+  image: registry.gitlab.com/sequoia-pgp/build-thunderbird/tbbuild:latest
+  stage: test
+  needs: ["bullseye"]
+  before_script:
+    - apt install -y -qq --no-install-recommends git rustc cargo clang libclang-dev make pkg-config nettle-dev libssl-dev capnproto libsqlite3-dev procps
+    - if [ -d $CARGO_TARGET_DIR ]; then find $CARGO_TARGET_DIR | wc --lines; du -sh $CARGO_TARGET_DIR; fi
+    - if [ -d $CARGO_HOME ]; then find $CARGO_HOME | wc --lines; du -sh $CARGO_HOME; fi
+    - cargo --version
+    - clang --version
+    - sh -c 'cd /thunderbird-esr78/; hg summary'
+    - sh -c 'cd /thunderbird-esr78/comm; hg summary'
+  script:
+    - cargo build
+    - ls -l /thunderbird-esr78/obj-artifact/dist/bin/librnp.so
+    - ln -vsf $CARGO_TARGET_DIR/debug/libsequoia_octopus_librnp.so /thunderbird-esr78/obj-artifact/dist/bin/librnp.so
+      #- ln -vsf libsequoia_octopus_librnp.so /thunderbird-esr78/obj-artifact/dist/bin/librnp.so
+    - ls -l /thunderbird-esr78/obj-artifact/dist/bin/librnp.so
+    - ldd /thunderbird-esr78/obj-artifact/dist/bin/librnp.so
+    - cd /thunderbird-esr78/
+    - ./mach test --headless comm/mail/extensions/openpgp/test mail/test/browser/openpgp
+  after_script: []
+  tags:
+    - cookiejar
+  except:
+    - schedules
+  variables:
+    CARGO_TARGET_DIR: $CI_PROJECT_DIR/../target.$CI_CONCURRENT_ID.bullseye
+    RUSTFLAGS: -D warnings -A unused-parens
 
 variables:
   DEBIAN_FRONTEND: noninteractive
