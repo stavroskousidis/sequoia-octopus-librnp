@@ -1,4 +1,5 @@
 use std::{
+    cell::Ref,
     ffi::{
         CStr,
     },
@@ -91,11 +92,45 @@ impl RnpKey {
 
     fn cert(&mut self) -> Option<&Cert> {
         if self.cert.is_none() {
-            if let Some(cert) = unsafe {
-                (*self.ctx).cert(&RnpIdentifier::Fingerprint(self.key.fingerprint()))
-            } {
-                self.cert = Some(cert);
+            // There may be multiple certificates with the same key.
+            // Prefer an exact match (i.e., fingerprint *and* secret
+            // key material match), if one is available.
+
+            let ctx = unsafe { &*self.ctx };
+            let fp = self.key.fingerprint();
+
+            let mut candidates = Vec::new();
+            for cert in ctx.certs.by_fp(&fp)
+                .chain(ctx.keys.by_fp(&fp))
+            {
+                for k in cert.keys().key_handle(&fp) {
+                    // Eq compares the secret parts.
+                    candidates.push(
+                        (if &self.key
+                         == k.key()
+                             .role_as_unspecified()
+                             .parts_as_unspecified()
+                         {
+                             0
+                         } else {
+                             1
+                         },
+                         Ref::clone(&cert)))
+                }
             }
+
+            if candidates.len() == 0 {
+                warn!("No certificate in key store has the key {:X}", fp);
+                return None;
+            }
+
+            candidates.sort_by_key(|a| { (a.0, a.1.fingerprint()) });
+
+            if candidates[0].0 == 1 {
+                warn!("No certificate exactly contains the key {}", fp);
+            }
+
+            self.cert = Some(candidates[0].1.clone());
         }
 
         self.cert.as_ref()
