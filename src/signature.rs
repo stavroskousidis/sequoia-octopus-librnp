@@ -101,7 +101,7 @@ fn rnp_signature_get_signer(sig: *const RnpSignature,
                 .expect("must be there").key().clone()
                 .parts_into_unspecified();
             *key = Box::into_raw(Box::new(
-                RnpKey::new((*sig).ctx as *mut _, k, cert)));
+                RnpKey::new((*sig).ctx as *mut _, k, &cert)));
             return RNP_SUCCESS;
         }
     }

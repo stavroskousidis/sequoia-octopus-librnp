@@ -154,6 +154,13 @@ impl fmt::Debug for Keystore {
 }
 
 impl Keystore {
+    /// Returns a clone of the specified certificate's RefCell.
+    ///
+    /// fp is the certificate's fingerprint.
+    pub fn cert_ref_cell(&self, fp: &Fingerprint) -> Option<Rc<RefCell<Cert>>> {
+        self.by_primary_fp.get(fp).map(|e| Rc::clone(&e.cert))
+    }
+
     /// Returns a reference to the cert with the given fingerprint, if
     /// any.
     pub fn by_primary_fp(&self, fp: &Fingerprint) -> Option<Ref<Cert>> {
@@ -261,6 +268,9 @@ impl Keystore {
     }
 
     /// Inserts a cert.
+    ///
+    /// This function prefers secret key material in the cert that is
+    /// being merged.
     fn insert_(&mut self, cert: Cert, is_external: bool) {
         rnp_function!(Keystore::insert_, super::TRACE);
 

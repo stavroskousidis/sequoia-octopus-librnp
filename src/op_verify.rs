@@ -319,7 +319,7 @@ fn rnp_op_verify_signature_get_key(sig: *mut RnpOpVerifySignature,
     assert_ptr!(sig);
     assert_ptr!(key);
     *key = if let Some(key) = (*sig).key.as_ref().cloned() {
-        Box::into_raw(Box::new(RnpKey::new((*sig).ctx, key.0, key.1)))
+        Box::into_raw(Box::new(RnpKey::new((*sig).ctx, key.0, &key.1)))
     } else {
         std::ptr::null_mut()
     };

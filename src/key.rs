@@ -1,9 +1,12 @@
 use std::{
     cell::Ref,
+    cell::RefCell,
+    cell::RefMut,
     ffi::{
         CStr,
     },
     io,
+    rc::Rc,
     time::{
         Duration,
         UNIX_EPOCH,
@@ -59,7 +62,7 @@ use crate::{
 pub struct RnpKey {
     ctx: *mut RnpContext,
     key: Key<UnspecifiedParts, UnspecifiedRole>,
-    cert: Option<Cert>,
+    cert: Option<Rc<RefCell<Cert>>>,
 }
 
 impl RnpKey {
@@ -73,25 +76,54 @@ impl RnpKey {
     /// return the best match, which should usually be good enough.
     pub fn without_cert(ctx: *mut RnpContext,
                         key: Key<UnspecifiedParts, UnspecifiedRole>) -> Self {
-        RnpKey {
+        let mut key = RnpKey {
             ctx,
             key,
             cert: None,
-        }
+        };
+        key.find_cert();
+
+        key
     }
 
     pub fn new(ctx: *mut RnpContext,
                key: Key<UnspecifiedParts, UnspecifiedRole>,
-               cert: Cert) -> Self {
+               cert: &Cert) -> Self {
+        let ctx = unsafe { &mut *ctx };
+        let cert_cell_ref = if let Some(cert_cell_ref)
+            = ctx.certs.cert_ref_cell(&cert.fingerprint())
+        {
+            Rc::clone(&cert_cell_ref)
+        } else {
+            // We've been asked to create a key handle to a key that
+            // is not in our keystore.  That's not good.  There are a
+            // few things we can do:
+            //
+            //   1. Crash (this function is infallible).
+            //   2. Supply None (this will cause problems later).
+            //   3. Reference the passed certificate.
+            //   4. Insert the passed certificate into the keystore.
+            //
+            // For now we opt for #3.  #4 might be better since we
+            // don't treat the keyring as a curated keyring anyway.
+            warn!("Attempt to create key handle for key ({}, {}) \
+                   that is not in the keystore",
+                  cert.fingerprint(), key.fingerprint());
+            Rc::new(RefCell::new(cert.clone()))
+        };
+
         RnpKey {
             ctx,
             key,
-            cert: Some(cert),
+            cert: Some(cert_cell_ref),
         }
     }
 
-    fn cert(&mut self) -> Option<&Cert> {
+    fn find_cert(&mut self) {
+        rnp_function!(RnpKey::cert, super::TRACE);
         if self.cert.is_none() {
+            t!("Arg, need to find cert in the key store!");
+
             // There may be multiple certificates with the same key.
             // Prefer an exact match (i.e., fingerprint *and* secret
             // key material match), if one is available.
@@ -100,9 +132,9 @@ impl RnpKey {
             let fp = self.key.fingerprint();
 
             let mut candidates = Vec::new();
-            for cert in ctx.certs.by_fp(&fp)
+            for cert in ctx.certs.cert_ref_cell(&fp)
             {
-                for k in cert.keys().key_handle(&fp) {
+                for k in cert.borrow().keys().key_handle(&fp) {
                     // Eq compares the secret parts.
                     candidates.push(
                         (if &self.key
@@ -114,25 +146,34 @@ impl RnpKey {
                          } else {
                              1
                          },
-                         Ref::clone(&cert)))
+                         Rc::clone(&cert)))
                 }
             }
 
             if candidates.len() == 0 {
                 warn!("No certificate in key store has the key {:X}", fp);
-                return None;
+                return;
             }
 
-            candidates.sort_by_key(|a| { (a.0, a.1.fingerprint()) });
+            candidates.sort_by_key(|a| { (a.0, a.1.borrow().fingerprint()) });
+            self.cert = candidates.into_iter().next().map(|c| {
+                if c.0 == 1 {
+                    warn!("No certificate exactly contains the key {}", fp);
+                }
 
-            if candidates[0].0 == 1 {
-                warn!("No certificate exactly contains the key {}", fp);
-            }
-
-            self.cert = Some(candidates[0].1.clone());
+                c.1
+            });
         }
+    }
 
-        self.cert.as_ref()
+    fn cert(&mut self) -> Option<Ref<Cert>> {
+        self.find_cert();
+        self.cert.as_ref().map(|c| c.borrow())
+    }
+
+    fn cert_mut(&mut self) -> Option<RefMut<Cert>> {
+        self.find_cert();
+        self.cert.as_ref().map(|c| c.borrow_mut())
     }
 }
 
@@ -180,7 +221,8 @@ fn rnp_locate_key(ctx: *mut RnpContext,
         *key = Box::into_raw(Box::new(RnpKey {
             ctx,
             key: k,
-            cert: Some(cert),
+            cert: Some((&*ctx).certs.cert_ref_cell(&cert.fingerprint())
+                       .expect("just looked it up")),
         }));
     } else {
         *key = std::ptr::null_mut();
@@ -232,8 +274,9 @@ fn rnp_key_get_alg(key: *const RnpKey,
 
 impl RnpKey {
     fn is_primary(&mut self) -> Result<bool> {
+        let key_fpr = self.fingerprint();
         if let Some(cert) = self.cert() {
-            Ok(cert.fingerprint() == self.fingerprint())
+            Ok(cert.fingerprint() == key_fpr)
         } else {
             Err(RNP_ERROR_NO_SUITABLE_KEY)
         }
@@ -362,7 +405,7 @@ fn rnp_key_get_expiration(key: *mut RnpKey,
     assert_ptr!(expiration);
     let fp = key.fingerprint();
 
-    if let Some(cert) = key.cert()
+    if let Some(cert) = key.cert().as_ref()
         .and_then(|c| c.with_policy(P, None).ok())
     {
         if let Some(vka) = cert.keys().key_handle(fp.clone()).nth(0) {
@@ -402,7 +445,7 @@ fn rnp_key_get_primary_uid(key: *mut RnpKey,
     use openpgp::policy::{Policy, NullPolicy};
     const NP: &dyn Policy = &NullPolicy::new();
 
-    if let Some(cert) = (*key).cert()
+    if let Some(cert) = (*key).cert().as_ref()
         .and_then(|c| c.with_policy(P, None).ok()
                   .or_else(|| c.with_policy(NP, None).ok()))
     {
@@ -501,7 +544,7 @@ fn rnp_key_get_subkey_at(key: *mut RnpKey,
                 key: k.key().clone()
                     .parts_into_unspecified()
                     .role_into_unspecified(),
-                cert: Some(cert.clone()),
+                cert: Some(Rc::clone((*key).cert.as_ref().expect("valid"))),
             }));
             RNP_SUCCESS
         } else {
@@ -539,7 +582,7 @@ fn rnp_key_allows_usage(key: *mut RnpKey,
 
     let usage = rnp_try!(RnpKeyUsage::from_rnp_id(usage));
 
-    if let Some(cert) = (*key).cert()
+    if let Some(cert) = (*key).cert().as_ref()
         .and_then(|c| c.with_policy(P, None).ok())
     {
         if let Some(vka) = cert
@@ -567,7 +610,7 @@ fn rnp_key_is_revoked(key: *mut RnpKey,
     assert_ptr!(key);
     assert_ptr!(result);
 
-    if let Some(cert) = (*key).cert()
+    if let Some(cert) = (*key).cert().as_ref()
         .and_then(|c| c.with_policy(P, None).ok())
     {
         if let Some(vka) = cert
@@ -604,7 +647,7 @@ fn rnp_key_export_autocrypt(key: *mut RnpKey,
     assert_ptr!(output);
     let uid = rnp_try!(cstr_to_str(uid));
 
-    fn f(cert: &Cert, uid: &str, output: &mut dyn io::Write)
+    fn f(cert: Ref<Cert>, uid: &str, output: &mut dyn io::Write)
          -> openpgp::Result<()>
     {
         // Attempt to parse the given user id into only the email.
@@ -616,7 +659,7 @@ fn rnp_key_export_autocrypt(key: *mut RnpKey,
         // Instead of implementing what RNP does, we use
         // sequoia-autocrypt for the normalization, and ignore subkey.
         use sequoia_autocrypt::AutocryptHeader;
-        let header = AutocryptHeader::new_sender(P, cert, &addr, None)?;
+        let header = AutocryptHeader::new_sender(P, &cert, &addr, None)?;
         let cert = header.key.expect("on success, the cleaned cert is there");
         cert.serialize(output)?;
         Ok(())
@@ -711,6 +754,15 @@ fn rnp_key_export(key: *mut RnpKey,
 
     let mut cert = key.cert()
         .expect("worked for is_primary() above").clone();
+    eprintln!("Version in key:");
+    crate::cert_dump(&cert);
+
+    // // Get the latest version.
+    if let Some(c) = (*key.ctx).certs.by_primary_fp(&cert.fingerprint()) {
+        eprintln!("Version in key store:");
+        crate::cert_dump(&c);
+        // cert = c.clone();
+    }
 
     // Cut down cert.
     if ! export_subkeys {
@@ -851,26 +903,16 @@ fn rnp_key_protect(rnp_key: *mut RnpKey,
         // Update the copy of the key in this handle.
         rnp_key.key = key.clone().parts_into_unspecified();
 
-        if let Some(cert_copy) = rnp_key.cert() {
-            if let Some(mut cert)
-                = ctx.certs.by_primary_fp_mut(&cert_copy.fingerprint())
-            {
-                let key: openpgp::Packet =
-                    if key.fingerprint() == cert.fingerprint() {
-                        key.role_into_primary().into()
-                    } else {
-                        key.role_into_subordinate().into()
-                    };
+        if let Some(mut cert) = rnp_key.cert_mut() {
+            let key: openpgp::Packet =
+                if key.fingerprint() == cert.fingerprint() {
+                    key.role_into_primary().into()
+                } else {
+                    key.role_into_subordinate().into()
+                };
 
-                *cert = cert.clone().insert_packets(Some(key))?;
-                // In case the certificate was updated in the mean
-                // time, update the stashed copy.
-                rnp_key.cert = Some(cert.clone());
-                Ok(())
-            } else {
-                _warn!("Key {:X} not found in keyring", fp);
-                Err(anyhow::anyhow!("Key {:X} not found in keyring", fp))
-            }
+            *cert = cert.clone().insert_packets(Some(key))?;
+            Ok(())
         } else {
             Err(anyhow::anyhow!("Key for {:X} not found in keyring",
                                 fp))
@@ -920,29 +962,16 @@ fn rnp_key_unprotect(rnp_key: *mut RnpKey,
         // Update the copy of the key in this handle.
         rnp_key.key = key.clone().parts_into_unspecified();
 
-        // XXX: Are we sure that we are updating the correct key?!?
-        // If this is a subkey present on multiple certificates, we
-        // might get the wrong one.
-        if let Some(cert_copy) = rnp_key.cert() {
-            if let Some(mut cert)
-                = ctx.certs.by_primary_fp_mut(&cert_copy.fingerprint())
-            {
-                let key: openpgp::Packet =
-                    if key.fingerprint() == cert.fingerprint() {
-                        key.role_into_primary().into()
-                    } else {
-                        key.role_into_subordinate().into()
-                    };
+        if let Some(mut cert) = rnp_key.cert_mut() {
+            let key: openpgp::Packet =
+                if key.fingerprint() == cert.fingerprint() {
+                    key.role_into_primary().into()
+                } else {
+                    key.role_into_subordinate().into()
+                };
 
-                *cert = cert.clone().insert_packets(Some(key))?;
-                // In case the certificate was updated in the mean
-                // time, update the stashed copy.
-                rnp_key.cert = Some(cert.clone());
-                Ok(())
-            } else {
-                _warn!("Key {:X} not found in keyring", fp);
-                Err(anyhow::anyhow!("Key {:X} not found in keyring", fp))
-            }
+            *cert = cert.clone().insert_packets(Some(key))?;
+            Ok(())
         } else {
             Err(anyhow::anyhow!("Key for {:X} not found in keyring",
                                 fp))
@@ -1000,17 +1029,27 @@ fn rnp_key_export_revocation(key: *mut RnpKey,
     {
         let ctx = unsafe { &mut *key.ctx };
         let primary_key = key.key.clone().parts_into_secret()?;
-        let mut keypair = ctx.decrypt_key_for(key.cert.as_ref(),
-                                              primary_key,
-                                              // XXX: This is what RNP
-                                              // does, there is no
-                                              // dedicated reason.
-                                              RnpPasswordFor::Unlock)?
+        let mut keypair =
+            if let Some(cert) = key.cert().as_ref() {
+                ctx.decrypt_key_for(Some(cert),
+                                    primary_key,
+                                    // XXX: This is what RNP
+                                    // does, there is no
+                                    // dedicated reason.
+                                    RnpPasswordFor::Unlock)?
+            } else {
+                ctx.decrypt_key_for(None,
+                                    primary_key,
+                                    // XXX: This is what RNP
+                                    // does, there is no
+                                    // dedicated reason.
+                                    RnpPasswordFor::Unlock)?
+            }
             .into_keypair()?;
 
         let sig = CertRevocationBuilder::new()
             .set_reason_for_revocation(code, reason)?
-            .build(&mut keypair, key.cert.as_ref().expect("it is a primary"),
+            .build(&mut keypair, &*key.cert().expect("it is a primary"),
                    hash)?;
 
         Packet::from(sig).serialize(sink)?;
@@ -1066,7 +1105,7 @@ fn rnp_key_revoke(key: *mut RnpKey,
         CStr::from_ptr(reason).to_bytes()
     };
 
-    fn f(ctx: &mut RnpContext, cert: Cert, key: &RnpKey,
+    fn f(ctx: &mut RnpContext, cert: Cert, key: &mut RnpKey,
          hash: Option<HashAlgorithm>, code: ReasonForRevocation, reason: &[u8])
          -> openpgp::Result<()>
     {
@@ -1075,12 +1114,22 @@ fn rnp_key_revoke(key: *mut RnpKey,
         let primary_key =
             cert.primary_key().key().clone().parts_into_secret()?
             .role_into_unspecified();
-        let mut keypair = ctx.decrypt_key_for(key.cert.as_ref(),
-                                              primary_key,
-                                              // XXX: This is what RNP
-                                              // does, there is no
-                                              // dedicated reason.
-                                              RnpPasswordFor::Unlock)?
+        let mut keypair =
+            if let Some(cert) = key.cert() {
+                ctx.decrypt_key_for(Some(&*cert),
+                                    primary_key,
+                                    // XXX: This is what RNP
+                                    // does, there is no
+                                    // dedicated reason.
+                                    RnpPasswordFor::Unlock)?
+            } else {
+                ctx.decrypt_key_for(None,
+                                    primary_key,
+                                    // XXX: This is what RNP
+                                    // does, there is no
+                                    // dedicated reason.
+                                    RnpPasswordFor::Unlock)?
+            }
             .into_keypair()?;
 
         let sig = if is_primary {
@@ -1208,5 +1257,229 @@ fn rnp_key_set_expiration(key: *mut RnpKey,
         RNP_ERROR_GENERIC
     } else {
         RNP_SUCCESS
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use libc::c_char;
+    use std::ffi::CString;
+
+    use crate::rnp_ffi_create;
+    use crate::io::RnpInput;
+    use crate::import::rnp_import_keys;
+    use crate::rnp_output_to_memory;
+    use crate::rnp_output_memory_get_buf;
+    use crate::rnp_input_from_memory;
+    use crate::rnp_input_destroy;
+    use crate::rnp_output_destroy;
+    use crate::rnp_ffi_destroy;
+
+    #[test]
+    fn key_consistency() -> openpgp::Result<()> {
+        // Consider the following scenario:
+        //
+        //  1. Look up a key using rnp_locate_key and get back an
+        //     RnpKey handle.
+        //
+        //  2. Modify the underlying certificate without using the key
+        //     handle returned in (1).
+        //
+        //  3. Use the key handle returned in (1) to access the
+        //     certificate.
+        //
+        // Does (3) see the modifications made in (2) or not?  It
+        // should see them.
+        //
+        // To check for this, create a certificate with a password,
+        // and (1) get a reference to the primary key.  We then (2)
+        // change the password of the certificate's key, and then (3)
+        // export it.  We then check if the password was actually
+        // modified.  If not, then the key handle did not see the
+        // changes done in (2).
+        let change_pw = |ctx: *mut RnpContext,
+                         cert: &Cert, old: Option<&str>, new: Option<&str>|
+            -> openpgp::Result<()>
+        {
+            let old_c = old.map(|s| {
+                CString::new(s.as_bytes()).unwrap().into_raw() as *const c_char
+            });
+            let new_c = new.map(|s| {
+                CString::new(s.as_bytes()).unwrap().into_raw() as *const c_char
+            });
+
+            let mut primary = None;
+            for (i, k) in cert.keys().enumerate() {
+                let mut key: *mut RnpKey = std::ptr::null_mut();
+                let r = unsafe {
+                    rnp_locate_key(ctx,
+                                   b"fingerprint\x00".as_ptr() as *const c_char,
+                                   CString::new(k.fingerprint().to_string())
+                                   .unwrap().into_raw() as *const c_char,
+                                   &mut key as *mut *mut _)
+                };
+                assert_eq!(r, RNP_SUCCESS);
+
+                if let Some(old_c) = old_c {
+                    let r = unsafe { rnp_key_unprotect(key, old_c) };
+                    if r != RNP_SUCCESS {
+                        return Err(anyhow::anyhow!("Failed to change password"));
+                    }
+                    eprintln!("After unprotecting {} with {}",
+                              k.fingerprint(), old.unwrap());
+                    crate::cert_dump(
+                        &unsafe { &mut *ctx }
+                            .certs.by_primary_fp(&cert.fingerprint()).unwrap());
+                }
+
+                if let Some(new_c) = new_c {
+                    let r = unsafe {
+                        rnp_key_protect(key, new_c,
+                                        std::ptr::null(),
+                                        std::ptr::null(),
+                                        std::ptr::null(),
+                                        0)
+                    };
+                    assert_eq!(r, RNP_SUCCESS);
+                    eprintln!("After protecting {} with {}",
+                              k.fingerprint(), new.unwrap());
+                    crate::cert_dump(
+                        &unsafe { &mut *ctx }
+                            .certs.by_primary_fp(&cert.fingerprint()).unwrap());
+                }
+
+                if i == 0 {
+                    primary = Some(key);
+                } else {
+                    let r = unsafe { rnp_key_handle_destroy(key) };
+                    assert_eq!(r, RNP_SUCCESS);
+                }
+            }
+
+            let primary = primary.unwrap();
+
+            // Export the key use the primary key handle.
+            let mut output: *mut RnpOutput = std::ptr::null_mut();
+            let r = unsafe {
+                rnp_output_to_memory(&mut output as *mut *mut _, 0)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let r = unsafe {
+                rnp_key_export(primary, output,
+                               RNP_KEY_EXPORT_ARMORED
+                               | RNP_KEY_EXPORT_PUBLIC
+                               | RNP_KEY_EXPORT_SECRET
+                               | RNP_KEY_EXPORT_SUBKEYS)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let mut buf: *mut u8 = std::ptr::null_mut();
+            let mut len: libc::size_t = 0;
+            let r = unsafe {
+                rnp_output_memory_get_buf(
+                    output,
+                    &mut buf as *mut *mut _,
+                    &mut len as *mut _,
+                    false)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let mut input: *mut RnpInput = std::ptr::null_mut();
+            let r = unsafe {
+                rnp_input_from_memory(
+                    &mut input as *mut *mut _,
+                    buf, len, false)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            // And reload load.
+            let r = unsafe {
+                rnp_import_keys(
+                    ctx, input,
+                    RNP_LOAD_SAVE_PUBLIC_KEYS
+                        | RNP_LOAD_SAVE_SECRET_KEYS,
+                    std::ptr::null_mut() as *mut *mut _)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let r = unsafe {
+                rnp_input_destroy(input)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let r = unsafe {
+                rnp_output_destroy(output)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let r = unsafe { rnp_key_handle_destroy(primary) };
+            assert_eq!(r, RNP_SUCCESS);
+
+            Ok(())
+        };
+
+        let mut ctx: *mut RnpContext = std::ptr::null_mut();
+        let r = unsafe {
+            rnp_ffi_create(
+                &mut ctx as *mut *mut _,
+                b"GPG\x00".as_ptr() as *const c_char,
+                b"GPG\x00".as_ptr() as *const c_char)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+
+        // Create a key.
+        let (alice, _) = openpgp::cert::CertBuilder::new()
+            .add_userid("alice")
+            .add_signing_subkey()
+            .set_password(Some("passw0rd".into()))
+            .generate()?;
+
+        // Import it into the context.
+        let mut buffer = Vec::new();
+        alice.as_tsk().serialize(&mut buffer)?;
+
+        let mut input: *mut RnpInput = std::ptr::null_mut();
+        let r = unsafe {
+            rnp_input_from_memory(
+                &mut input as *mut *mut _,
+                buffer.as_ptr(), buffer.len(), false)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+
+        // And load the certificate.
+        let r = unsafe {
+            rnp_import_keys(
+                ctx, input,
+                RNP_LOAD_SAVE_PUBLIC_KEYS
+                    | RNP_LOAD_SAVE_SECRET_KEYS,
+                std::ptr::null_mut() as *mut *mut _)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+
+        let r = unsafe {
+            rnp_input_destroy(input)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+
+        eprintln!("ctx: keystore: {:?}", unsafe { &mut *ctx }.certs);
+
+        change_pw(ctx, &alice, Some("passw0rd"), Some("new-password-1234"))
+            .expect("success");
+
+        change_pw(ctx, &alice, Some("new-password-1234"), Some("third-password"))
+            .expect("correct password");
+
+        // Make sure we can still change the password.
+        assert!(change_pw(ctx, &alice, Some("bad-password"), Some("more-password"))
+                .is_err());
+
+        let r = unsafe {
+            rnp_ffi_destroy(ctx)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+
+        Ok(())
     }
 }

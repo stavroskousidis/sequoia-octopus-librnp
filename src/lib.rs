@@ -170,6 +170,39 @@ fn rnp_ffi_set_pass_provider(ctx: *mut RnpContext,
     RNP_SUCCESS
 }
 
+fn cert_dump(cert: &Cert) {
+    use openpgp::packet::key::SecretKeyMaterial;
+
+    eprintln!("Cert: {}, {}", cert.fingerprint(),
+              cert.with_policy(&StandardPolicy::new(), None)
+              .map(|cert| {
+                  cert.primary_userid()
+                      .map(|ua| {
+                          String::from_utf8_lossy(ua.userid().value())
+                              .into_owned()
+                      })
+                      .unwrap_or("<No UserID>"[..].into())
+              })
+              .unwrap_or("<Invalid>".into()));
+
+    for (i, k) in cert.keys().enumerate() {
+        eprint!("  {}. {}", i, k.fingerprint());
+        match k.optional_secret() {
+            Some(SecretKeyMaterial::Unencrypted(_)) => {
+                eprint!(" has unencrypted secret key material");
+            }
+            Some(SecretKeyMaterial::Encrypted(m)) => {
+                eprint!(" has encrypted secret key material: {:?}",
+                        m.ciphertext());
+            }
+            None => {
+                eprint!(" has NO secret key material");
+            }
+        }
+        eprintln!("");
+    }
+}
+
 impl RnpContext {
     /// Inserts a cert into the keystore.
     ///
@@ -265,6 +298,8 @@ impl RnpContext {
 
     /// Retrieves a certificate from the keystore by (sub)key
     /// fingerprint.
+    // This is dangerous!  The caller should get the cert, merge, then
+    // reinsert.
     pub fn cert_mut_by_fp(&mut self, fp: &Fingerprint) -> Option<RefMut<Cert>> {
         if let Some(c) = self.certs.by_primary_fp_mut(fp) {
             Some(c)
@@ -380,7 +415,7 @@ impl RnpContext {
     /// Returns false iff the key has not been unlocked.
     pub fn key_is_locked(&mut self, key: &Key<SecretParts, UnspecifiedRole>)
                          -> bool {
-        self.unlocked_keys.contains_key(&key.fingerprint())
+        ! self.unlocked_keys.contains_key(&key.fingerprint())
     }
 
     /// Locks the key.
@@ -397,6 +432,9 @@ impl RnpContext {
                       password: Option<Password>)
                       -> openpgp::Result<()>
     {
+        rnp_function!(RnpContext::key_unlock, crate::TRACE);
+        t!("key: {}; password: {:?}", key.fingerprint(), password);
+
         if ! key.has_unencrypted_secret() {
             let pk_algo = key.pk_algo();
             if let Some(pw) = password
@@ -410,6 +448,7 @@ impl RnpContext {
             }
         }
 
+        assert!(key.has_unencrypted_secret());
         self.unlocked_keys.insert(key.fingerprint(), key);
         Ok(())
     }
@@ -452,6 +491,8 @@ fn rnp_load_keys(ctx: *mut RnpContext,
                  input: *mut RnpInput,
                  flags: RnpLoadSaveFlags)
                  -> RnpResult {
+    rnp_function!(rnp_load_keys, TRACE);
+
     assert_ptr!(ctx);
     assert_ptr!(format);
     assert_ptr!(input);
@@ -536,6 +577,7 @@ fn rnp_save_keys(ctx: *mut RnpContext,
                  output: *mut RnpOutput,
                  flags: RnpLoadSaveFlags)
                  -> RnpResult {
+    rnp_function!(rnp_save_keys, TRACE);
     assert_ptr!(ctx);
     assert_ptr!(format);
     assert_ptr!(output);
