@@ -754,15 +754,6 @@ fn rnp_key_export(key: *mut RnpKey,
 
     let mut cert = key.cert()
         .expect("worked for is_primary() above").clone();
-    eprintln!("Version in key:");
-    crate::cert_dump(&cert);
-
-    // // Get the latest version.
-    if let Some(c) = (*key.ctx).certs.by_primary_fp(&cert.fingerprint()) {
-        eprintln!("Version in key store:");
-        crate::cert_dump(&c);
-        // cert = c.clone();
-    }
 
     // Cut down cert.
     if ! export_subkeys {

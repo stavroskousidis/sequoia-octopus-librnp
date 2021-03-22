@@ -114,6 +114,40 @@ mod wot;
 
 pub const P: &StandardPolicy = &StandardPolicy::new();
 
+#[allow(dead_code)]
+fn cert_dump(cert: &Cert) {
+    use openpgp::packet::key::SecretKeyMaterial;
+
+    eprintln!("Cert: {}, {}", cert.fingerprint(),
+              cert.with_policy(&StandardPolicy::new(), None)
+              .map(|cert| {
+                  cert.primary_userid()
+                      .map(|ua| {
+                          String::from_utf8_lossy(ua.userid().value())
+                              .into_owned()
+                      })
+                      .unwrap_or("<No UserID>"[..].into())
+              })
+              .unwrap_or("<Invalid>".into()));
+
+    for (i, k) in cert.keys().enumerate() {
+        eprint!("  {}. {}", i, k.fingerprint());
+        match k.optional_secret() {
+            Some(SecretKeyMaterial::Unencrypted(_)) => {
+                eprint!(" has unencrypted secret key material");
+            }
+            Some(SecretKeyMaterial::Encrypted(m)) => {
+                eprint!(" has encrypted secret key material: {:?}",
+                        m.ciphertext());
+            }
+            None => {
+                eprint!(" has NO secret key material");
+            }
+        }
+        eprintln!("");
+    }
+}
+
 #[derive(Default)]
 pub struct RnpContext {
     certs: Keystore,
@@ -170,39 +204,6 @@ fn rnp_ffi_set_pass_provider(ctx: *mut RnpContext,
     assert_ptr!(ctx);
     (*ctx).password_cb = Some((cb, cookie));
     RNP_SUCCESS
-}
-
-fn cert_dump(cert: &Cert) {
-    use openpgp::packet::key::SecretKeyMaterial;
-
-    eprintln!("Cert: {}, {}", cert.fingerprint(),
-              cert.with_policy(&StandardPolicy::new(), None)
-              .map(|cert| {
-                  cert.primary_userid()
-                      .map(|ua| {
-                          String::from_utf8_lossy(ua.userid().value())
-                              .into_owned()
-                      })
-                      .unwrap_or("<No UserID>"[..].into())
-              })
-              .unwrap_or("<Invalid>".into()));
-
-    for (i, k) in cert.keys().enumerate() {
-        eprint!("  {}. {}", i, k.fingerprint());
-        match k.optional_secret() {
-            Some(SecretKeyMaterial::Unencrypted(_)) => {
-                eprint!(" has unencrypted secret key material");
-            }
-            Some(SecretKeyMaterial::Encrypted(m)) => {
-                eprint!(" has encrypted secret key material: {:?}",
-                        m.ciphertext());
-            }
-            None => {
-                eprint!(" has NO secret key material");
-            }
-        }
-        eprintln!("");
-    }
 }
 
 impl RnpContext {
