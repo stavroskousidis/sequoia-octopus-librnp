@@ -103,11 +103,7 @@ thunderbird-tests:
     - sh -c 'cd /thunderbird-esr78/; hg summary'
     - sh -c 'cd /thunderbird-esr78/comm; hg summary'
   script:
-    - cargo build
-    - ls -l /thunderbird-esr78/obj-artifact/dist/bin/librnp.so
-    - ln -vsf $CARGO_TARGET_DIR/debug/libsequoia_octopus_librnp.so /thunderbird-esr78/obj-artifact/dist/bin/librnp.so
-      #- ln -vsf libsequoia_octopus_librnp.so /thunderbird-esr78/obj-artifact/dist/bin/librnp.so
-    - ls -l /thunderbird-esr78/obj-artifact/dist/bin/librnp.so
+    - mv -f libsequoia_octopus_librnp.so /thunderbird-esr78/obj-artifact/dist/bin/librnp.so
     - ldd /thunderbird-esr78/obj-artifact/dist/bin/librnp.so
     - cd /thunderbird-esr78/
     - ./mach test --headless comm/mail/extensions/openpgp/test mail/test/browser/openpgp
@@ -119,6 +115,8 @@ thunderbird-tests:
   variables:
     CARGO_TARGET_DIR: $CI_PROJECT_DIR/../target.$CI_CONCURRENT_ID.bullseye
     RUSTFLAGS: -D warnings -A unused-parens
+    # We're pulling in the artifact from the build job, no need for the code.
+    GIT_STRATEGY: none
 
 variables:
   DEBIAN_FRONTEND: noninteractive
