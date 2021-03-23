@@ -98,11 +98,14 @@ fn rnp_op_sign_destroy(op: *mut RnpOpSign) -> RnpResult {
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
-    assert_ptr!(op);
+    rnp_function!(rnp_op_sign_execute, crate::TRACE);
+    let op = assert_ptr_mut!(op);
 
-    fn f(op: &mut RnpOpSign) -> openpgp::Result<()> {
+    fn sign(op: &mut RnpOpSign) -> openpgp::Result<()> {
+        assert!(! op.csf);
+
         let mut message = Message::new(&mut op.output);
-        if op.armor && ! op.csf {
+        if op.armor {
             message = Armorer::new(message)
                 .kind(openpgp::armor::Kind::Signature)
                 .build()?;
@@ -114,13 +117,8 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
                 op.ctx.decrypt_key_for(None, key, RnpPasswordFor::Sign)?
                 .into_keypair()?;
             let mut signer = Signer::new(message, s)
-                .hash_algo(op.hash.unwrap_or_default())?;
-
-            if op.csf {
-                signer = signer.cleartext();
-            } else {
-                signer = signer.detached();
-            }
+                .hash_algo(op.hash.unwrap_or_default())?
+                .detached();
 
             for key in op.signers.drain(..) {
                 let s =
@@ -137,11 +135,39 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
         Ok(())
     }
 
-    if let Err(e) = f(&mut *op) {
-        warn!("failed to sign: {}", e);
-        RNP_ERROR_GENERIC
+    fn clearsign(op: &mut RnpOpSign) -> openpgp::Result<()> {
+        assert!(op.csf);
+
+        let mut message = Message::new(&mut op.output);
+
+        // Maybe sign the message.
+        if let Some(key) = op.signers.pop() {
+            let s =
+                op.ctx.decrypt_key_for(None, key, RnpPasswordFor::Sign)?
+                .into_keypair()?;
+            let mut signer = Signer::new(message, s)
+                .hash_algo(op.hash.unwrap_or_default())?
+                .cleartext();
+
+            for key in op.signers.drain(..) {
+                let s =
+                    op.ctx.decrypt_key_for(None, key, RnpPasswordFor::Sign)?
+                    .into_keypair()?;
+                signer = signer.add_signer(s);
+            }
+            message = signer.build()?;
+        }
+
+        std::io::copy(op.input, &mut message)?;
+        message.finalize()?;
+
+        Ok(())
+    }
+
+    if op.csf {
+        rnp_return!(clearsign(op))
     } else {
-        RNP_SUCCESS
+        rnp_return!(sign(op))
     }
 }
 
