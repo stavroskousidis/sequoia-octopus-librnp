@@ -1,41 +1,23 @@
-use std::{
-    collections::{
-        HashSet,
-    },
-    cell::{
-        Ref,
-    },
-};
-
 use libc::{
     c_char,
-};
-
-use sequoia_openpgp as openpgp;
-use openpgp::{
-    cert::{
-        Cert,
-    },
 };
 
 use crate::{
     P,
     RnpContext,
     RnpResult,
-    Keygrip,
     str_to_rnp_buffer,
     error::*,
     conversions::*,
 };
 
-pub struct RnpIdentifierIterator<'a> {
-    ctx: &'a RnpContext,
+pub struct RnpIdentifierIterator {
     typ: RnpIdentifierType,
-    cert_iter: Box<dyn Iterator<Item = Ref<'a, Cert>> + 'a>,
-    uid_iter: Option<Vec<String>>,
-    seen: HashSet<String>,
+    iter: std::vec::IntoIter<String>,
 }
 
+// XXX: Do we want to return subkeys?  I guess RNP does, but TB
+// filters out subkeys anyway.
 #[no_mangle] pub unsafe extern "C"
 fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
                                   iter: *mut *mut RnpIdentifierIterator,
@@ -49,12 +31,51 @@ fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
     let typ = rnp_try!(RnpIdentifierType::from_rnp_id(typ));
     t!("type = {:?}", typ);
 
+    let results: Vec<String> = match typ {
+        RnpIdentifierType::UserID => {
+            let mut userids: Vec<String>
+                = Vec::with_capacity(2 * ctx.certs.count());
+            for cert in ctx.certs.iter() {
+                if let Ok(vcert) = cert.with_policy(P, None) {
+                    userids.extend(vcert.userids()
+                                   .filter_map(|u| {
+                                       String::from_utf8(
+                                           u.userid().value().to_vec()).ok()
+                                   }))
+                }
+            }
+
+            // We need to dedup.
+            userids.sort();
+            userids.dedup();
+            userids
+        }
+
+        RnpIdentifierType::KeyID => {
+            // by_primary_id is by definition deduped.
+            ctx.certs.keyids()
+                .map(|keyid| format!("{:X}", keyid))
+                .collect()
+        }
+
+        RnpIdentifierType::Fingerprint => {
+            // by_primary_fp is by definition deduped.
+            ctx.certs.fingerprints()
+                .map(|fpr| format!("{:X}", fpr))
+                .collect()
+        }
+
+        RnpIdentifierType::Keygrip => {
+            // by_primary_grip is by definition deduped.
+            ctx.certs.keygrips()
+                .map(|grip| grip.to_string())
+                .collect()
+        }
+    };
+
     *iter = Box::into_raw(Box::new(RnpIdentifierIterator {
-        ctx,
         typ,
-        cert_iter: Box::new(ctx.certs.iter()),
-        uid_iter: None,
-        seen: Default::default(),
+        iter: results.into_iter(),
     }));
 
     RNP_SUCCESS
@@ -69,8 +90,6 @@ fn rnp_identifier_iterator_destroy(iter: *mut RnpIdentifierIterator)
     RNP_SUCCESS
 }
 
-// XXX: Do we want to return subkeys?  I guess RNP does, but TB
-// filters out subkeys anyway.
 #[no_mangle] pub unsafe extern "C"
 fn rnp_identifier_iterator_next(iter: *mut RnpIdentifierIterator,
                                 item: *mut *const c_char)
@@ -78,101 +97,18 @@ fn rnp_identifier_iterator_next(iter: *mut RnpIdentifierIterator,
     rnp_function!(rnp_identifier_iterator_next, crate::TRACE);
     let iter = assert_ptr_mut!(iter);
     t!("type = {:?}", iter.typ);
+
+    let result = if let Some(id) = iter.iter.next() {
+        t!("Yielding {:?} = {}", iter.typ, id);
+        *item = str_to_rnp_buffer(&id);
+        RNP_SUCCESS
+    } else {
+        // Exhausted the iterator.
+        *item = std::ptr::null();
+        RNP_ERROR_GENERIC
+    };
+
     assert_ptr!(item);
 
-    loop {
-        let next = match iter.typ {
-            RnpIdentifierType::UserID => {
-                if iter.uid_iter.is_none() {
-                    if let Some(cert) = iter.cert_iter.next() {
-                        let vcert = match cert.with_policy(P, None) {
-                            Ok(v) => v,
-                            Err(_) => {
-                                // Cert is not valid under P now.
-                                // Skip it.
-                                continue;
-                            },
-                        };
-
-                        iter.uid_iter = Some(
-                            vcert.userids()
-                                .map(|u| u.userid().value())
-                                .filter_map(
-                                    |u| String::from_utf8(u.to_vec()).ok())
-                                .collect());
-                    } else {
-                        // Exhausted cert iterator.
-                        *item = std::ptr::null();
-                        break RNP_ERROR_GENERIC;
-                    }
-                }
-
-                let n =
-                    iter.uid_iter.as_mut()
-                    .and_then(|uids| uids.pop())
-                    .map(|u| u.to_string());
-                if let Some(n) = n {
-                    n
-                } else {
-                    // Exhausted the current uid iterator, drop it and
-                    // see if there is a next certificate.
-                    iter.uid_iter = None;
-                    continue;
-                }
-            },
-
-            RnpIdentifierType::KeyID => {
-                assert!(iter.uid_iter.is_none());
-                if let Some(cert) = iter.cert_iter.next() {
-                    format!("{:X}", cert.keyid())
-                } else {
-                    // Exhausted cert iterator.
-                    *item = std::ptr::null();
-                    break RNP_ERROR_GENERIC;
-                }
-            },
-
-            RnpIdentifierType::Fingerprint => {
-                assert!(iter.uid_iter.is_none());
-                if let Some(cert) = iter.cert_iter.next() {
-                    format!("{:X}", cert.fingerprint())
-                } else {
-                    // Exhausted cert iterator.
-                    *item = std::ptr::null();
-                    break RNP_ERROR_GENERIC;
-                }
-            },
-
-            RnpIdentifierType::Keygrip => {
-                assert!(iter.uid_iter.is_none());
-                if let Some(cert) = iter.cert_iter.next() {
-                    if let Ok(grip) = Keygrip::of(cert.primary_key().mpis()) {
-                        t!("(If we yield a keygrip, the fingerprint is {})",
-                           cert.primary_key().fingerprint());
-                        grip.to_string()
-                    } else {
-                        // We don't know how to compute the keygrip
-                        // over that key.  This should be unlikely,
-                        // and the user wouldn't be able to do
-                        // anything with the key anyway.  Skip it.
-                        continue;
-                    }
-                } else {
-                    // Exhausted cert iterator.
-                    *item = std::ptr::null();
-                    break RNP_ERROR_GENERIC;
-                }
-            },
-        };
-
-        if iter.seen.contains(&next) {
-            // Already returned this item.
-            continue;
-        }
-
-        t!("Yielding {:?} = {}", iter.typ, next);
-        *item = str_to_rnp_buffer(&next);
-        iter.seen.insert(next);
-        break RNP_SUCCESS;
-    }
+    result
 }

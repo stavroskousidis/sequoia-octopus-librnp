@@ -154,6 +154,29 @@ impl fmt::Debug for Keystore {
 }
 
 impl Keystore {
+    /// Returns the number of certificates in the key store.
+    pub fn count(&self) -> usize {
+        self.by_primary_fp.len()
+    }
+
+    /// Returns an iterator over the fingerprint of each certificates
+    /// in the store.
+    pub fn fingerprints<'a>(&'a self) -> impl Iterator<Item=Fingerprint> + 'a {
+        self.by_primary_fp.keys().map(|fpr| fpr.clone())
+    }
+
+    /// Returns an iterator over the keyid of each certificate in the
+    /// store.
+    pub fn keyids<'a>(&'a self) -> impl Iterator<Item=KeyID> + 'a {
+        self.by_primary_id.keys().map(|id| id.clone())
+    }
+
+    /// Returns an iterator over the key grips of the primary key of
+    /// each certificate in the store.
+    pub fn keygrips<'a>(&'a self) -> impl Iterator<Item=Keygrip> + 'a {
+        self.by_primary_grip.keys().map(|grip| grip.clone())
+    }
+
     /// Returns a clone of the specified certificate's RefCell.
     ///
     /// fp is the certificate's fingerprint.
