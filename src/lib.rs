@@ -5,9 +5,6 @@ use std::{
     ffi::{
         CStr,
     },
-    cell::{
-        RefMut,
-    },
 };
 use libc::{
     c_char,
@@ -210,8 +207,14 @@ impl RnpContext {
     /// Inserts a cert into the keystore.
     ///
     /// This strips any secret key material.
+    ///
+    /// # Locking
+    ///
+    /// This acquires a write lock on the keystore and, if the
+    /// certificate is already present, a write lock on the
+    /// certificate's cell.
     pub fn insert_cert(&mut self, cert: Cert) {
-        self.certs.insert(cert.strip_secret_key_material());
+        self.certs.write().insert(cert.strip_secret_key_material());
     }
 
     /// Inserts a cert from an external source into the keystore.
@@ -219,15 +222,27 @@ impl RnpContext {
     /// This strips any secret key material.
     ///
     /// certs from external sources won't be serialized.
+    ///
+    /// # Locking
+    ///
+    /// This acquires a write lock on the keystore and, if the
+    /// certificate is already present, a write lock on the
+    /// certificate's cell.
     pub fn insert_cert_external(&mut self, cert: Cert) {
-        self.certs.insert_external(cert.strip_secret_key_material());
+        self.certs.write().insert_external(cert.strip_secret_key_material());
     }
 
     /// Inserts a key into the keystore.
     ///
     /// Secret key material is preserved.
+    ///
+    /// # Locking
+    ///
+    /// This acquires a write lock on the keystore and, if the
+    /// certificate is already present, a write lock on the
+    /// certificate's cell.
     pub fn insert_key(&mut self, cert: Cert) {
-        self.certs.insert(cert);
+        self.certs.write().insert(cert);
     }
 
     /// Retrieves a certificate from the keystore by userid.
@@ -237,6 +252,12 @@ impl RnpContext {
     /// different versions of the same, or even different
     /// certificates!  Since we merge the key keyrings, this is not a
     /// problem for us.
+    ///
+    /// # Locking
+    ///
+    /// This acquires a read lock on the keystore and one or more
+    /// certificates' cells.  See the corresponding search methods for
+    /// details.
     pub fn cert(&self, by: &RnpIdentifier) -> Option<Cert> {
         rnp_function!(RnpContext::cert, TRACE);
 
@@ -263,11 +284,18 @@ impl RnpContext {
     ///
     /// XXX: I think it would be better to fail these lookups.  Are
     /// they used by TB?
+    ///
+    /// # Locking
+    ///
+    /// This acquires a read lock on the keystore.  Currently, this
+    /// function performs a linear scan of all keys.  As such, it
+    /// potentially acquires (in turn) a read lock on all of the
+    /// certificates' cells.
     pub fn cert_by_userid(&self, uid: &UserID) -> Option<Cert> {
         let mut r_cert = None;
 
         // XXX O(n)
-        for cert in self.certs.iter() {
+        for cert in self.certs.read().iter() {
             if cert.userids().any(|u| u.userid() == uid) {
                 r_cert = Some(cert.clone());
                 break;
@@ -279,36 +307,45 @@ impl RnpContext {
 
     /// Retrieves a certificate from the keystore by (sub)key
     /// fingerprint.
+    ///
+    /// # Locking
+    ///
+    /// This acquires a read lock on the keystore and, if a matching
+    /// certificate is present, a read lock on the certificate's cell.
     pub fn cert_by_subkey_fp(&self, fp: &Fingerprint) -> Option<Cert> {
-        self.certs.by_fp(fp).nth(0).map(|c| c.clone())
+        self.certs.read().by_fp(fp).nth(0).map(|c| c.clone())
     }
 
     /// Retrieves a certificate from the keystore by (sub)key
     /// keyid.
+    ///
+    /// # Locking
+    ///
+    /// This acquires a read lock on the keystore and, if a matching
+    /// certificate is present, a read lock on the certificate's cell.
     pub fn cert_by_subkey_id(&self, id: &KeyID) -> Option<Cert> {
-         self.certs.by_primary_id(id).nth(0)
-         .or_else(|| self.certs.by_subkey_id(id).nth(0))
-         .map(|c| c.clone())
+        let ks = self.certs.read();
+
+         let r = ks.by_primary_id(id).nth(0)
+            .or_else(|| ks.by_subkey_id(id).nth(0))
+            .map(|c| c.clone());
+        r
     }
 
     /// Retrieves a certificate from the keystore by (sub)key
     /// keygrip.
+    ///
+    /// # Locking
+    ///
+    /// This acquires a read lock on the keystore and, if a matching
+    /// certificate is present, a read lock on the certificate's cell.
     pub fn cert_by_subkey_grip(&self, grip: &Keygrip) -> Option<Cert> {
-         self.certs.by_primary_grip(grip).nth(0)
-         .or_else(|| self.certs.by_subkey_grip(grip).nth(0))
-         .map(|c| c.clone())
-    }
+        let ks = self.certs.read();
 
-    /// Retrieves a certificate from the keystore by (sub)key
-    /// fingerprint.
-    // This is dangerous!  The caller should get the cert, merge, then
-    // reinsert.
-    pub fn cert_mut_by_fp(&mut self, fp: &Fingerprint) -> Option<RefMut<Cert>> {
-        if let Some(c) = self.certs.by_primary_fp_mut(fp) {
-            Some(c)
-        } else {
-            self.certs.by_subkey_fp_mut(fp).nth(0)
-        }
+        let r = ks.by_primary_grip(grip).nth(0)
+            .or_else(|| ks.by_subkey_grip(grip).nth(0))
+            .map(|c| c.clone());
+        r
     }
 }
 
@@ -592,7 +629,7 @@ fn rnp_save_keys(ctx: *mut RnpContext,
     let mut r = Ok(());
     match flags {
         RNP_LOAD_SAVE_PUBLIC_KEYS => {
-            for cert in (*ctx).certs.to_save().filter(|cert| ! cert.is_tsk()) {
+            for cert in (*ctx).certs.read().to_save().filter(|cert| ! cert.is_tsk()) {
                 if let Err(err) = cert.serialize(output) {
                     r = Err(err);
                     break;
@@ -600,7 +637,7 @@ fn rnp_save_keys(ctx: *mut RnpContext,
             }
         },
         RNP_LOAD_SAVE_SECRET_KEYS => {
-            for cert in (*ctx).certs.to_save().filter(|cert| cert.is_tsk()) {
+            for cert in (*ctx).certs.read().to_save().filter(|cert| cert.is_tsk()) {
                 if let Err(err) = cert.as_tsk().serialize(output) {
                     r = Err(err);
                     break;
@@ -626,7 +663,7 @@ fn rnp_get_public_key_count(ctx: *mut RnpContext,
                             count: *mut size_t)
                             -> RnpResult {
     assert_ptr!(ctx);
-    *count = (*ctx).certs.iter().filter(|cert| ! cert.is_tsk()).count();
+    *count = (*ctx).certs.read().iter().filter(|cert| ! cert.is_tsk()).count();
     RNP_SUCCESS
 }
 
@@ -635,7 +672,7 @@ fn rnp_get_secret_key_count(ctx: *mut RnpContext,
                             count: *mut size_t)
                             -> RnpResult {
     assert_ptr!(ctx);
-    *count = (*ctx).certs.iter().filter(|cert| cert.is_tsk()).count();
+    *count = (*ctx).certs.read().iter().filter(|cert| cert.is_tsk()).count();
     RNP_SUCCESS
 }
 

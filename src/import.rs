@@ -109,7 +109,7 @@ fn rnp_import_keys(ctx: *mut RnpContext,
             r.fingerprint = fp.to_string();
 
             let status;
-            if let Some(known) = ctx.certs.by_primary_fp(&fp) {
+            if let Some(known) = ctx.certs.read().by_primary_fp(&fp) {
                 if *known == cert {
                     status = Unchanged;
                 } else {

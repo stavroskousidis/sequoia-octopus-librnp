@@ -599,8 +599,10 @@ impl<'a> Helper<'a> {
     fn get_decryption_key(&self, id: &KeyID)
                           -> Option<Key<SecretParts, UnspecifiedRole>>
     {
-        self.ctx.certs.by_subkey_id(id)
-            .chain(self.ctx.certs.by_primary_id(id))
+        let ks = self.ctx.certs.read();
+
+        let r = ks.by_subkey_id(id)
+            .chain(ks.by_primary_id(id))
             .filter_map(|cert| {
                 cert.with_policy(P, None).ok()
                     .and_then(|vcert| vcert.keys()
@@ -610,7 +612,8 @@ impl<'a> Helper<'a> {
                               .key_handle(id).nth(0))
                     .map(|vka| vka.key().clone())
             })
-            .nth(0)
+            .nth(0);
+        r
     }
 
     /// Tries to decrypt the given PKESK packet with `keypair` and try
@@ -635,8 +638,10 @@ impl<'a> Helper<'a> {
         // and compute the fingerprint.  Otherwise, `fp` is our
         // identity.
 
+        let ks = self.ctx.certs.read();
+
         let recipient =
-            self.ctx.certs.by_subkey_fp(&fp)
+            ks.by_subkey_fp(&fp)
                 .filter(|fp| fp.is_tsk())
                 .nth(0)
                 .map(|cert| cert.fingerprint())
@@ -677,9 +682,10 @@ impl<'a> DecryptionHelper for Helper<'a> {
         // Second, we try to decrypt PKESK packets with wildcard
         // recipients using those keys that we can use without
         // prompting for a password.
+        let ks = self.ctx.certs.read();
         for pkesk in pkesks.iter().filter(|p| p.recipient().is_wildcard()) {
             // Get all possible decryption keys from the context.
-            for cert in self.ctx.certs.iter().filter(|cert| cert.is_tsk()) {
+            for cert in ks.iter().filter(|cert| cert.is_tsk()) {
                 for key in cert.with_policy(P, None).ok()
                     .iter()
                     .flat_map(|vcert| vcert.keys()
@@ -703,6 +709,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
                 }
             }
         }
+        drop(ks);
 
         // Third, we try those keys that are encrypted.
         'next_pkesk: for pkesk in pkesks {

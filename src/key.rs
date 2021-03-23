@@ -1,12 +1,14 @@
 use std::{
-    cell::Ref,
-    cell::RefCell,
-    cell::RefMut,
     ffi::{
         CStr,
     },
     io,
-    rc::Rc,
+    sync::{
+        Arc,
+        RwLock,
+        RwLockReadGuard,
+        RwLockWriteGuard,
+    },
     time::{
         Duration,
         UNIX_EPOCH,
@@ -62,7 +64,7 @@ use crate::{
 pub struct RnpKey {
     ctx: *mut RnpContext,
     key: Key<UnspecifiedParts, UnspecifiedRole>,
-    cert: Option<Rc<RefCell<Cert>>>,
+    cert: Option<Arc<RwLock<Cert>>>,
 }
 
 impl RnpKey {
@@ -90,10 +92,11 @@ impl RnpKey {
                key: Key<UnspecifiedParts, UnspecifiedRole>,
                cert: &Cert) -> Self {
         let ctx = unsafe { &mut *ctx };
-        let cert_cell_ref = if let Some(cert_cell_ref)
-            = ctx.certs.cert_ref_cell(&cert.fingerprint())
+
+        let cert_cell = if let Some(cert_cell)
+            = ctx.certs.read().cert_cell(&cert.fingerprint())
         {
-            Rc::clone(&cert_cell_ref)
+            Arc::clone(&cert_cell)
         } else {
             // We've been asked to create a key handle to a key that
             // is not in our keystore.  That's not good.  There are a
@@ -109,13 +112,13 @@ impl RnpKey {
             warn!("Attempt to create key handle for key ({}, {}) \
                    that is not in the keystore",
                   cert.fingerprint(), key.fingerprint());
-            Rc::new(RefCell::new(cert.clone()))
+            Arc::new(RwLock::new(cert.clone()))
         };
 
         RnpKey {
             ctx,
             key,
-            cert: Some(cert_cell_ref),
+            cert: Some(cert_cell),
         }
     }
 
@@ -132,10 +135,11 @@ impl RnpKey {
             let fp = self.key.fingerprint();
 
             let mut candidates = Vec::new();
-            for cert in ctx.certs.cert_ref_cell(&fp)
-            {
-                for k in cert.borrow().keys().key_handle(&fp) {
-                    // Eq compares the secret parts.
+            for cell in ctx.certs.read().cert_cell(&fp) {
+                let cert = cell.read().unwrap();
+                for k in cert.keys().key_handle(&fp) {
+                    // Eq compares the secret parts when parts is
+                    // unspecified.
                     candidates.push(
                         (if &self.key
                          == k.key()
@@ -146,7 +150,8 @@ impl RnpKey {
                          } else {
                              1
                          },
-                         Rc::clone(&cert)))
+                         cert.fingerprint(),
+                         Arc::clone(&cell)))
                 }
             }
 
@@ -155,25 +160,25 @@ impl RnpKey {
                 return;
             }
 
-            candidates.sort_by_key(|a| { (a.0, a.1.borrow().fingerprint()) });
-            self.cert = candidates.into_iter().next().map(|c| {
-                if c.0 == 1 {
+            candidates.sort_by_key(|a| { (a.0, a.1.clone()) });
+            self.cert = candidates.into_iter().next().map(|(exact, _, cell)| {
+                if exact == 1 {
                     warn!("No certificate exactly contains the key {}", fp);
                 }
 
-                c.1
+                cell
             });
         }
     }
 
-    fn cert(&mut self) -> Option<Ref<Cert>> {
+    fn cert(&mut self) -> Option<RwLockReadGuard<Cert>> {
         self.find_cert();
-        self.cert.as_ref().map(|c| c.borrow())
+        self.cert.as_ref().map(|c| c.read().unwrap())
     }
 
-    fn cert_mut(&mut self) -> Option<RefMut<Cert>> {
+    fn cert_mut(&mut self) -> Option<RwLockWriteGuard<Cert>> {
         self.find_cert();
-        self.cert.as_ref().map(|c| c.borrow_mut())
+        self.cert.as_ref().map(|c| c.write().unwrap())
     }
 }
 
@@ -203,6 +208,10 @@ fn rnp_locate_key(ctx: *mut RnpContext,
             .with_identifier(identifier));
     t!("Locating key by {:?}", id);
 
+    // (*ctx).cert also takes a read lock.  But we need to keep the
+    // key store locked for when we look up the matching certificate's
+    // cell.
+    let ks = (&*ctx).certs.read();
     if let Some(cert) = (*ctx).cert(&id) {
         use RnpIdentifier::*;
         let k = match id {
@@ -221,7 +230,10 @@ fn rnp_locate_key(ctx: *mut RnpContext,
         *key = Box::into_raw(Box::new(RnpKey {
             ctx,
             key: k,
-            cert: Some((&*ctx).certs.cert_ref_cell(&cert.fingerprint())
+            // XXX: (*ctx).cert() already found the cell.  If that
+            // function returned the cell instead, then we could avoid
+            // this lock and look up.
+            cert: Some(ks.cert_cell(&cert.fingerprint())
                        .expect("just looked it up")),
         }));
     } else {
@@ -537,14 +549,16 @@ fn rnp_key_get_subkey_at(key: *mut RnpKey,
     assert_ptr!(key);
     assert_ptr!(subkey);
 
-    if let Some(cert) = (*key).cert() {
+    if let Some(cell) = (*key).cert.as_ref() {
+        let cert = cell.read().unwrap();
+
         if let Some(k) = cert.keys().subkeys().nth(idx) {
             *subkey = Box::into_raw(Box::new(RnpKey {
                 ctx: (*key).ctx,
                 key: k.key().clone()
                     .parts_into_unspecified()
                     .role_into_unspecified(),
-                cert: Some(Rc::clone((*key).cert.as_ref().expect("valid"))),
+                cert: Some(Arc::clone(cell)),
             }));
             RNP_SUCCESS
         } else {
@@ -647,7 +661,7 @@ fn rnp_key_export_autocrypt(key: *mut RnpKey,
     assert_ptr!(output);
     let uid = rnp_try!(cstr_to_str(uid));
 
-    fn f(cert: Ref<Cert>, uid: &str, output: &mut dyn io::Write)
+    fn f(cert: RwLockReadGuard<Cert>, uid: &str, output: &mut dyn io::Write)
          -> openpgp::Result<()>
     {
         // Attempt to parse the given user id into only the email.
@@ -710,12 +724,12 @@ fn rnp_key_remove(key: *mut RnpKey,
     let fp = key.fingerprint();
 
     if remove_public {
-        if ! ctx.certs.remove_all(&fp) {
+        if ! ctx.certs.write().remove_all(&fp) {
             return RNP_ERROR_KEY_NOT_FOUND;
         }
     }
     else if remove_secret {
-        if ! ctx.certs.remove_secret_key_material(&fp) {
+        if ! ctx.certs.write().remove_secret_key_material(&fp) {
             return RNP_ERROR_KEY_NOT_FOUND;
         }
     }
@@ -1134,7 +1148,7 @@ fn rnp_key_revoke(key: *mut RnpKey,
         };
 
         // Merge the revocation into the store.
-        ctx.certs.insert(cert.insert_packets(Some(sig))?);
+        ctx.certs.write().insert(cert.insert_packets(Some(sig))?);
         Ok(())
     }
 
@@ -1239,7 +1253,7 @@ fn rnp_key_set_expiration(key: *mut RnpKey,
         };
 
         // Merge the updated cert into the store.
-        ctx.certs.insert(cert.insert_packets(sigs)?);
+        ctx.certs.write().insert(cert.insert_packets(sigs)?);
         Ok(())
     }
 
@@ -1321,7 +1335,8 @@ mod tests {
                               k.fingerprint(), old.unwrap());
                     crate::cert_dump(
                         &unsafe { &mut *ctx }
-                            .certs.by_primary_fp(&cert.fingerprint()).unwrap());
+                            .certs.read()
+                            .by_primary_fp(&cert.fingerprint()).unwrap());
                 }
 
                 if let Some(new_c) = new_c {
@@ -1337,7 +1352,8 @@ mod tests {
                               k.fingerprint(), new.unwrap());
                     crate::cert_dump(
                         &unsafe { &mut *ctx }
-                            .certs.by_primary_fp(&cert.fingerprint()).unwrap());
+                            .certs.read()
+                            .by_primary_fp(&cert.fingerprint()).unwrap());
                 }
 
                 if i == 0 {

@@ -186,7 +186,7 @@ fn rnp_op_generate_execute(op: *mut RnpOpGenerate) -> RnpResult {
                 generated_key = cert.primary_key().key().clone()
                     .parts_into_unspecified()
                     .role_into_unspecified();
-                op.ctx.certs.insert(cert);
+                op.ctx.certs.write().insert(cert);
             },
             Mode::SubKey { primary } => {
                 use PublicKeyAlgorithm::*;
@@ -211,14 +211,19 @@ fn rnp_op_generate_execute(op: *mut RnpOpGenerate) -> RnpResult {
                     key = key.encrypt_secret(p)?;
                 }
 
-                let cert = op.ctx.cert_mut_by_fp(primary)
-                    .ok_or_else(|| anyhow::anyhow!("key not found"))?.clone();
+                // We don't want to (and actually can't) hold the key
+                // store lock around the decrypt_key_for: if we prompt
+                // the user for a password, it could take a while.
+                let cert = op.ctx.certs.read().by_primary_fp(primary)
+                    .ok_or_else(|| anyhow::anyhow!("key not found"))?
+                    .clone();
+                let primary_key = cert.primary_key().key().clone()
+                    .role_into_unspecified()
+                    .parts_into_secret()?;
 
                 let primary_key = op.ctx.decrypt_key_for(
                     Some(&cert),
-                    cert.primary_key().key().clone()
-                        .role_into_unspecified()
-                        .parts_into_secret()?,
+                    primary_key,
                     RnpPasswordFor::AddSubkey)?;
 
                 let mut signer = primary_key.into_keypair()?;
@@ -230,10 +235,9 @@ fn rnp_op_generate_execute(op: *mut RnpOpGenerate) -> RnpResult {
                                        .set_transport_encryption())?
                         .set_key_validity_period(op.expiration)?)?;
 
-                let mut c = op.ctx.cert_mut_by_fp(primary)
-                    .ok_or_else(|| anyhow::anyhow!("key not found"))?;
-                *c = cert.clone().insert_packets(vec![Packet::from(key.clone()),
-                                                      binding.into()])?;
+                op.ctx.certs.write()
+                    .insert(cert.insert_packets(vec![Packet::from(key.clone()),
+                                                     binding.into()])?);
                 generated_key =
                     key.parts_into_unspecified().role_into_unspecified();
             },

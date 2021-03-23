@@ -3,14 +3,12 @@ use std::{
         HashMap,
         hash_map::Entry,
     },
-    cell::{
-        RefCell,
-        Ref,
-        RefMut,
-    },
     fmt,
-    rc::{
-        Rc,
+    sync::{
+        Arc,
+        RwLock,
+        RwLockReadGuard,
+        RwLockWriteGuard,
     },
 };
 
@@ -27,17 +25,28 @@ use crate::{
 };
 
 struct MapEntry<E> {
-    cert: Rc<RefCell<Cert>>,
+    cert: Arc<RwLock<Cert>>,
+    // We cache the fingerprint so that we can figure out what
+    // certificate is in here without locking cert.
+    fingerprint: Fingerprint,
     extra: E,
 }
 
 impl<E> MapEntry<E> {
-    fn cert(&self) -> Ref<Cert> {
-        self.cert.borrow()
+    pub fn cert(&self) -> RwLockReadGuard<Cert> {
+        self.cert.read().unwrap()
     }
 
-    fn cert_mut(&self) -> RefMut<Cert> {
-        self.cert.borrow_mut()
+    pub fn cert_mut(&self) -> RwLockWriteGuard<Cert> {
+        self.cert.write().unwrap()
+    }
+
+    pub fn cert_cell(&self) -> Arc<RwLock<Cert>> {
+        Arc::clone(&self.cert)
+    }
+
+    fn fingerprint(&self) -> &Fingerprint {
+        &self.fingerprint
     }
 
     fn extra(&self) -> &E {
@@ -46,25 +55,32 @@ impl<E> MapEntry<E> {
 }
 
 impl MapEntry<()> {
-    fn new(cert: &Rc<RefCell<Cert>>) -> Self {
+    // This function takes a reader lock on cert.
+    fn new(cert: &Arc<RwLock<Cert>>) -> Self {
         MapEntry {
-            cert: Rc::clone(cert),
+            cert: Arc::clone(cert),
+            fingerprint: cert.read().unwrap().fingerprint(),
             extra: (),
         }
     }
 }
 
 impl MapEntry<Fingerprint> {
-    fn new2(cert: &Rc<RefCell<Cert>>, referent: Fingerprint) -> Self {
+    // referent is the key (not the certificate!) that refers to this
+    // entry.
+    //
+    // This function takes a reader lock on cert.
+    fn new2(cert: &Arc<RwLock<Cert>>, referent: Fingerprint) -> Self {
         MapEntry {
-            cert: Rc::clone(cert),
+            cert: Arc::clone(cert),
+            fingerprint: cert.read().unwrap().fingerprint(),
             extra: referent,
         }
     }
 }
 
 #[derive(Default)]
-pub struct Keystore {
+pub struct KeystoreData {
     // The bool indicates whether the key is considered external.
     by_primary_fp: HashMap<Fingerprint, MapEntry<bool>>,
     by_primary_id: HashMap<KeyID, Vec<MapEntry<()>>>,
@@ -78,6 +94,21 @@ pub struct Keystore {
     by_subkey_grip: HashMap<Keygrip, Vec<MapEntry<Fingerprint>>>,
 }
 
+#[derive(Default, Debug)]
+pub struct Keystore {
+    data: RwLock<KeystoreData>,
+}
+
+impl Keystore {
+    pub fn read(&self) -> RwLockReadGuard<KeystoreData> {
+        self.data.read().unwrap()
+    }
+
+    pub fn write(&self) -> RwLockWriteGuard<KeystoreData> {
+        self.data.write().unwrap()
+    }
+}
+
 const VEC_MAP_ENTRY_EMPTY: Vec<MapEntry<()>> = Vec::new();
 const VEC_MAP_ENTRY_EMPTY_REF: &Vec<MapEntry<()>> = &VEC_MAP_ENTRY_EMPTY;
 
@@ -85,7 +116,7 @@ const VEC_MAP_ENTRY_FPR_EMPTY: Vec<MapEntry<Fingerprint>> = Vec::new();
 const VEC_MAP_ENTRY_FPR_EMPTY_REF: &Vec<MapEntry<Fingerprint>>
     = &VEC_MAP_ENTRY_FPR_EMPTY;
 
-impl fmt::Debug for Keystore {
+impl fmt::Debug for KeystoreData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "Keystore {{")?;
 
@@ -99,7 +130,7 @@ impl fmt::Debug for Keystore {
             writeln!(f, "    {} =>\n      {}",
                      k,
                      v.iter()
-                        .map(|e| e.cert().fingerprint().to_string())
+                        .map(|e| e.fingerprint().to_string())
                         .collect::<Vec<String>>().join(",\n      "))?;
         }
         writeln!(f, "  }}")?;
@@ -110,7 +141,7 @@ impl fmt::Debug for Keystore {
                      v.iter()
                         .map(|e| {
                             format!("{}",
-                                    e.cert().fingerprint().to_string())
+                                    e.fingerprint().to_string())
                         })
                         .collect::<Vec<String>>().join(",\n      "))?;
         }
@@ -121,7 +152,7 @@ impl fmt::Debug for Keystore {
             writeln!(f, "    {} =>\n      {}",
                      k,
                      v.iter()
-                        .map(|e| e.cert().fingerprint().to_string())
+                        .map(|e| e.fingerprint().to_string())
                         .collect::<Vec<String>>().join(",\n      "))?;
         }
         writeln!(f, "  }}")?;
@@ -130,7 +161,7 @@ impl fmt::Debug for Keystore {
             writeln!(f, "    {} =>\n      {}",
                      k,
                      v.iter()
-                        .map(|e| e.cert().fingerprint().to_string())
+                        .map(|e| e.fingerprint().to_string())
                         .collect::<Vec<String>>().join(",\n      "))?;
         }
         writeln!(f, "  }}")?;
@@ -141,7 +172,7 @@ impl fmt::Debug for Keystore {
                      v.iter()
                         .map(|e| {
                             format!("{} (via {})",
-                                    e.cert().fingerprint().to_string(),
+                                    e.fingerprint().to_string(),
                                     e.extra)
                         })
                         .collect::<Vec<String>>().join(",\n      "))?;
@@ -153,7 +184,7 @@ impl fmt::Debug for Keystore {
     }
 }
 
-impl Keystore {
+impl KeystoreData {
     /// Returns the number of certificates in the key store.
     pub fn count(&self) -> usize {
         self.by_primary_fp.len()
@@ -180,27 +211,22 @@ impl Keystore {
     /// Returns a clone of the specified certificate's RefCell.
     ///
     /// fp is the certificate's fingerprint.
-    pub fn cert_ref_cell(&self, fp: &Fingerprint) -> Option<Rc<RefCell<Cert>>> {
-        self.by_primary_fp.get(fp).map(|e| Rc::clone(&e.cert))
+    pub fn cert_cell(&self, fp: &Fingerprint) -> Option<Arc<RwLock<Cert>>> {
+        self.by_primary_fp.get(fp).map(|e| e.cert_cell())
     }
 
     /// Returns a reference to the cert with the given fingerprint, if
     /// any.
-    pub fn by_primary_fp(&self, fp: &Fingerprint) -> Option<Ref<Cert>> {
+    pub fn by_primary_fp(&self, fp: &Fingerprint)
+        -> Option<RwLockReadGuard<Cert>>
+    {
         self.by_primary_fp.get(fp).map(|e| e.cert())
     }
 
-    /// Returns a mutable reference to the cert with the given
-    /// fingerprint, if any.
-    ///
-    /// A stern warning: Do not use the mutable reference to remove
-    /// subkeys.  Use Keystore::remove_all for that.
-    pub fn by_primary_fp_mut(&self, fp: &Fingerprint) -> Option<RefMut<Cert>> {
-        self.by_primary_fp.get(fp).map(|e| e.cert_mut())
-    }
-
     /// Returns a reference to each cert with the given keyid.
-    pub fn by_primary_id(&self, id: &KeyID) -> impl Iterator<Item=Ref<Cert>> {
+    pub fn by_primary_id(&self, id: &KeyID)
+        -> impl Iterator<Item=RwLockReadGuard<Cert>>
+    {
         self.by_primary_id.get(id)
             .unwrap_or(VEC_MAP_ENTRY_EMPTY_REF)
             .iter()
@@ -209,7 +235,9 @@ impl Keystore {
 
     /// Returns a reference to each cert for which the primary key has
     /// the given keygrip.
-    pub fn by_primary_grip(&self, grip: &Keygrip) -> impl Iterator<Item=Ref<Cert>> {
+    pub fn by_primary_grip(&self, grip: &Keygrip)
+        -> impl Iterator<Item=RwLockReadGuard<Cert>>
+    {
         self.by_primary_grip.get(grip)
             .unwrap_or(VEC_MAP_ENTRY_EMPTY_REF)
             .iter()
@@ -218,30 +246,20 @@ impl Keystore {
 
     /// Returns a reference to each cert containing a subkey with the
     /// given fingerprint.
-    pub fn by_subkey_fp(&self, fp: &Fingerprint) -> impl Iterator<Item=Ref<Cert>> {
+    pub fn by_subkey_fp(&self, fp: &Fingerprint)
+        -> impl Iterator<Item=RwLockReadGuard<Cert>>
+    {
         self.by_subkey_fp.get(fp)
             .unwrap_or(VEC_MAP_ENTRY_EMPTY_REF)
             .iter()
             .map(|e| e.cert())
     }
 
-    /// Returns a mutable reference to each cert containing a subkey
-    /// with the given fingerprint, if any.
-    ///
-    /// A stern warning: Do not use the mutable reference to remove
-    /// subkeys.  Use Keystore::remove_all for that.
-    pub fn by_subkey_fp_mut(&self, fp: &Fingerprint)
-        -> impl Iterator<Item=RefMut<Cert>>
-    {
-        self.by_subkey_fp.get(fp)
-            .unwrap_or(VEC_MAP_ENTRY_EMPTY_REF)
-            .iter()
-            .map(|e| e.cert_mut())
-    }
-
     /// Returns a reference to each cert containing a subkey with the
     /// given keyid, if any.
-    pub fn by_subkey_id(&self, id: &KeyID) -> impl Iterator<Item=Ref<Cert>> {
+    pub fn by_subkey_id(&self, id: &KeyID)
+        -> impl Iterator<Item=RwLockReadGuard<Cert>>
+    {
         self.by_subkey_id.get(id)
             .unwrap_or(VEC_MAP_ENTRY_EMPTY_REF)
             .iter()
@@ -253,7 +271,9 @@ impl Keystore {
     ///
     /// If a certificate contains a primary key and a subkey with the
     /// same fingerprint, that certificate is returned twice.
-    pub fn by_fp(&self, fp: &Fingerprint) -> impl Iterator<Item=Ref<Cert>> {
+    pub fn by_fp(&self, fp: &Fingerprint)
+        -> impl Iterator<Item=RwLockReadGuard<Cert>>
+    {
         self.by_primary_fp(fp)
             .into_iter()
             .chain(self.by_subkey_fp(fp))
@@ -266,7 +286,9 @@ impl Keystore {
     /// If a certificate contains multiple subkeys with the same
     /// keygrip, then the certificate is returned multiple times, one
     /// for each such subkey.
-    pub fn by_subkey_grip(&self, grip: &Keygrip) -> impl Iterator<Item=Ref<Cert>> {
+    pub fn by_subkey_grip(&self, grip: &Keygrip)
+        -> impl Iterator<Item=RwLockReadGuard<Cert>>
+    {
         self.by_subkey_grip.get(grip)
             .unwrap_or(VEC_MAP_ENTRY_FPR_EMPTY_REF)
             .iter()
@@ -274,13 +296,13 @@ impl Keystore {
     }
 
     /// Returns an iterator over all the certs in the key store.
-    pub fn iter(&self) -> impl Iterator<Item = Ref<Cert>> {
+    pub fn iter(&self) -> impl Iterator<Item = RwLockReadGuard<Cert>> {
         self.by_primary_fp.values().map(|e| e.cert())
     }
 
     /// Returns an iterator over the certs in the key store, which are
     /// not marked as external.
-    pub fn to_save(&self) -> impl Iterator<Item = Ref<Cert>> {
+    pub fn to_save(&self) -> impl Iterator<Item = RwLockReadGuard<Cert>> {
         self.by_primary_fp.values().filter_map(|e| {
             if *e.extra() {
                 None
@@ -304,19 +326,19 @@ impl Keystore {
         t!("Inserting {}, {:?} (external: {})",
            fp, cert.userids().nth(0).map(|ua| ua.userid()), is_external);
 
-        let cert_slot: Rc<RefCell<Cert>>;
+        let cert_cell: Arc<RwLock<Cert>>;
 
         let is_update = match self.by_primary_fp.entry(fp.clone()) {
             Entry::Occupied(mut oe) => {
                 t!("Already exists in keystore, merging.");
 
                 let e = oe.get_mut();
-                cert_slot = Rc::clone(&e.cert);
+                cert_cell = Arc::clone(&e.cert);
 
-                let new = cert_slot.borrow().clone()
+                let mut cert_ref = cert_cell.write().unwrap();
+                *cert_ref = cert_ref.clone()
                     .insert_packets(cert.into_packets())
                     .expect("does not fail if the primary keys are equal");
-                e.cert.replace(new);
 
                 e.extra = e.extra && is_external;
 
@@ -325,9 +347,10 @@ impl Keystore {
             Entry::Vacant(ve) => {
                 t!("New certificate, adding.");
 
-                cert_slot = Rc::new(RefCell::new(cert));
+                cert_cell = Arc::new(RwLock::new(cert));
                 ve.insert(MapEntry {
-                    cert: Rc::clone(&cert_slot),
+                    cert: Arc::clone(&cert_cell),
+                    fingerprint: fp.clone(),
                     extra: is_external,
                 });
 
@@ -340,64 +363,71 @@ impl Keystore {
         if ! is_update {
             self.by_primary_id
                 .entry(id)
-                .and_modify(|v| v.push(MapEntry::new(&cert_slot)))
-                .or_insert(vec![ MapEntry::new(&cert_slot) ]);
+                .and_modify(|v| v.push(MapEntry::new(&cert_cell)))
+                .or_insert(vec![ MapEntry::new(&cert_cell) ]);
 
             if let Some(g) = grip {
                 self.by_primary_grip
                     .entry(g)
-                    .and_modify(|v| v.push(MapEntry::new(&cert_slot)))
-                    .or_insert(vec![ MapEntry::new(&cert_slot) ]);
+                    .and_modify(|v| v.push(MapEntry::new(&cert_cell)))
+                    .or_insert(vec![ MapEntry::new(&cert_cell) ]);
             }
         }
 
         // Add subkey indices.  If this is an update, indices may
         // already exist.  Don't duplicate them.
-        for sk in cert_slot.borrow().keys().subkeys() {
-            macro_rules! add {
-                ($v:expr, $id:expr) => ({
-                    let present = $v.iter()
-                        .position(|e| {
-                            e.extra == $id
-                                && e.cert().fingerprint() == fp
-                        })
-                        .is_some();
-                    if present {
-                        t!("Sub-x mapping already present");
-                    } else {
-                        t!("Sub-x mapping not yet present");
-                    }
+        {
+            let cert_locked = cert_cell.read().unwrap();
+            let cert_fp = cert_locked.fingerprint();
 
-                    if is_update && ! present {
-                        $v.push(MapEntry {
-                            cert: Rc::clone(&cert_slot),
-                            extra: $id,
-                        });
-                    } else if ! is_update {
-                        assert!(! present);
-                        $v.push(MapEntry {
-                            cert: Rc::clone(&cert_slot),
-                            extra: $id,
-                        });
-                    }
-                });
-            }
+            for sk in cert_locked.keys().subkeys() {
+                macro_rules! add {
+                    ($v:expr, $id:expr) => ({
+                        let present = $v.iter()
+                            .position(|e| {
+                                e.extra == $id
+                                    && e.fingerprint() == &fp
+                            })
+                            .is_some();
+                        if present {
+                            t!("Sub-x mapping already present");
+                        } else {
+                            t!("Sub-x mapping not yet present");
+                        }
 
-            t!("Adding subkey fingerprint mapping for {}", sk.fingerprint());
-            self.by_subkey_fp.entry(sk.fingerprint())
-                .and_modify(|v| add!(v, ()))
-                .or_insert(vec![ MapEntry::new(&cert_slot) ]);
+                        if is_update && ! present {
+                            $v.push(MapEntry {
+                                cert: Arc::clone(&cert_cell),
+                                fingerprint: cert_fp.clone(),
+                                extra: $id,
+                            });
+                        } else if ! is_update {
+                            assert!(! present);
+                            $v.push(MapEntry {
+                                cert: Arc::clone(&cert_cell),
+                                fingerprint: cert_fp.clone(),
+                                extra: $id,
+                            });
+                        }
+                    });
+                }
 
-            t!("Adding subkey keyid mapping for {}", sk.keyid());
-            self.by_subkey_id.entry(sk.keyid())
-                .and_modify(|v| add!(v, ()))
-                .or_insert(vec![ MapEntry::new(&cert_slot) ]);
+                t!("Adding subkey fingerprint mapping for {}", sk.fingerprint());
+                self.by_subkey_fp.entry(sk.fingerprint())
+                    .and_modify(|v| add!(v, ()))
+                    .or_insert(vec![ MapEntry::new(&cert_cell) ]);
 
-            if let Ok(g) = Keygrip::of(sk.mpis()) {
-                t!("Adding subkey keygrip mapping for {}", g);
-                self.by_subkey_grip.entry(g)
-                    .and_modify(|v| add!(v, sk.fingerprint()))
-                    .or_insert(vec![ MapEntry::new2(&cert_slot, sk.fingerprint()) ]);
+                t!("Adding subkey keyid mapping for {}", sk.keyid());
+                self.by_subkey_id.entry(sk.keyid())
+                    .and_modify(|v| add!(v, ()))
+                    .or_insert(vec![ MapEntry::new(&cert_cell) ]);
+
+                if let Ok(g) = Keygrip::of(sk.mpis()) {
+                    t!("Adding subkey keygrip mapping for {}", g);
+                    self.by_subkey_grip.entry(g)
+                        .and_modify(|v| add!(v, sk.fingerprint()))
+                        .or_insert(vec![ MapEntry::new2(&cert_cell, sk.fingerprint()) ]);
+                }
             }
         }
 
@@ -405,6 +435,9 @@ impl Keystore {
     }
 
     /// Inserts a cert.
+    ///
+    /// The certificate is inserted as-is; secret key material is not
+    /// stripped.
     pub fn insert(&mut self, cert: Cert) {
         self.insert_(cert, false)
     }
@@ -428,7 +461,7 @@ impl Keystore {
                 match e {
                     Entry::Occupied(mut oe) => {
                         if let Some(i) = oe.get_mut()
-                            .iter().position(|e| &e.cert().fingerprint() == fp)
+                            .iter().position(|e| e.fingerprint() == fp)
                         {
                             if oe.get().len() == 1 {
                                 assert_eq!(i, 0);
@@ -468,12 +501,12 @@ impl Keystore {
         // Remove all subkeys with that fingerprint.
         if let Some(subkeys) = self.by_subkey_fp.remove(fp) {
             for e in subkeys.into_iter() {
-                let cert = e.cert().clone();
+                let mut cert = e.cert_mut();
                 let cert_fp = cert.fingerprint();
 
                 // Strip the subkey.
                 let mut had_one = false;
-                e.cert.replace(cert.retain_subkeys(|ska| {
+                *cert = cert.clone().retain_subkeys(|ska| {
                     if ska.fingerprint() == *fp {
                         had_one = true;
                         removed_one = true;
@@ -487,7 +520,7 @@ impl Keystore {
                     } else {
                         true
                     }
-                }));
+                });
 
                 assert!(had_one);
             }
@@ -504,11 +537,10 @@ impl Keystore {
 
         // First, remove the cert with that fingerprint.
         if let Some(e) = self.by_primary_fp.get_mut(fp) {
-            if e.cert().is_tsk() {
+            let mut cert_ref = e.cert_mut();
+            if cert_ref.is_tsk() {
                 removed_one = true;
-                e.cert.replace_with(|cert| {
-                    cert.clone().strip_secret_key_material()
-                });
+                *cert_ref = cert_ref.clone().strip_secret_key_material();
             }
         }
 
@@ -520,23 +552,22 @@ impl Keystore {
                 // from an individual subkey.  Instead we convert it
                 // to packets, strip the secret key material, and then
                 // convert it back.
-                e.cert.replace_with(|cert| {
-                    Cert::from_packets(
-                        cert.clone()
-                            .into_packets()
-                            .map(|packet| {
-                                match packet {
-                                    Packet::SecretSubkey(k)
-                                        if &k.fingerprint() == fp =>
-                                    {
-                                        removed_one = true;
-                                        Packet::PublicSubkey(k.take_secret().0)
-                                    }
-                                    packet => packet,
+                let mut cert_ref = e.cert_mut();
+                *cert_ref = Cert::from_packets(
+                    cert_ref.clone()
+                        .into_packets()
+                        .map(|packet| {
+                            match packet {
+                                Packet::SecretSubkey(k)
+                                    if &k.fingerprint() == fp =>
+                                {
+                                    removed_one = true;
+                                    Packet::PublicSubkey(k.take_secret().0)
                                 }
-                            }))
-                        .expect("still valid")
-                });
+                                packet => packet,
+                            }
+                        }))
+                    .expect("still valid");
             }
         }
 
@@ -559,7 +590,7 @@ mod tests {
     //
     // If a subkey appears on multiple certificates, it is only
     // counted once.
-    fn ks_count<P, S>(ks: &Keystore, n_pks: P, n_sks: S, ignore_grips: bool)
+    fn ks_count<P, S>(ks: &KeystoreData, n_pks: P, n_sks: S, ignore_grips: bool)
         where P: Into<Option<usize>>, S: Into<Option<usize>>
     {
         if let Some(n_pks) = n_pks.into() {
@@ -594,7 +625,7 @@ mod tests {
     // Makes sure the keystore's maps contain the specified keys
     // either as primary keys (the first bool) or as subkeys (the
     // second bool).
-    fn ks_contains(ks: &Keystore,
+    fn ks_contains(ks: &KeystoreData,
                    checks: &[(&ErasedKeyAmalgamation<key::PublicParts>,
                               bool, bool)])
     {
@@ -688,7 +719,7 @@ mod tests {
 
     // Asserts that a key does not appear in the key store, either in
     // the indices or in any of the certificates.
-    fn ks_is_missing(ks: &Keystore,
+    fn ks_is_missing(ks: &KeystoreData,
                      ka: &ErasedKeyAmalgamation<key::PublicParts>)
     {
         // First check the maps.
@@ -823,7 +854,8 @@ mod tests {
 
     #[test]
     fn insert_remove() -> openpgp::Result<()> {
-        let mut ks = Keystore::default();
+        let ks = Keystore::default();
+        let mut ks = ks.write();
         ks_count(&ks, 0, 0, false);
 
         // Generate a key and insert it.
@@ -869,7 +901,8 @@ mod tests {
 
         // Merge the revocation certificate.
         {
-            let mut cert = ks.by_primary_fp_mut(&alice.fingerprint()).unwrap();
+            let cell = ks.cert_cell(&alice.fingerprint()).unwrap();
+            let mut cert = cell.write().unwrap();
             *cert = cert.clone().insert_packets(Some(revocation))?;
         }
         use openpgp::types::RevocationStatus;
@@ -927,7 +960,8 @@ mod tests {
     // at a time.
     #[test]
     fn add() -> openpgp::Result<()> {
-        let mut ks = Keystore::default();
+        let ks = Keystore::default();
+        let mut ks = ks.write();
         ks_count(&ks, 0, 0, false);
 
         // Generate a key and insert it.
@@ -999,7 +1033,8 @@ mod tests {
     fn same_subkey() -> openpgp::Result<()> {
         let p = &openpgp::policy::StandardPolicy::new();
 
-        let mut ks = Keystore::default();
+        let ks = Keystore::default();
+        let mut ks = ks.write();
         ks_count(&ks, 0, 0, false);
         ks_contains(&ks, &[]);
 
@@ -1152,7 +1187,8 @@ mod tests {
     fn same_grip() -> openpgp::Result<()> {
         let p = &openpgp::policy::StandardPolicy::new();
 
-        let mut ks = Keystore::default();
+        let ks = Keystore::default();
+        let mut ks = ks.write();
         ks_count(&ks, 0, 0, false);
         ks_contains(&ks, &[]);
 
@@ -1322,7 +1358,8 @@ mod tests {
     fn same_grip_same_cert() -> openpgp::Result<()> {
         let p = &openpgp::policy::StandardPolicy::new();
 
-        let mut ks = Keystore::default();
+        let ks = Keystore::default();
+        let mut ks = ks.write();
         ks_count(&ks, 0, 0, false);
         ks_contains(&ks, &[]);
 

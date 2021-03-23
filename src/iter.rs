@@ -31,11 +31,26 @@ fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
     let typ = rnp_try!(RnpIdentifierType::from_rnp_id(typ));
     t!("type = {:?}", typ);
 
+    // There are a few good reasons why we eagerly evaluate the
+    // iterator:
+    //
+    //   - We'd have to keep the keystore lock for the life of the
+    //     iterator.  That could be a very long time.  In particular,
+    //     if the caller forgets to destroy it we deadlock.  It's
+    //     probably better to just leak the iterator.  Also, it would
+    //     not be possible to modify the keystore, which is
+    //     inconvenient.
+    //
+    //   - Because we don't want to return duplicates, we'd have to
+    //     keep a list of certificates that we've already seen.  At
+    //     that point, we use O(n) memory anyway!
+
+    let ks = ctx.certs.read();
     let results: Vec<String> = match typ {
         RnpIdentifierType::UserID => {
             let mut userids: Vec<String>
-                = Vec::with_capacity(2 * ctx.certs.count());
-            for cert in ctx.certs.iter() {
+                = Vec::with_capacity(2 * ks.count());
+            for cert in ks.iter() {
                 if let Ok(vcert) = cert.with_policy(P, None) {
                     userids.extend(vcert.userids()
                                    .filter_map(|u| {
@@ -53,21 +68,21 @@ fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
 
         RnpIdentifierType::KeyID => {
             // by_primary_id is by definition deduped.
-            ctx.certs.keyids()
+            ks.keyids()
                 .map(|keyid| format!("{:X}", keyid))
                 .collect()
         }
 
         RnpIdentifierType::Fingerprint => {
             // by_primary_fp is by definition deduped.
-            ctx.certs.fingerprints()
+            ks.fingerprints()
                 .map(|fpr| format!("{:X}", fpr))
                 .collect()
         }
 
         RnpIdentifierType::Keygrip => {
             // by_primary_grip is by definition deduped.
-            ctx.certs.keygrips()
+            ks.keygrips()
                 .map(|grip| grip.to_string())
                 .collect()
         }
