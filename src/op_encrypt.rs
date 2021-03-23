@@ -78,9 +78,49 @@ fn rnp_op_encrypt_destroy(op: *mut RnpOpEncrypt) -> RnpResult {
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_op_encrypt_execute(op: *mut RnpOpEncrypt) -> RnpResult {
-    assert_ptr!(op);
+    rnp_function!(rnp_op_encrypt_execute, crate::TRACE);
+    let op = assert_ptr_mut!(op);
 
     fn f(op: &mut RnpOpEncrypt) -> openpgp::Result<()> {
+        // Currently, Thunderbird uses the RFC 1847 Encapsulation
+        // method.  We detect that, and transparently replace it with
+        // the combined method.
+        let cached_plaintext = if ! op.signers.is_empty()
+        {
+            // This is already a combined operation, therefore we
+            // create signatures over existing signatures.
+            // Undoing the encapsulation would change semantics.
+            None
+        } else if let Ok(Some((plaintext, issuers))) =
+            op.ctx.plaintext_cache.get(&op.input)
+        {
+            t!("Plaintext cache hit, attempting recombination");
+            let mut issuer_keys = Vec::new();
+            for issuer in &issuers {
+                if let Some(key) = op.ctx.cert(&issuer.clone().into())
+                    .and_then(|cert| {
+                        cert.keys().key_handle(issuer.clone()).nth(0)
+                            .and_then(|ka| {
+                                ka.key().clone().parts_into_secret().ok()
+                            })
+                    })
+                {
+                    issuer_keys.push(key);
+                }
+            }
+
+            // Did we find all keys that previously did the signing?
+            if issuer_keys.len() == issuers.len() {
+                t!("Recombination successful");
+                op.signers = issuer_keys;
+                Some(plaintext)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let mut message = Message::new(&mut op.output);
         if op.armor {
             message = Armorer::new(message).build()?;
@@ -117,18 +157,18 @@ fn rnp_op_encrypt_execute(op: *mut RnpOpEncrypt) -> RnpResult {
 
         // Literal wrapping.
         let mut message = LiteralWriter::new(message).build()?;
-        std::io::copy(op.input, &mut message)?;
+        if let Some(mut plaintext) = cached_plaintext {
+            // Create a combined message over the original plaintext.
+            std::io::copy(&mut plaintext, &mut message)?;
+        } else {
+            std::io::copy(op.input, &mut message)?;
+        }
         message.finalize()?;
 
         Ok(())
     }
 
-    if let Err(e) = f(&mut *op) {
-        warn!("failed to encrypt: {}", e);
-        RNP_ERROR_GENERIC
-    } else {
-        RNP_SUCCESS
-    }
+    rnp_return!(f(op))
 }
 
 #[no_mangle] pub unsafe extern "C"

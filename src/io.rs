@@ -49,6 +49,18 @@ impl RnpInput {
                 Ok(RnpInput::File(p.clone(), File::open(p)?)),
         }
     }
+
+    /// Copies referenced data, if necessary.
+    pub fn to_owned(self) -> Self {
+        if let RnpInput::Ref(c) = self {
+            let p = c.position();
+            let mut owned = io::Cursor::new(c.into_inner().to_vec());
+            owned.set_position(p);
+            RnpInput::Buf(owned)
+        } else {
+            self
+        }
+    }
 }
 
 #[no_mangle] pub unsafe extern "C"

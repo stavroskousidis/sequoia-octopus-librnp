@@ -86,6 +86,7 @@ mod op_verify;
 mod op_encrypt;
 #[allow(dead_code)]
 mod op_sign;
+mod recombine;
 #[allow(dead_code)]
 mod op_generate;
 #[allow(dead_code)]
@@ -118,6 +119,7 @@ pub struct RnpContext {
     certs: Keystore,
     unlocked_keys: HashMap<Fingerprint, Key<SecretParts, UnspecifiedRole>>,
     password_cb: Option<(RnpPasswordCb, *mut c_void)>,
+    plaintext_cache: recombine::PlaintextCache,
 }
 
 type RnpPasswordCb = unsafe extern fn(*mut RnpContext,

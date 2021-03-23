@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use libc::{
     c_char,
     c_void,
@@ -104,7 +106,8 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
     fn sign(op: &mut RnpOpSign) -> openpgp::Result<()> {
         assert!(! op.csf);
 
-        let mut message = Message::new(&mut op.output);
+        let mut signature = Vec::new();
+        let mut message = Message::new(&mut signature);
         if op.armor {
             message = Armorer::new(message)
                 .kind(openpgp::armor::Kind::Signature)
@@ -131,6 +134,11 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
 
         std::io::copy(op.input, &mut message)?;
         message.finalize()?;
+
+        // Stash the message.
+        op.ctx.plaintext_cache.stash(&op.input, &signature);
+        // And write the signature to the sink.
+        op.output.write_all(&signature)?;
 
         Ok(())
     }
