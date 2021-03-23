@@ -103,7 +103,9 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
     fn f(op: &mut RnpOpSign) -> openpgp::Result<()> {
         let mut message = Message::new(&mut op.output);
         if op.armor && ! op.csf {
-            message = Armorer::new(message).build()?;
+            message = Armorer::new(message)
+                .kind(openpgp::armor::Kind::Signature)
+                .build()?;
         }
 
         // Maybe sign the message.
