@@ -22,6 +22,7 @@ use openpgp::{
 
 use crate::{
     Keygrip,
+    parcimonie::Parcimonie,
 };
 
 struct MapEntry<E> {
@@ -94,12 +95,36 @@ pub struct KeystoreData {
     by_subkey_grip: HashMap<Keygrip, Vec<MapEntry<Fingerprint>>>,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default)]
 pub struct Keystore {
-    data: RwLock<KeystoreData>,
+    data: Arc<RwLock<KeystoreData>>,
+    parcimonie: Option<Parcimonie>,
+}
+
+impl fmt::Debug for Keystore {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Keystore")
+            .field("parcimonie", &self.parcimonie.is_some())
+            .field("data", &self.data)
+            .finish()
+    }
 }
 
 impl Keystore {
+    // Starts a parcimonie instance to keep this keystore up to date.
+    //
+    // If there is already parcimonie instance running, this does
+    // nothing.
+    pub fn start_parcimonie(&mut self) {
+        if self.parcimonie.is_none() {
+            self.parcimonie = Some(Parcimonie::new(crate::P, self));
+        }
+    }
+
+    pub fn create_ref(&self) -> Arc<RwLock<KeystoreData>> {
+        Arc::clone(&self.data)
+    }
+
     pub fn read(&self) -> RwLockReadGuard<KeystoreData> {
         self.data.read().unwrap()
     }
@@ -118,7 +143,7 @@ const VEC_MAP_ENTRY_FPR_EMPTY_REF: &Vec<MapEntry<Fingerprint>>
 
 impl fmt::Debug for KeystoreData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "Keystore {{")?;
+        writeln!(f, "KeystoreData {{")?;
 
         writeln!(f, "  by_primary_fp {{")?;
         for (k, e) in self.by_primary_fp.iter() {

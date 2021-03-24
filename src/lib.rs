@@ -108,6 +108,7 @@ mod gpg;
 
 mod tbprofile;
 mod wot;
+mod parcimonie;
 
 pub const P: &StandardPolicy = &StandardPolicy::new();
 
@@ -607,6 +608,8 @@ fn rnp_load_keys(ctx: *mut RnpContext,
             }
         }
     }
+
+    (*ctx).certs.start_parcimonie();
 
     RNP_SUCCESS
 }
