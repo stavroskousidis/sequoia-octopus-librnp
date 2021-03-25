@@ -637,8 +637,6 @@ fn rnp_save_keys(ctx: *mut RnpContext,
                 if let Err(err) = cert.serialize(output) {
                     r = Err(err);
                     break;
-                } else {
-                    
                 }
             }
         },
