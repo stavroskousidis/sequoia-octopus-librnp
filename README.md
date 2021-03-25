@@ -66,3 +66,28 @@ cp target/release/libsequoia_octopus_librnp.so path/to/thunderbird/obj-x86_64-pc
 cargo build --no-default-features --features crypto-cng
 cp target/debug/sequoia_octopus_librnp.dll path/to/thunderbird/.../dist/bin/rnp.dll # XXX: I'm guessing here
 ```
+# Support
+
+The Octopus is actively developed by the [Sequoia PGP] team.  We are
+primarily financed by the [pep foundation].  Our mandate is
+specifically to improve the OpenPGP ecosystem, and more generally to
+improve internet freedom tools.
+
+  [Sequoia PGP]: https://sequoia-pgp.org/
+  [pep foundation]: https://pep.foundation/
+
+Currently, the Octopus is developed outside of Thunderbird.  There are
+two main reasons for this.  First, the Thunderbird developers do not
+want to invest resources in supporting a new OpenPGP backend after
+having recently invested in RNP.  Second, Sequoia and the Octopus are
+licensed under the GPLv2+.  Although the GPLv2+ is [compatible with
+MPL 2.0], adding GPLv2+ code to Thunderbird is not currently aligned
+with their licensing strategy.
+
+  [compatible with MPL 2.0]: https://www.gnu.org/licenses/license-list.html#MPL-2.0
+
+In terms of testing, the Octopus includes a number of unit tests.  Our
+CI runs these checks against all commits.  It also runs the OpenPGP
+relevant [unit tests from Thunderbird].
+
+  [unit tests from Thunderbird]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/merge_requests/18
