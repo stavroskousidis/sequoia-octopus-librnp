@@ -149,7 +149,7 @@ fn rnp_import_keys(ctx: *mut RnpContext,
 
             let mut r = KeyImportResult::default();
             let fp = cert.fingerprint();
-            r.fingerprint = fp.to_string();
+            r.fingerprint = fp.to_hex();
 
             let status;
             if let Some(known) = ctx.certs.read().by_primary_fp(&fp) {
@@ -199,7 +199,7 @@ fn rnp_import_keys(ctx: *mut RnpContext,
     };
 
     if let Err(e) = f() {
-        warn!("rnp_import_keys: {}", e);
+        _warn!("rnp_import_keys: {}", e);
         RNP_ERROR_GENERIC
     } else {
         RNP_SUCCESS
