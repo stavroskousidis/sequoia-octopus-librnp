@@ -20,12 +20,13 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 libc = "0.2"
 anyhow = "1"
+buffered-reader = "1"
 configparser = "2"
 csv = "1.1"
 lazy_static = "1"
+num_cpus = "1"
 rand = { version = "0.8", default-features = false }
 rand_distr = "0.4"
-rayon = "1.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sequoia-openpgp =   { version = "1.1", default-features = false }

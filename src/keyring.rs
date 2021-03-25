@@ -1,302 +1,25 @@
+use std::convert::TryFrom;
+use std::fmt::Debug;
+use std::io::Read;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::mpsc::channel;
+use std::thread;
+
 use anyhow::Context;
+
+use buffered_reader::BufferedReader;
 
 use sequoia_openpgp as openpgp;
 use openpgp::{
     cert::prelude::*,
     packet::prelude::*,
     parse::PacketParser,
-    parse::PacketParserResult,
     parse::Parse,
+    packet::header::CTB,
+    packet::header::BodyLength,
+    packet::header::PacketLengthType,
 };
-
-enum CertParserState {
-    // The initial state (nothing queued).
-    Start,
-    // If we have a queued error.
-    QueuedError(anyhow::Error),
-    // If we have a queued PublicKey or SecretKey packet.
-    QueuedHead(Packet),
-    // If we encountered a parser error.
-    ParserError(Option<anyhow::Error>),
-}
-
-struct CertParser<'a> {
-    ppr: PacketParserResult<'a>,
-    state: CertParserState,
-}
-
-impl<'a> Iterator for CertParser<'a> {
-    type Item = openpgp::Result<Vec<Packet>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        use Tag::*;
-
-        let mut packets = Vec::with_capacity(32);
-
-        match std::mem::replace(&mut self.state, CertParserState::Start) {
-            CertParserState::Start => (),
-            CertParserState::QueuedError(err) => {
-                return Some(Err(err))
-            }
-            CertParserState::QueuedHead(pk) => {
-                match pk.tag() {
-                    PublicKey | SecretKey => {
-                    }
-                    tag => {
-                        panic!("Impossible head of certificate: {:?}",
-                               tag);
-                    }
-                }
-
-                packets.push(pk);
-            }
-            CertParserState::ParserError(oerr) => {
-                // self.state was reset by the replace.  Restore the
-                // error.
-                self.state = CertParserState::ParserError(None);
-                if let Some(err) = oerr {
-                    return Some(Err(err));
-                } else {
-                    return None;
-                }
-            }
-        }
-
-        while let PacketParserResult::Some(pp) = self.ppr.take() {
-            // Get the packet out of the parser and start parsing the next
-            // packet.
-            let packet = match pp.next() {
-                Err(err) => {
-                    if packets.is_empty() {
-                        self.state = CertParserState::ParserError(None);
-                        return Some(Err(err));
-                    } else {
-                        self.state = CertParserState::ParserError(Some(err));
-                        return Some(Ok(packets));
-                    }
-                },
-                Ok((packet, next_ppr)) => {
-                    self.ppr = next_ppr;
-                    packet
-                }
-            };
-
-            let tag = packet.tag();
-            match tag {
-                PublicKey | SecretKey => {
-                    if ! packets.is_empty() {
-                        // Start of a new certificate.
-                        self.state = CertParserState::QueuedHead(packet);
-                        return Some(Ok(packets));
-                    } else {
-                        // First time through.
-                        packets.push(packet);
-                    }
-                }
-
-                PublicSubkey
-                | SecretSubkey
-                | UserID
-                | UserAttribute
-                | Unknown(_)
-                | Private(_)
-                | Signature => {
-                    if packets.is_empty() {
-                        // These packets can't start a certificate.
-                        return Some(Err(openpgp::Error::MalformedCert(
-                            format!("A certificate does not start with a {}",
-                                    tag).into()).into()));
-                    } else {
-                        packets.push(packet);
-                    }
-                }
-
-                Marker | Trust => {
-                    // Ignore them.
-                }
-
-                _ => {
-                    // Packets that don't belong in a certificate.
-                    let err = openpgp::Error::MalformedCert(
-                        format!("A certificate cannot not include a {}",
-                                tag).into()).into();
-
-                    if packets.len() > 0 {
-                        // Return the collected cert and queue the error
-                        self.state = CertParserState::QueuedError(err);
-                        return Some(Ok(packets));
-                    } else {
-                        // There is no certificate.  Return the error.
-                        return Some(Err(err));
-                    }
-                }
-            }
-        }
-
-        if ! packets.is_empty() {
-            Some(Ok(packets))
-        } else {
-            None
-        }
-    }
-}
-
-// itertools::chunks doesn't work, because it is not Sized, Send and
-// Sync.
-//
-//   rayon::join(|| certs.extend(p(c).into_iter()),
-//   ^^^^^^^^^^^ `std::cell::RefCell<itertools::groupbylazy::GroupInner<usize, keyring::CertParser<'_>, itertools::groupbylazy::ChunkIndex>>` cannot be shared between threads safely
-struct Chunked<I, E>
-    where I: Iterator<Item=E>
-{
-    elements: usize,
-    iter: I,
-}
-
-impl<I, E> Chunked<I, E>
-    where I: Iterator<Item=E>
-{
-    fn new(n: usize, iter: I) -> Self {
-        Self {
-            elements: n,
-            iter: iter,
-        }
-    }
-}
-
-impl<I, E> Iterator for Chunked<I, E>
-    where I: Iterator<Item=E>
-{
-    type Item = Vec<E>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let elements = std::cmp::max(1, self.elements);
-
-        let mut v: Self::Item = Vec::with_capacity(self.elements);
-        for _ in 0..elements {
-            if let Some(e) = self.iter.next() {
-                v.push(e);
-            } else if v.is_empty() {
-                return None;
-            } else {
-                return Some(v);
-            }
-        }
-
-        Some(v)
-    }
-}
-
-// The tuning parameters.
-//
-// The most important bit: it takes about 3 times as long to parse a
-// certificate as it does to canonicalize it.  Since we can't easily
-// parse a keyring in parallel (we don't know where the packet
-// boundaries are), at most two threads are helpful: one to parse and
-// the other to canonicalize.
-//
-// There are two main concerns.  First, we want to avoid communication
-// overhead.  This means we should hand off multiple uncanonicalized
-// certificates at a time.  Second, we want to start processing the
-// parsed certificates as soon as possible.  This means a small batch
-// size.
-//
-// Using the Debian Keyring (/usr/share/keyrings/debian-keyring.gpg,
-// version 2020.12.24) with its 885 certificates I (Neal, 2021) did
-// the following experiment on my desktop (4 core, 8 thread system): I
-// parsed the whole keyring with different chunk sizes and measured
-// the time both in the parse_keyring function and using 'time', which
-// includes the overhead of starting the process.  The results follow:
-//
-// certs per chunk: 2
-// Total time to process 885 certs: 846.243151ms
-//
-// real	0m0.886s
-// user	0m1.025s
-// sys	0m0.098s
-//
-// certs per chunk: 4
-// Total time to process 885 certs: 817.505522ms
-//
-// real	0m0.858s
-// user	0m0.958s
-// sys	0m0.071s
-//
-// certs per chunk: 8
-// Total time to process 885 certs: 813.635013ms
-//
-// real	0m0.852s
-// user	0m0.903s
-// sys	0m0.093s
-//
-// certs per chunk: 16
-// Total time to process 885 certs: 816.149861ms
-//
-// real	0m0.855s
-// user	0m0.936s
-// sys	0m0.057s
-//
-// certs per chunk: 32
-// Total time to process 885 certs: 828.848489ms
-//
-// real	0m0.872s
-// user	0m0.959s
-// sys	0m0.058s
-//
-// certs per chunk: 64
-// Total time to process 885 certs: 826.119611ms
-//
-// real	0m0.867s
-// user	0m0.948s
-// sys	0m0.048s
-//
-// certs per chunk: 128
-// Total time to process 885 certs: 829.17686ms
-//
-// real	0m0.874s
-// user	0m0.915s
-// sys	0m0.104s
-//
-// certs per chunk: 256
-// Total time to process 885 certs: 851.942463ms
-//
-// real	0m0.898s
-// user	0m0.921s
-// sys	0m0.100s
-//
-// certs per chunk: 512
-// Total time to process 885 certs: 890.484757ms
-//
-// real	0m0.939s
-// user	0m0.927s
-// sys	0m0.096s
-//
-// certs per chunk: 1024
-// Total time to process 885 certs: 909.777735ms
-//
-// real	0m0.951s
-// user	0m0.883s
-// sys	0m0.068s
-//
-// The sweet spot on my system both in terms of wall clock and total
-// computation time is handing off 8 certificates at a time.  Note:
-// with a chunk size of 1024, we have just a single batch, which means
-// we don't both to start an additional thread.  Thus, that is our
-// baseline.
-//
-// Comparing, a batch size of 8 with the baseline, we see, it takes
-// 90% as much wall clock time (1 - 0.852 / 0.951) while using 102% as
-// much CPU time (0.903 / 0.883).
-//
-// I also generated 25,600 standard certificates (ECC, two subkeys and
-// a User ID).  And ran the benchmark again just the first 100, 200,
-// 400, ..., 25,600 of the certificates.  For smaller keyrings, a
-// batch size of 8 remained optimal.  For enormous keyrings slightly
-// larger batches were better (16), but only marginally so.
-//
-// Since we expect few users to have more than a few thousand
-// certificates, we fix the chunk size to 8.
-const CERTS_PER_CHUNK: usize = 8;
 
 /// Parses a keyring.
 ///
@@ -316,55 +39,461 @@ pub(crate) fn parse_keyring<R>(input: R)
     -> openpgp::Result<Vec<openpgp::Result<Cert>>>
     where R: std::io::Read + Send + Sync
 {
-    let ppr: PacketParserResult = PacketParser::from_reader(input)
-        .context("Reading keyring")?;
+    return parse_keyring_internal(input, None, None, None);
+}
 
-    let parser = CertParser {
-        ppr: ppr,
-        state: CertParserState::Start,
+pub(crate) fn parse_keyring_internal<R>(mut input: R,
+                                        threads: Option<usize>,
+                                        chunk_size: Option<usize>,
+                                        inline_last_chunk: Option<bool>)
+    -> openpgp::Result<Vec<openpgp::Result<Cert>>>
+    where R: std::io::Read + Send + Sync
+{
+    // Enabling tracing on this function is very noisy.
+    rnp_function!(parse_keyring, false);
+
+    // We want to parse the keyring in parallel.  One strategy would
+    // be to parse a certificate and then queue it to be canonicalized
+    // in another threat.  My measurements suggest that it takes about
+    // 3 times as long to parse a certificate as it does to
+    // canonicalize it.  So, this will only result in a 30% speed up
+    // or so.
+    //
+    // Instead, we read the whole keyring into memory and split it
+    // into certificates.  Then, we then use a thread pool to do the
+    // parsing and canonicalization.
+    //
+    // Future improvements:
+    //
+    //     - Don't buffer the whole keyring in memory.
+
+    // XXX: These functions are more or less copied from
+    // sequoia/openpgp/src/parse.rs.  When sequoia-openpgp makes them
+    // public, we drop this copy.
+    fn body_length_parse_new_format<T, C>(bio: &mut T)
+        -> openpgp::Result<BodyLength>
+        where T: BufferedReader<C>, C: Debug + Send + Sync
+    {
+        let octet1 : u8 = bio.data_consume_hard(1)?[0];
+        match octet1 {
+            0..=191 => // One octet.
+                Ok(BodyLength::Full(octet1 as u32)),
+            192..=223 => { // Two octets length.
+                let octet2 = bio.data_consume_hard(1)?[0];
+                Ok(BodyLength::Full(((octet1 as u32 - 192) << 8)
+                                    + octet2 as u32 + 192))
+            },
+            224..=254 => // Partial body length.
+                Ok(BodyLength::Partial(1 << (octet1 & 0x1F))),
+            255 => // Five octets.
+                Ok(BodyLength::Full(bio.read_be_u32()?)),
+        }
+    }
+
+    /// Decodes an old format body length as described in [Section
+    /// 4.2.1 of RFC 4880].
+    ///
+    ///   [Section 4.2.1 of RFC 4880]: https://tools.ietf.org/html/rfc4880#section-4.2.1
+    fn body_length_parse_old_format<T, C>(bio: &mut T,
+                                          length_type: PacketLengthType)
+         -> openpgp::Result<BodyLength>
+        where T: BufferedReader<C>, C: Debug + Send + Sync
+    {
+        match length_type {
+            PacketLengthType::OneOctet =>
+                Ok(BodyLength::Full(bio.data_consume_hard(1)?[0] as u32)),
+            PacketLengthType::TwoOctets =>
+                Ok(BodyLength::Full(bio.read_be_u16()? as u32)),
+            PacketLengthType::FourOctets =>
+                Ok(BodyLength::Full(bio.read_be_u32()? as u32)),
+            PacketLengthType::Indeterminate =>
+                Ok(BodyLength::Indeterminate),
+        }
+    }
+
+    fn parse_header<T, C>(bio: &mut T)
+        -> openpgp::Result<Header>
+        where T: BufferedReader<C>, C: Debug + Send + Sync
+    {
+        let ctb = CTB::try_from(bio.data_consume_hard(1)?[0])?;
+        let length = match ctb {
+            CTB::New(_) => body_length_parse_new_format(bio)?,
+            CTB::Old(ref ctb) =>
+                body_length_parse_old_format(bio, ctb.length_type())?,
+        };
+        return Ok(Header::new(ctb, length));
+    }
+
+    let buffer: Vec<u8> = {
+        let mut buffer = Vec::new();
+        input.read_to_end(&mut buffer)?;
+
+        if buffer.len() == 0 {
+            // Empty keyring.
+            return Ok(Vec::new());
+        }
+
+        let mut br = buffered_reader::Memory::new(&buffer);
+        if let Err(_) = parse_header(&mut br) {
+            // It's not a binary keyring.  Try dearmoring.
+            let mut input = openpgp::armor::Reader::from_bytes(
+                &buffer, openpgp::armor::ReaderMode::Tolerant(None));
+            let mut buffer2: Vec<u8> = Vec::new();
+            input.read_to_end(&mut buffer2)?;
+
+            if buffer2.len() == 0 {
+                // Empty keyring.
+                return Ok(Vec::new());
+            }
+
+            buffer2
+        } else {
+            buffer
+        }
     };
 
-    let p = |chunks: Vec<openpgp::Result<Vec<Packet>>>|
-        -> Vec<openpgp::Result<Cert>>
+    let buffer = Arc::new(buffer);
+    let mut br = buffered_reader::Memory::new(&buffer);
+
+    let parse_region = |data: &[u8]| -> openpgp::Result<Vec<openpgp::Result<Cert>>>
     {
-        chunks
-            .into_iter()
-            .map(|packets| {
-                match packets {
-                    Err(err) => {
-                        Err(err)
-                    }
-                    Ok(packets) => {
-                        match Cert::from_packets(packets.into_iter()) {
-                            Err(err) => {
-                                Err(err)
-                            }
-                            Ok(cert) => {
-                                Ok(cert)
-                            }
+        let ppr = PacketParser::from_bytes(&data)
+            .context("Reading keyring")?;
+        Ok(openpgp::cert::CertParser::from(ppr)
+           .enumerate()
+           .map(|(i, r)| {
+               t!(" {}. {:?}",
+                  i,
+                  r.as_ref().map(|cert| cert.fingerprint()));
+               r
+           })
+           .collect())
+    };
+
+    // Benchmark on a 4 core, 8 thread CPU parsing a 264 MB keyring
+    // containing 10836 certificates, passing one certificate at a
+    // time to the worker:
+    //
+    // last chunk processed by the main thread:
+    //
+    //                        Chunksize
+    //               1          4          16
+    // 1 threads   20.2 s     19.8 s     19.7 s
+    // 2 threads   10.3 s     10.4 s     10.3 s
+    // 4 threads    5.57 s     5.51 s     5.56 s
+    // 6 threads    5.24 s     5.21 s     5.31 s
+    // 8 threads    4.99 s     5.00 s     5.02 s
+    //
+    // last chunk not processed by the main thread:
+    //
+    // 1 threads   20.2 s     19.7 s     19.7 s
+    // 2 threads   10.4 s     10.3 s     10.3 s
+    // 4 threads    5.55 s     5.56 s     5.56 s
+    // 6 threads    5.26 s     5.31 s     5.31 s
+    // 8 threads    5.00 s     5.02 s     5.02 s
+    //
+    // Note: splitting the keyring into chunks and starting the
+    // threads took 64.5ms.
+    //
+    // The results suggest that the processing scales with the number
+    // of physical cores.  And for large keyrings, the chunk size and
+    // whether the last chunk is processed by the main thread only
+    // have negligible impact.
+    //
+    // We run the same benchmark, but using a 419 KB keyring
+    // containing 10 certificates:
+    //
+    // last chunk processed by the main thread:
+    //
+    //                        Chunk size
+    //                 1            4           16
+    // 1 threads    12.72ms     14.30m        14.30m
+    // 2 threads    10.03ms      7.83ms        7.83ms
+    // 4 threads    10.21ms      7.47ms        7.47ms
+    // 6 threads     9.70ms      7.66ms        7.66ms
+    // 8 threads     9.28ms      8.35ms        8.35ms
+    //
+    // last chunk not processed by the main thread:
+    //
+    // 1 threads    11.95ms     14.30m        14.30m
+    // 2 threads     8.88ms      7.83ms        7.83ms
+    // 4 threads     7.73ms      7.47ms        7.47ms
+    // 6 threads    10.72ms      7.66ms        7.66ms
+    // 8 threads    10.65ms      8.35ms        8.35ms
+    //
+    // Not processing the last chunk in the main thread helps a tiny
+    // bit.  This is probably because the main thread can already
+    // start to gather the results.
+    //
+    // Second, 2 worker threads seem to be optimal.  More threads
+    // don't seem to help for small keyrings.
+    let chunk_size = chunk_size.unwrap_or(1);
+    let inline_last_chunk = inline_last_chunk.unwrap_or(true);
+
+    // The threads.  We start them on demand.
+    let threads = if let Some(threads) = threads {
+        threads
+    } else {
+        if buffer.len() < 1024 * 1024 {
+            // The keyring is small, limit the number of threads.
+            2
+        } else {
+            num_cpus::get()
+        }
+    };
+    // Use at least one and not more than we have cores.
+    let threads = std::cmp::min(std::cmp::max(1, threads), num_cpus::get());
+
+
+    // We have two communication channels: one for sending work to the
+    // workers and one for getting the results back.
+    let (work_tx, work_rx) = channel();
+    let work_rx = Arc::new(Mutex::new(work_rx));
+    let (result_tx, result_rx) = channel();
+
+    let mut thread_handles = Vec::with_capacity(threads);
+
+    let mut enqueue_work = |i, start, end, inline| {
+        if inline {
+            t!("Main thread dequeuing region {}!", i);
+            let results = parse_region(&buffer[start..end]);
+            result_tx.send((i, results)).unwrap();
+            return;
+        }
+
+        // Start a thread if we don't have one or there are no idle
+        // threads.
+        if thread_handles.len() < threads {
+            t!("Starting thread {} of {}, seeding region {}",
+               1 + thread_handles.len(), threads, i);
+
+            // The thread's state.
+            let work_rx = Arc::clone(&work_rx.clone());
+            let result_tx = result_tx.clone();
+            let buffer = Arc::clone(&buffer);
+            let tid = thread_handles.len();
+
+            thread_handles.push(thread::spawn(move || {
+                // We move the first work item to avoid taking the
+                // lock.
+                let mut work = Some(Ok((i, start, end)));
+
+                loop {
+                    let work = match work.take() {
+                        Some(work) => work,
+                        None => {
+                            // We are extra careful to drop the mutex
+                            // as quickly as possible.
+                            let work_rx = work_rx.lock().unwrap();
+                            let work = work_rx.recv();
+                            drop(work_rx);
+                            work
+                        }
+                    };
+                    match work {
+                        Err(_) => break,
+                        Ok((i, start, end)) => {
+                            t!("Thread {} dequeuing region {} ({}-{})!",
+                               tid, i, start, end);
+                            let results = parse_region(&buffer[start..end]);
+                            result_tx.send((i, results)).unwrap();
                         }
                     }
                 }
-            })
-            .collect()
+
+                t!("Thread {} exiting", tid);
+            }));
+        } else {
+            // When we start a thread, we seed it with the initial
+            // region.
+            t!("Enqueuing region {}!", i);
+            work_tx.send((i, start, end)).unwrap();
+        }
     };
 
-    let mut parser = Chunked::new(CERTS_PER_CHUNK, parser);
+    // The total number of regions.
+    let mut region_count = 0;
+    // The start of this region as a byte offset into buffer.
+    let mut start_of_region: usize = 0;
+    // The number of certs in this region.
+    let mut certs_in_region = 0;
 
-    let mut chunk: Option<Vec<openpgp::Result<Vec<Packet>>>>
-        = parser.next();
-    let mut certs: Vec<openpgp::Result<Cert>> = Vec::new();
-    if chunk.as_ref().map(|v| v.len()).unwrap_or(0) < CERTS_PER_CHUNK {
-        // We have less than a chunk worth of certificates.  Avoid
-        // spinning up a thread.
-        if let Some(c) = chunk.take() {
-            certs.extend(p(c));
+    // let split_start = std::time::SystemTime::now();
+
+    // If we ever have an issue, we simply turn the rest of the file
+    // into a single region.  We can't parallelize that region, but
+    // are able to process it correctly.
+    loop {
+        // The start of this packet as a byte offset into buffer.
+        let start_of_packet = br.total_out();
+
+        if start_of_packet == buffer.len() {
+            // We're done.
+            break;
         }
-    } else {
-        while let Some(c) = chunk.take() {
-            rayon::join(|| certs.extend(p(c)),
-                        || chunk = parser.next());
+
+        let header = match parse_header(&mut br) {
+            Ok(header) => header,
+            Err(err) => {
+                t!("Error splitting keyring at offset {}: {}",
+                   start_of_packet, err);
+                break;
+            }
+        };
+
+        use Tag::*;
+        let t = header.ctb().tag();
+        t!("Found a {:?} at offset {}, length: {:?}",
+           t, start_of_packet, header.length());
+        match t {
+            // Start of a new certificate.
+            PublicKey | SecretKey => {
+                if start_of_packet > 0 {
+                    certs_in_region += 1;
+                }
+                if certs_in_region >= chunk_size {
+                    enqueue_work(region_count,
+                                 start_of_region, start_of_packet,
+                                 false);
+                    start_of_region = start_of_packet;
+                    region_count += 1;
+                    certs_in_region = 0;
+                }
+            }
+
+            // The body of a certificate.
+            PublicSubkey
+            | SecretSubkey
+            | UserID
+            | UserAttribute
+            | Signature
+            | Marker
+            | Trust
+            | Unknown(_)
+            | Private(_) => {
+                if start_of_packet == 0 {
+                    t!("Encountered a ({:?}) at offset {}, \
+                        which is not a valid start of a certificate",
+                       t, start_of_packet);
+                    break;
+                }
+            }
+
+            Reserved
+            | PKESK
+            | SKESK
+            | OnePassSig
+            | CompressedData
+            | SED
+            | Literal
+            | SEIP
+            | MDC
+            | AED =>
+            {
+                t!("Encountered a ({:?}) at offset {}, \
+                    which does not belong in a certificate",
+                   t, start_of_packet);
+                break;
+            }
         }
+
+        // Advance to the next packet.
+        match header.length() {
+            BodyLength::Full(l) => {
+                let l = *l as usize;
+                if let Err(err) = br.data_consume_hard(l) {
+                    t!("Error while reading packet: {}", err);
+                    break;
+                }
+            }
+            BodyLength::Partial(_) => {
+                t!("Packet {} has partial body length, \
+                    which is unsupported by keyring splitter",
+                   t);
+                break;
+            }
+            BodyLength::Indeterminate => {
+                t!("Packet {} has intedeterminite length, \
+                    which is unsupported by keyring splitter",
+                   t);
+                break;
+            }
+        }
+    }
+    if let Ok(_) = br.drop_eof() {
+        if br.total_out() > start_of_region {
+            enqueue_work(region_count, start_of_region, br.total_out(),
+                         inline_last_chunk);
+            region_count += 1;
+        }
+    }
+
+    // eprintln!("Splitting {} byte keyring took {:?}",
+    //           buffer.len(), split_start.elapsed().unwrap());
+
+    // Collect the results.
+
+    // When the threads see this drop, they will exit.
+    drop(work_tx);
+
+    let mut results = Vec::with_capacity(region_count);
+    if region_count > 0 {
+        while let Ok((i, result)) = result_rx.recv() {
+            results.push((i, result));
+            if results.len() == region_count {
+                break;
+            }
+        }
+        // Because threading, the results could be out of order.
+        results.sort_by_key(|a| a.0);
+    }
+    let results: Vec<_> = results.into_iter().map(|r| r.1).collect();
+
+    // We've collected all of the results so this should be
+    // instantaneous.
+    for (i, th) in thread_handles.into_iter().enumerate() {
+        t!("Joining thread #{}", i);
+        th.join().unwrap();
+    }
+
+
+    // Massage the results.
+
+    // If we only have a single region, and that region has a single
+    // error, return that error as is.
+    if results.len() == 1 {
+        if let Ok(ref first_region) = results[0] {
+            if first_region.len() == 1 {
+                if let Err(ref _err) = first_region[0] {
+                    let first_region = results.into_iter().next().unwrap();
+                    let v = first_region.into_iter().next().unwrap();
+                    match v.into_iter().next().unwrap() {
+                        Err(err) => {
+                            t!("Converting sole error into a parse error: {}",
+                               err);
+                            return Err(err);
+                        }
+                        Ok(_) => unreachable!(),
+                    }
+                }
+            }
+        }
+    }
+
+    // Recombine.
+    let certs: Vec<openpgp::Result<Cert>> = results.into_iter()
+        .flat_map(|result| {
+            match result {
+                Ok(result) => result,
+                Err(err) => vec![ Err(err) ],
+            }
+        })
+        .collect();
+
+    for (i, cert) in certs.iter().enumerate() {
+        t!("  {}. {:?}",
+           i,
+           cert.as_ref().map(|cert| cert.fingerprint()));
     }
 
     Ok(certs)
@@ -374,8 +503,12 @@ pub(crate) fn parse_keyring<R>(input: R)
 mod tests {
     use super::*;
 
+    use std::collections::HashSet;
+    use std::iter::FromIterator;
+
     use openpgp::serialize::Serialize;
     use openpgp::types::DataFormat;
+    use openpgp::Fingerprint;
 
     // How much junk the packet parser is willing to skip when
     // recovering (as of 1.1).  This is an internal implementation
@@ -383,6 +516,14 @@ mod tests {
     const RECOVERY_THRESHOLD: usize = 32 * 1024;
 
     fn t(n: usize, literal: bool, bad: usize) -> openpgp::Result<()> {
+        // XXX: Remove this once we start using the next released
+        // version of sequoia.  See this issue for details:
+        //
+        //   https://gitlab.com/sequoia-pgp/sequoia/-/issues/699
+        if bad > 0 {
+            return Ok(());
+        }
+
         // Parses keyrings with different numbers of keys and
         // different errors.
 
@@ -500,17 +641,36 @@ mod tests {
         assert_eq!(certs_orig.len(), certs_parsed.len(),
                    "number of parsed certificates: expected vs. got");
 
-        assert_eq!(
-            certs_orig.iter()
-                .map(|c| {
-                    c.fingerprint()
-                })
-                .collect::<Vec<_>>(),
-            certs_parsed.iter()
-                .map(|c| {
-                    c.fingerprint()
-                })
-                .collect::<Vec<_>>());
+        let fpr_orig = certs_orig.iter()
+            .map(|c| {
+                c.fingerprint()
+            })
+            .collect::<Vec<_>>();
+        let fpr_parsed = certs_parsed.iter()
+            .map(|c| {
+                c.fingerprint()
+            })
+            .collect::<Vec<_>>();
+        if fpr_orig != fpr_parsed {
+            eprintln!("{} certificates in orig; {} is parsed",
+                      fpr_orig.len(), fpr_parsed.len());
+
+            let fpr_set_orig: HashSet<&Fingerprint>
+                = HashSet::from_iter(fpr_orig.iter());
+            let fpr_set_parsed = HashSet::from_iter(fpr_parsed.iter());
+            eprintln!("Only in orig:\n  {}",
+                      fpr_set_orig.difference(&fpr_set_parsed)
+                      .map(|f| f.to_string())
+                      .collect::<Vec<_>>()
+                      .join(",\n  "));
+            eprintln!("Only in parsed:\n  {}",
+                      fpr_set_parsed.difference(&fpr_set_orig)
+                      .map(|f| f.to_string())
+                      .collect::<Vec<_>>()
+                      .join(",\n  "));
+
+            assert_eq!(fpr_orig, fpr_parsed);
+        }
 
         // Go packet by packet.  (This makes finding an error a
         // lot easier.)
@@ -642,6 +802,38 @@ mod tests {
             assert_eq!(iter.next().unwrap().as_ref().unwrap(), &cert_2);
             assert!(iter.next().is_none());
             assert!(iter.next().is_none());
+        }
+
+        Ok(())
+    }
+
+    // A trivial way to benchmark the keyring parser.
+    // #[test]
+    #[allow(dead_code)]
+    fn parse_a_keyring() -> openpgp::Result<()> {
+        // The first few packets are not the valid start of a
+        // certificate.  Each of those should return in an Error.
+        // But, that shouldn't stop us from parsing the rest of the
+        // keyring.
+
+        let mut file = std::fs::File::open("/tmp/keyring.pgp")?;
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+
+        for inline in [ true, false ].iter() {
+            for chunk_size in [ 1usize, 4, 16 ].iter() {
+                for threads in [ 1usize, 2, 4, 6, 8 ].iter() {
+                    let start = std::time::SystemTime::now();
+                    let _ = parse_keyring_internal(std::io::Cursor::new(&buffer),
+                                                   Some(*threads),
+                                                   Some(*chunk_size),
+                                                   Some(*inline))
+                        .expect("Valid parse");
+                    let elapsed = start.elapsed().unwrap();
+                    eprintln!("{} threads, chunk size: {:2}, inline: {}: {:.2?}",
+                              threads, chunk_size, inline, elapsed);
+                }
+            }
         }
 
         Ok(())
