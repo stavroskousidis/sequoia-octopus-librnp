@@ -15,12 +15,12 @@ use crate::gpg::Validity;
 use crate::tbprofile::TBProfile;
 
 // Carefully update TB's acceptance DB with GPG's validity.
-pub fn update_acceptance(gpg_ctx: &gpg::Ctx, profile: &TBProfile)
+pub fn update_acceptance(gpg_ctx: &gpg::Ctx)
     -> openpgp::Result<()>
 {
     rnp_function!(update_acceptance, super::TRACE);
 
-    let path = profile.path()
+    let path = TBProfile::path()
         .ok_or(anyhow::anyhow!("TB Profile directory not found"))?;
 
     // The tables that TB creates:

@@ -1,8 +1,9 @@
-use std::path::Path;
 use std::path::PathBuf;
 use std::fs::File;
 use std::io::Read;
-use std::ops::Deref;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::MutexGuard;
 use std::time::{SystemTime, Duration, UNIX_EPOCH};
 
 use sequoia_openpgp as openpgp;
@@ -35,6 +36,11 @@ const LOCK_FILE: &'static str = "parent.lock";
 const LOCK_FILE: &'static str = "lock";
 
 
+lazy_static! {
+    static ref TBPROFILE: Arc<Mutex<Option<TBProfile>>>
+        = Arc::new(Mutex::new(None));
+}
+
 pub struct TBProfile {
     path: Option<PathBuf>,
 }
@@ -43,8 +49,33 @@ pub struct TBProfile {
 //
 //   https://www.thunderbird-mail.de/lexicon/entry/123-profiles-ini/
 impl TBProfile {
-    pub fn load() -> openpgp::Result<Self> {
-        rnp_function!(TBProfile::load, super::TRACE);
+    /// Return the profile's path.
+    ///
+    /// If we couldn't find the profile, returns None.
+    pub fn path() -> Option<PathBuf> {
+        if let Ok(tbprofile) = TBProfile::find() {
+            if let Some(tbprofile) = tbprofile.as_ref() {
+                return tbprofile.path.clone();
+            }
+        }
+        None
+    }
+
+    fn find() -> openpgp::Result<MutexGuard<'static, Option<TBProfile>>> {
+        rnp_function!(TBProfile::path, super::TRACE);
+
+        let mut tbprofile = TBPROFILE.lock().unwrap();
+        if let Some(_) = *tbprofile {
+            return Ok(tbprofile);
+        }
+
+        // We need to be careful to avoid recursion, e.g., if the
+        // logging infrastructure uses this function, and this
+        // function logs something, then we could end up with infinite
+        // recursion.
+        *tbprofile = Some(TBProfile {
+            path: None,
+        });
 
         let prefix = if cfg!(windows) {
             PathBuf::from(std::env::var("APPDATA")?)
@@ -184,7 +215,8 @@ impl TBProfile {
         }).collect::<Vec<_>>();
 
         // We have zero or more candidate directories.
-        Ok(TBProfile::select_profile(dirs))
+        *tbprofile = Some(TBProfile::select_profile(dirs));
+        Ok(tbprofile)
     }
 
     // This is a separate function to make it easier to test.
@@ -250,13 +282,6 @@ impl TBProfile {
         t!("Using Thunderbird Profile: {:?}", profile.path);
         profile
     }
-
-    /// Return the profile's path.
-    ///
-    /// If we culd find the profile, returns None.
-    pub fn path(&self) -> Option<&Path> {
-        self.path.as_ref().map(|p| p.deref())
-    }
 }
 
 #[cfg(test)]
@@ -285,7 +310,7 @@ mod tests {
             TBProfile::select_profile(vec![
                 ("a".into(), Some(pid), Some(tminus2)),
                 ("b".into(), Some(other_pid), Some(tminus1)),
-            ]).path().map(|p| p.to_string_lossy().into_owned()),
+            ]).path.as_ref().map(|p| p.to_string_lossy().into_owned()),
             Some("a".into()));
 
         // Neither pid matches.  But "b"'s lock file is more recent.
@@ -293,7 +318,7 @@ mod tests {
             TBProfile::select_profile(vec![
                 ("a".into(), Some(other_pid), Some(tminus2)),
                 ("b".into(), Some(other_pid), Some(tminus1)),
-            ]).path().map(|p| p.to_string_lossy().into_owned()),
+            ]).path.as_ref().map(|p| p.to_string_lossy().into_owned()),
             Some("b".into()));
 
         // No pids.  "b"'s lock file is more recent.
@@ -301,7 +326,7 @@ mod tests {
             TBProfile::select_profile(vec![
                 ("a".into(), None, Some(tminus2)),
                 ("b".into(), None, Some(tminus1)),
-            ]).path().map(|p| p.to_string_lossy().into_owned()),
+            ]).path.as_ref().map(|p| p.to_string_lossy().into_owned()),
             Some("b".into()));
 
         // We prefer a valid formed lock file (with a pid) to one
@@ -310,7 +335,7 @@ mod tests {
             TBProfile::select_profile(vec![
                 ("a".into(), Some(other_pid), Some(tminus2)),
                 ("b".into(), None, Some(tminus1)),
-            ]).path().map(|p| p.to_string_lossy().into_owned()),
+            ]).path.as_ref().map(|p| p.to_string_lossy().into_owned()),
             Some("a".into()));
     }
 }
