@@ -5,6 +5,17 @@ shipped by Thunderbird.
 
 [RNP]: https://github.com/rnpgp/rnp
 
+This project is called the Octopus, because octopuses can fit
+themselves in [unusual places], and in this project we reimplement the
+RNP API as used by Thunderbird using Sequoia.
+
+> [Octopuses'] soft bodies mean octopuses can fit into impossibly
+> small nooks and crannies, as long as the holes are not smaller than
+> the only hard parts of their bodies: their beaks. If all else fails,
+> octopuses can lose an arm to an attacker and regrow one later.
+
+  [unusual places]: https://www.nationalgeographic.com/animals/invertebrates/facts/octopus-facts
+
 # WARNING WARNING WARNING
 
 This is a young project.  Use it with caution with your production
