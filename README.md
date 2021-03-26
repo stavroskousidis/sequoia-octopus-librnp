@@ -14,8 +14,6 @@ recover.
 
 ## Known limitations
 
-- `rnp_import_signatures` is not implemented, therefore it is not
-  possible to import revocation certifications.
 - There may be dragons.
 
 ## Building & installing
