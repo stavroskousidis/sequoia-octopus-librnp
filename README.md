@@ -35,7 +35,7 @@ recover.
 ## Building & installing
 
 First of all, you will need to [install Sequoia's build dependencies].
-Then, building the Octopus is only a matter of invoking `cargo`,
+Then, building the Octopus is only a matter of invoking `cargo build`,
 optionally with the `--release` flag to build an optimized build
 suitable for end users.  Non-release builds print debugging and
 tracing information to stderr.  You may optionally select one of
@@ -111,7 +111,7 @@ Thunderbird.
 
 ## GnuPG Keyring Integration
 
-When Thunderbird starts it asks `librnp` to parse its keyring.  At
+When Thunderbird starts, it asks `librnp` to parse its keyring.  At
 this point, the Octopus also runs `gpg --export` and includes that in
 the results that it returns to Thunderbird.  This makes the user's
 GnuPG keyring available to Thunderbird.  This can be disabled by
@@ -144,10 +144,10 @@ planned.
 Currently, Thunderbird only supports a custom "acceptance" mechanism
 for authenticating OpenPGP certificate.  There is currently no way to
 make use of OpenPGP's standard authentication mechanisms; Thunderbird
-ignores key signatures, and it is not possible to add [certificate
+ignores key signatures, and it is not possible to add [certification
 authorities].
 
-  [certificate authorities]: https://openpgp-ca.org
+  [certification authorities]: https://openpgp-ca.org
 
 When Thunderbird starts up, the Octopus loads the set of authenticated
 certificates, and merges them into Thunderbird's key acceptance
