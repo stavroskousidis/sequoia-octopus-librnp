@@ -15,6 +15,11 @@ recover.
 ## Known limitations
 
 - There may be dragons.
+- When Thunderbird auto-updates, it overwrites the Octopus' version of
+  `librnp.so` with its own version.  This issue has been [reported to
+  Thunderbird].
+
+  [reported to Thunderbird]: https://bugzilla.mozilla.org/show_bug.cgi?id=1698540
 
 ## Building & installing
 
