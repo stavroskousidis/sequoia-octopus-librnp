@@ -35,6 +35,12 @@ local build of Thunderbird.
 [install Sequoia's build dependencies]: https://gitlab.com/sequoia-pgp/sequoia#requirements
 [Windows CNG]: https://docs.microsoft.com/en-us/windows/win32/seccng/cng-portal
 
+Note: the Octopus is fully backwards compatible with RNP.  In
+particular, it uses the same format for storing keys and stores them
+in the same way.  Thus, if you decide you don't like the Octopus, you
+can simply restore the original `librnp`, restart Thunderbird, and
+Thunderbird will work as before with all of your data.
+
 ### Debug build with the default cryptographic backend
 
 ```sh
