@@ -297,7 +297,7 @@ impl RnpKey {
 
 // XXX: A key can be both primary and subkey at the same time in
 // different certs, and what this function returns is not clearly
-// defined.  The result depends on the order the keys are looked up.
+// defined.  The result depends on the order the keys are returned.
 #[no_mangle] pub unsafe extern "C"
 fn rnp_key_is_primary(key: *mut RnpKey,
                       result: *mut bool)
@@ -310,7 +310,7 @@ fn rnp_key_is_primary(key: *mut RnpKey,
 
 // XXX: A key can be both primary and subkey at the same time in
 // different certs, and what this function returns is not clearly
-// defined.  The result depends on the order the keys are looked up.
+// defined.  The result depends on the order the keys are returned.
 #[no_mangle] pub unsafe extern "C"
 fn rnp_key_is_sub(key: *mut RnpKey,
                   result: *mut bool)
