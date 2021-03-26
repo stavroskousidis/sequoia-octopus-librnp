@@ -244,9 +244,11 @@ impl TBProfile {
 
         t!("candidate profile directories: {:?}", dirs);
 
-        TBProfile {
+        let profile = TBProfile {
             path: if dirs.is_empty() { None } else { Some(dirs[0].0.clone()) },
-        }
+        };
+        t!("Using Thunderbird Profile: {:?}", profile.path);
+        profile
     }
 
     /// Return the profile's path.
