@@ -77,6 +77,7 @@ cp target/release/libsequoia_octopus_librnp.so path/to/thunderbird/obj-x86_64-pc
 cargo build --no-default-features --features crypto-cng
 cp target/debug/sequoia_octopus_librnp.dll path/to/thunderbird/.../dist/bin/rnp.dll # XXX: I'm guessing here
 ```
+
 # Support
 
 The Octopus is actively developed by the [Sequoia PGP] team.  We are
@@ -236,6 +237,14 @@ certificates].
   [keys.openpgp.org]: https://keys.openpgp.org
   [WKDs]: https://wiki.gnupg.org/WKD
   [User ID-less certificates]: https://bugzilla.mozilla.org/show_bug.cgi?id=1634524
+
+This feature is controlled by the `net` feature, which is enabled by
+default.  To disable it (and elide the dependencies on `sequoia-net`
+and `tokio`), build as follows:
+
+```sh
+cargo build --no-default-features --features sequoia-openpgp/default
+```
 
 ## Weak Cryptography
 

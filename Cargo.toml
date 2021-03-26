@@ -31,10 +31,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sequoia-openpgp =   { version = "1.1", default-features = false }
 sequoia-autocrypt = { version = "0.23", default-features = false }
-sequoia-net =   { version = "0.23", default-features = false }
+sequoia-net =   { version = "0.23", default-features = false, optional = true }
 tempfile = "3.0"
 thiserror = "1"
-tokio = { version = "0.2.19", features = ["rt-core", "io-util", "io-driver"] }
+tokio = { version = "0.2.19", features = ["rt-core", "io-util", "io-driver"], optional = true }
 
 [dependencies.rusqlite]
 version = "0.24"
@@ -46,6 +46,7 @@ crate-type = ["cdylib"]
 [features]
 default = [
     "sequoia-openpgp/default",
+    "net",
 ]
 crypto-nettle = [
     "sequoia-openpgp/compression",
@@ -55,3 +56,4 @@ crypto-cng = [
     "sequoia-openpgp/compression",
     "sequoia-openpgp/crypto-cng",
 ]
+net = ["sequoia-net", "tokio"]
