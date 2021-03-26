@@ -262,4 +262,96 @@ we check whether we just generated the signed part.  If so, we fix it.
   [known to not work]: https://theworld.com/~dtd/sign_encrypt/sign_encrypt7.html
   [combined method]: https://tools.ietf.org/html/rfc3156#section-4
 
+# Non-Functional Advantages
 
+Sequoia has a number of non-functional advantages relative to RNP.
+These include:
+
+  - Sequoia automatically [encrypts unencrypted secret key material in
+    memory] when it is not in use.  This makes secret key exfiltration
+    ala [Heartbleed] much harder, and protects against [Sprectre],
+    Rowhammer, etc.-style attacks.  [OpenSSH] uses the same type of
+    protection.
+
+    RNP has the concept of locking and unlocking keys, but this is
+    explicit, and Thunderbird does not always relock keys after use.
+
+      [encrypts unencrypted secret key material in memory]: https://docs.sequoia-pgp.org/sequoia_openpgp/crypto/mem/struct.Encrypted.html
+      [Heartbleed]: https://en.wikipedia.org/wiki/Heartbleed
+      [Sprectre]: https://en.wikipedia.org/wiki/Spectre_(security_vulnerability)
+      [OpenSSH]: https://www.undeadly.org/cgi?action=article;sid=20190621081455
+
+  - [SHA-1 is broken].  Unfortunately, [SHA-1 is still widely used].
+    To deal with this Sequoia implements a number of countermeasures:
+
+      - Sequoia uses [SHA1-CD], a variant of SHA-1 that detects and
+        mitigates collision attacks.  This protection is also used
+        by, for instance, [GitHub].
+
+      - Sequoia only accepts SHA-1 in [safer contexts].  For instance,
+        SHA-1 over data is rejected by default.  But, SHA-1
+        self-signatures that are not suspicious are allowed.
+
+      - Sequoia has announced a timeline to completely [deprecate the
+        use of SHA-1]: in 2023 SHA-1 will no longer be accepted for
+        digital signatures.
+
+      [SHA-1 is broken]: https://sha-mbles.github.io/
+      [SHA-1 is still widely used]: https://gitlab.com/sequoia-pgp/sequoia/-/issues/595
+      [SHA1-CD]: https://github.com/cr-marcstevens/sha1collisiondetection
+      [GitHub]: https://github.blog/2017-03-20-sha-1-collision-detection-on-github-com/
+      [safer contexts]: https://docs.sequoia-pgp.org/sequoia_openpgp/policy/enum.HashAlgoSecurity.html
+      [deprecate the use of SHA-1]: https://docs.sequoia-pgp.org/sequoia_openpgp/policy/struct.StandardPolicy.html#method.reject_hash_property_at
+
+    RNP accepts SHA-1 everywhere without any additional protections.
+    It even [accepts] [MD5].  (Thunderbird carries a patch to disable
+    MD5 support.)
+
+      [accepts]: https://tests.sequoia-pgp.org/#Detached_Sign-Verify_roundtrip_with_key__Bob___MD5
+      [MD5]: https://github.com/rnpgp/rnp/issues/1281
+
+  - Sequoia includes a salt in signatures and self-signatures to
+    defend against collision attacks (among others).  [OpenSSH], for
+    instance, does the same thing.  Should the collision resistance of
+    another hash be broken, this will frustrate attackers trying to
+    perform a SHA-1 is a Shambles-style attack.
+
+      [OpenSSH]: https://github.com/openssh/openssh-portable/blob/master/PROTOCOL.certkeys#L151
+
+  - RNP maintains separate public and secret keyrings.  This can lead
+    to a so-called split-brain problem where a certificate is present
+    in both keyrings, and confusingly one version is returned
+    sometimes and the other version other times.  This is also the
+    model that GnuPG 1.x used, and is one of the reasons that GnuPG
+    migrated to a single OpenPGP keystore in GnuPG 2.0 with only the
+    secret key material held by the agent.
+
+    To avoid this problem, the Octopus merges the two databases.  To
+    remain backwards compatible with RNP, when the Octopus writes out
+    the certificates, certificates with secret key material are
+    written to `secring.gpg` and those without are written to
+    `pubring.gpg`.
+
+  - Thanks to Rust's [safer concurrency paradigms], it is less
+    dangerous and less complicated for the Octopus to use threads than
+    libraries written in other languages.  The Octopus uses this, for
+    instance, to [parse keyrings faster].
+
+      [safer concurrency paradigms]: https://doc.rust-lang.org/book/ch16-00-concurrency.html
+      [parse keyrings faster]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/blob/595d1e20f71f3a62f8772ab457f11974bd9be2e9/src/keyring.rs#L173
+
+  - Sequoia implements [nearly all] [of the OpenPGP RFC].  The missing
+    bits are either obsolete or insecure.
+
+      [nearly all]: https://sequoia-pgp.org/status/
+      [of the OpenPGP RFC]: https://tests.sequoia-pgp.org/
+
+    RNP doesn't implement a number of important parts.  For instance,
+    it does not reject [unknown critical subpackets] and notations.
+    This is a security problem.  RNP doesn't handle [unknown packet
+    versions].  This is a future compatibility problem.  More examples
+    can be found in the [OpenPGP interoperability test suite].
+
+    [unknown packet versions]: https://github.com/rnpgp/rnp/issues/1257
+    [unknown critical subpackets]: https://github.com/rnpgp/rnp/issues/1234
+    [OpenPGP interoperability test suite]: https://tests.sequoia-pgp.org/
