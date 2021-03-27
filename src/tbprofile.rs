@@ -1,9 +1,12 @@
 use std::path::PathBuf;
 use std::fs::File;
 use std::io::Read;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
+use std::thread;
+use std::thread::ThreadId;
 use std::time::{SystemTime, Duration, UNIX_EPOCH};
 
 use sequoia_openpgp as openpgp;
@@ -37,8 +40,18 @@ const LOCK_FILE: &'static str = "lock";
 
 
 lazy_static! {
-    static ref TBPROFILE: Arc<Mutex<Option<TBProfile>>>
-        = Arc::new(Mutex::new(None));
+    // ThreadId is the thread initializing the TBProfile, if any.
+    //
+    // The locking protocol is:
+    //
+    //   - Profile lobk, then Thread lock
+    //
+    // It is okay to take the thread lock without first taking the
+    // profile lock, but if you hold the thread lcok you MUST NOT
+    // block on the profile lock.
+    static ref TBPROFILE: Arc<(Mutex<Option<ThreadId>>,
+                               Mutex<Option<TBProfile>>)>
+        = Arc::new((Mutex::new(None), Mutex::new(None)));
 }
 
 pub struct TBProfile {
@@ -53,29 +66,88 @@ impl TBProfile {
     ///
     /// If we couldn't find the profile, returns None.
     pub fn path() -> Option<PathBuf> {
-        if let Ok(tbprofile) = TBProfile::find() {
-            if let Some(tbprofile) = tbprofile.as_ref() {
-                return tbprofile.path.clone();
+        // This function needs to be reentrant!  TBProfile::find calls
+        // other functions that may end up calling this function (in
+        // particular, the tracing functionality).
+
+        // Try the happy path.
+        if let Ok(profile_guard) = TBPROFILE.1.try_lock() {
+            // We got the profile lock!
+            if let Some(profile) = profile_guard.deref() {
+                // We have a profile!
+                return profile.path.clone();
+            } else {
+                // We haven't tried to initialize the profile yet.
             }
         }
-        None
-    }
 
-    fn find() -> openpgp::Result<MutexGuard<'static, Option<TBProfile>>> {
-        rnp_function!(TBProfile::path, super::TRACE);
+        // Either the profile lock is contended or we need to
+        // initialize profile.
+        let thread_guard = TBPROFILE.0.lock().unwrap();
+        if thread_guard.deref() == &Some(thread::current().id()) {
+            // We're in the middle of doing the initialization!
+            return None;
+        }
+        drop(thread_guard);
 
-        let mut tbprofile = TBPROFILE.lock().unwrap();
-        if let Some(_) = *tbprofile {
-            return Ok(tbprofile);
+        // We are not initializing the profile.  We can block on the
+        // profile lock.
+
+        let profile_guard = TBPROFILE.1.lock().unwrap();
+
+        // Another thread might have initialized the profile in the
+        // meantime.  So, check again.
+        if let Some(profile) = profile_guard.deref() {
+            // We have a profile!
+            return profile.path.clone();
+        } else {
+            // We haven't tried to initialize the profile yet.
         }
 
-        // We need to be careful to avoid recursion, e.g., if the
-        // logging infrastructure uses this function, and this
-        // function logs something, then we could end up with infinite
-        // recursion.
-        *tbprofile = Some(TBProfile {
-            path: None,
-        });
+        // We have the profile lock, and no one has tried to
+        // initialize the profile yet.  It is up to us to do it.
+
+        // Register ourself.
+        let mut thread_guard = TBPROFILE.0.lock().unwrap();
+
+        assert!(thread_guard.deref().is_none());
+        *thread_guard = Some(thread::current().id());
+        drop(thread_guard);
+
+        // Timelime:
+        //
+        //   - We got the profile lock.
+        //   - We got the thread lock.
+        //   - We registered ourselves as doing the initialization.
+        //   - We dropped the thread lock.
+        //
+        // If we end up calling this function again, then we'll check
+        // the thread lock and realize that we are doing the
+        // initialization and return None.
+        //
+        // Another thread may block on the profile lock, but it won't
+        // have the thread lock.
+        //
+        // Deadlock free(tm).
+
+        let r = Self::find(profile_guard);
+
+        // Initialization is complete.  Reset thread_guard to None.
+        let mut thread_guard = TBPROFILE.0.lock().unwrap();
+        *thread_guard = None;
+
+        if let Ok(r) = r {
+            r
+        } else {
+            None
+        }
+    }
+
+    fn find(mut tbprofile: MutexGuard<Option<TBProfile>>)
+        -> openpgp::Result<Option<PathBuf>>
+    {
+        rnp_function!(TBProfile::path, super::TRACE);
+        assert!(tbprofile.is_none());
 
         let prefix = if cfg!(windows) {
             PathBuf::from(std::env::var("APPDATA")?)
@@ -216,7 +288,7 @@ impl TBProfile {
 
         // We have zero or more candidate directories.
         *tbprofile = Some(TBProfile::select_profile(dirs));
-        Ok(tbprofile)
+        Ok(tbprofile.as_ref().unwrap().path.clone())
     }
 
     // This is a separate function to make it easier to test.
