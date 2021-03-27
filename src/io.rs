@@ -127,8 +127,8 @@ fn rnp_output_to_path(output: *mut *mut RnpOutput,
     let f = match File::create(&path) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("sequoia-octopus: failed to create {:?}: {}",
-                       path, e);
+            log!("sequoia-octopus: failed to create {:?}: {}",
+                 path, e);
             return RNP_ERROR_ACCESS;
         },
     };

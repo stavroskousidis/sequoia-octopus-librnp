@@ -46,7 +46,7 @@ macro_rules! stub {
     ($s: ident) => {
         #[no_mangle] pub extern "C"
         fn $s() -> RnpResult {
-            eprintln!("\nSTUB: {}\n", stringify!($s));
+            log!("\nSTUB: {}\n", stringify!($s));
             RNP_ERROR_NOT_IMPLEMENTED
         }
     };

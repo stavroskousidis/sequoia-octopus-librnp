@@ -681,7 +681,7 @@ fn rnp_key_export_autocrypt(key: *mut RnpKey,
 
     if let Some(cert) = (*key).cert() {
         if let Err(e) = f(cert, uid, &mut *output) {
-            eprintln!("sequoia-octopus: failed to export for autocrypt: {}", e);
+            log!("sequoia-octopus: failed to export for autocrypt: {}", e);
             RNP_ERROR_GENERIC
         } else {
             RNP_SUCCESS
@@ -1331,8 +1331,8 @@ mod tests {
                     if r != RNP_SUCCESS {
                         return Err(anyhow::anyhow!("Failed to change password"));
                     }
-                    eprintln!("After unprotecting {} with {}",
-                              k.fingerprint(), old.unwrap());
+                    log!("After unprotecting {} with {}",
+                         k.fingerprint(), old.unwrap());
                     crate::cert_dump(
                         &unsafe { &mut *ctx }
                             .certs.read()
@@ -1348,8 +1348,8 @@ mod tests {
                                         0)
                     };
                     assert_eq!(r, RNP_SUCCESS);
-                    eprintln!("After protecting {} with {}",
-                              k.fingerprint(), new.unwrap());
+                    log!("After protecting {} with {}",
+                         k.fingerprint(), new.unwrap());
                     crate::cert_dump(
                         &unsafe { &mut *ctx }
                             .certs.read()
@@ -1470,7 +1470,7 @@ mod tests {
         };
         assert_eq!(r, RNP_SUCCESS);
 
-        eprintln!("ctx: keystore: {:?}", unsafe { &mut *ctx }.certs);
+        log!("ctx: keystore: {:?}", unsafe { &mut *ctx }.certs);
 
         change_pw(ctx, &alice, Some("passw0rd"), Some("new-password-1234"))
             .expect("success");

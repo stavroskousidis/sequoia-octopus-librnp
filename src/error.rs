@@ -160,14 +160,24 @@ impl From<Error> for RnpResult {
 // Used by helper functions.
 pub type Result<T> = std::result::Result<T, RnpResult>;
 
+// Like eprintln!
+macro_rules! log {
+    ($dst:expr $(,)?) => (
+        eprintln!("{}", $dst)
+    );
+    ($dst:expr, $($arg:tt)*) => (
+        eprintln!($dst, $($arg)*)
+    );
+}
+
 macro_rules! rnp_function {
     ( $fn_name: path, $TRACE: expr ) => {
         #[allow(unused_macros)]
         macro_rules! _trace {
             ( $msg: expr ) => {
                 if $TRACE {
-                    eprintln!("sequoia-octopus: TRACE: {}: {}",
-                              stringify!($fn_name), $msg);
+                    log!("sequoia-octopus: TRACE: {}: {}",
+                         stringify!($fn_name), $msg);
                 }
             };
         }
@@ -216,21 +226,21 @@ macro_rules! rnp_function {
             //              $(, $a )*);
             //};
             ( $fmt: expr ) => {
-                eprintln!(concat!("sequoia-octopus: ",
+                log!(concat!("sequoia-octopus: ",
                                   stringify!($fn_name),
                                   ": ", $fmt));
             };
             ( $fmt: expr, $a: expr ) => {
-                eprintln!(concat!("sequoia-octopus: ",
-                                  stringify!($fn_name),
-                                  ": ", $fmt),
-                          $a);
+                log!(concat!("sequoia-octopus: ",
+                             stringify!($fn_name),
+                             ": ", $fmt),
+                     $a);
             };
             ( $fmt: expr, $a: expr, $b: expr ) => {
-                eprintln!(concat!("sequoia-octopus: ",
-                                  stringify!($fn_name),
-                                  ": ", $fmt),
-                          $a, $b);
+                log!(concat!("sequoia-octopus: ",
+                             stringify!($fn_name),
+                             ": ", $fmt),
+                     $a, $b);
             };
         }
 
@@ -283,8 +293,8 @@ macro_rules! rnp_function {
 
 macro_rules! warn {
     ( $fmt: expr $(, $a: expr )* ) => {
-        eprintln!(concat!("sequoia-octopus: ", $fmt)
-                  $(, $a )*);
+        log!(concat!("sequoia-octopus: ", $fmt)
+             $(, $a )*);
     };
 }
 

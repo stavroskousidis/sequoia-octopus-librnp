@@ -428,8 +428,8 @@ pub(crate) fn parse_keyring_internal<R>(mut input: R,
         }
     }
 
-    // eprintln!("Splitting {} byte keyring took {:?}",
-    //           buffer.len(), split_start.elapsed().unwrap());
+    // log!("Splitting {} byte keyring took {:?}",
+    //      buffer.len(), split_start.elapsed().unwrap());
 
     // Collect the results.
 
@@ -539,8 +539,8 @@ mod tests {
         // prevent the recovery mechanism from working.
         let nulls = vec![ 0; bad ];
 
-        eprintln!("n: {}, literals: {}, bad data: {}",
-                  n, literal, bad);
+        log!("n: {}, literals: {}, bad data: {}",
+             n, literal, bad);
 
         let mut data = Vec::new();
 
@@ -569,17 +569,17 @@ mod tests {
         }
         assert_eq!(certs_orig.len(), n);
 
-        eprintln!("Start of data: {} {}",
-                  if let Some(x) = data.get(0) {
-                      format!("{:02X}", x)
-                  } else {
-                      "XX".into()
-                  },
-                  if let Some(x) = data.get(1) {
-                      format!("{:02X}", x)
-                  } else {
-                      "XX".into()
-                  });
+        log!("Start of data: {} {}",
+             if let Some(x) = data.get(0) {
+                 format!("{:02X}", x)
+             } else {
+                 "XX".into()
+             },
+             if let Some(x) = data.get(1) {
+                 format!("{:02X}", x)
+             } else {
+                 "XX".into()
+             });
 
         let certs_parsed = parse_keyring(std::io::Cursor::new(data));
 
@@ -593,12 +593,12 @@ mod tests {
         };
 
         certs_parsed.iter().enumerate().for_each(|(i, r)| {
-            eprintln!("{}. {}",
-                      i,
-                      match r {
-                          Ok(c) => c.fingerprint().to_string(),
-                          Err(err) => err.to_string(),
-                      });
+            log!("{}. {}",
+                 i,
+                 match r {
+                     Ok(c) => c.fingerprint().to_string(),
+                     Err(err) => err.to_string(),
+                 });
         });
 
         let n = if bad > RECOVERY_THRESHOLD {
@@ -652,22 +652,22 @@ mod tests {
             })
             .collect::<Vec<_>>();
         if fpr_orig != fpr_parsed {
-            eprintln!("{} certificates in orig; {} is parsed",
-                      fpr_orig.len(), fpr_parsed.len());
+            log!("{} certificates in orig; {} is parsed",
+                 fpr_orig.len(), fpr_parsed.len());
 
             let fpr_set_orig: HashSet<&Fingerprint>
                 = HashSet::from_iter(fpr_orig.iter());
             let fpr_set_parsed = HashSet::from_iter(fpr_parsed.iter());
-            eprintln!("Only in orig:\n  {}",
-                      fpr_set_orig.difference(&fpr_set_parsed)
-                      .map(|f| f.to_string())
-                      .collect::<Vec<_>>()
-                      .join(",\n  "));
-            eprintln!("Only in parsed:\n  {}",
-                      fpr_set_parsed.difference(&fpr_set_orig)
-                      .map(|f| f.to_string())
-                      .collect::<Vec<_>>()
-                      .join(",\n  "));
+            log!("Only in orig:\n  {}",
+                 fpr_set_orig.difference(&fpr_set_parsed)
+                 .map(|f| f.to_string())
+                 .collect::<Vec<_>>()
+                 .join(",\n  "));
+            log!("Only in parsed:\n  {}",
+                 fpr_set_parsed.difference(&fpr_set_orig)
+                 .map(|f| f.to_string())
+                 .collect::<Vec<_>>()
+                 .join(",\n  "));
 
             assert_eq!(fpr_orig, fpr_parsed);
         }
@@ -781,7 +781,7 @@ mod tests {
             .generate()?;
 
         for n in 1..cert_1_packets.len() {
-            eprintln!("n: {}", n);
+            log!("n: {}", n);
 
             let mut data = Vec::new();
 
@@ -830,8 +830,8 @@ mod tests {
                                                    Some(*inline))
                         .expect("Valid parse");
                     let elapsed = start.elapsed().unwrap();
-                    eprintln!("{} threads, chunk size: {:2}, inline: {}: {:.2?}",
-                              threads, chunk_size, inline, elapsed);
+                    log!("{} threads, chunk size: {:2}, inline: {}: {:.2?}",
+                         threads, chunk_size, inline, elapsed);
                 }
             }
         }

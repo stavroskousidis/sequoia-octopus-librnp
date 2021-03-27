@@ -251,7 +251,7 @@ fn rnp_op_generate_execute(op: *mut RnpOpGenerate) -> RnpResult {
     }
 
     if let Err(e) = f(&mut *op) {
-        eprintln!("sequoia-octopus: failed to generate key: {}", e);
+        log!("sequoia-octopus: failed to generate key: {}", e);
         RNP_ERROR_GENERIC
     } else {
         RNP_SUCCESS
