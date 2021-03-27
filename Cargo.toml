@@ -21,6 +21,7 @@ maintenance = { status = "actively-developed" }
 libc = "0.2"
 anyhow = "1"
 buffered-reader = "1"
+chrono = "0.4"
 configparser = "2"
 csv = "1.1"
 lazy_static = "1"

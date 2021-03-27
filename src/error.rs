@@ -162,9 +162,9 @@ pub type Result<T> = std::result::Result<T, RnpResult>;
 
 //#[cfg(windows)]
 pub fn log_internal<T: AsRef<str>>(text: T) {
-    let text = text.as_ref();
-    #[cfg(windows)]
-    {
+    let text = format!("{}: {}", chrono::offset::Utc::now(), text.as_ref());
+
+    if cfg!(windows) {
         // Save messages to a log file in the current profile's
         // directory (.../.thunderbird/$PROFILE/octopus.log).
         //
@@ -253,7 +253,7 @@ pub fn log_internal<T: AsRef<str>>(text: T) {
         } else {
             // Locked.  Enqueue the message for later.  If we can't
             // send, it means initialization failed so just ignore.
-            if let Ok(_) = LOGGER.sender.lock().unwrap().send(text.into()) {
+            if let Ok(_) = LOGGER.sender.lock().unwrap().send(text.clone()) {
                 logged = true;
             }
         }
@@ -264,10 +264,8 @@ pub fn log_internal<T: AsRef<str>>(text: T) {
             // debugging on another platform, that will be useful.
             eprintln!("{}", text);
         }
-    }
-    #[cfg(not(windows))]
-    {
-        // Write to stderr.
+    } else {
+        // Just write to stderr.
         eprintln!("{}", text);
     }
 }
