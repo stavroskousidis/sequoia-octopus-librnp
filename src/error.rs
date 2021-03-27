@@ -160,13 +160,125 @@ impl From<Error> for RnpResult {
 // Used by helper functions.
 pub type Result<T> = std::result::Result<T, RnpResult>;
 
+//#[cfg(windows)]
+pub fn log_internal<T: AsRef<str>>(text: T) {
+    let text = text.as_ref();
+    #[cfg(windows)]
+    {
+        // Save messages to a log file in the current profile's
+        // directory (.../.thunderbird/$PROFILE/octopus.log).
+        //
+        // This is a bit hairy, because the code needs to be
+        // reentrant: to initialize the logger's file description, we
+        // need the location of the current profile, but finding that
+        // location also uses the logging functionality.
+        //
+        // To break this cycle, if the logger is locked, rather than
+        // wait for the lock, we simply enqueue the message in a
+        // channel.  Then when we actually have the lock, we first
+        // print any messages queued in the channel and then print out
+        // our own message.
+
+        use std::fs::File;
+        use std::io::Write;
+        use std::ops::DerefMut;
+        use std::sync::Arc;
+        use std::sync::Mutex;
+        use std::sync::mpsc::channel;
+        use std::sync::mpsc::Sender;
+        use std::sync::mpsc::Receiver;
+
+        use crate::tbprofile::TBProfile;
+
+        struct State {
+            sender: Mutex<Sender<String>>,
+            // If None, the file has not yet been opened.
+            output: Mutex<Option<(Receiver<String>, Option<File>)>>,
+        }
+
+        lazy_static! {
+            static ref LOGGER: Arc<State> = {
+                let (sender, receiver) = channel();
+
+                Arc::new(State {
+                    sender: Mutex::new(sender),
+                    output: Mutex::new(Some((receiver, None))),
+                })
+            };
+        }
+
+        let mut logged = false;
+        if let Ok(mut guard) = LOGGER.output.try_lock() {
+            // We got the lock.
+
+            // If initialization fails, we set output to None.  But
+            // since it is borrowed, we need to delay it.
+            let mut kill = false;
+            if let Some((receiver, ref mut ofd)) = guard.deref_mut() {
+                if ofd.is_none() {
+                    // We need to initialize the file descriptor.
+
+                    if let Some(tbpath) = TBProfile::path() {
+                        // We found a TB profile.  Let's try to open the
+                        // log file.
+                        let path = tbpath.join("octopus.log");
+                        if let Ok(fd) = File::create(&path) {
+                            *ofd = Some(fd);
+                            eprintln!("Logging to {:?}", path);
+                        } else {
+                            // We failed to open the file :/
+                            kill = true;
+                        }
+                    } else {
+                        // We failed to find the TBProfile :/
+                        kill = true;
+                    }
+                }
+
+                if let Some(fd) = ofd {
+                    // First, drain the message queue.
+                    while let Ok(text) = receiver.try_recv() {
+                        let _ = writeln!(fd, "{}", text);
+                    }
+                    // Then print our own message.
+                    let _ = writeln!(fd, "{}", text);
+                    let _ = fd.flush();
+                    logged = true;
+                }
+            }
+
+            if kill {
+                *guard = None;
+            }
+        } else {
+            // Locked.  Enqueue the message for later.  If we can't
+            // send, it means initialization failed so just ignore.
+            if let Ok(_) = LOGGER.sender.lock().unwrap().send(text.into()) {
+                logged = true;
+            }
+        }
+
+        if ! logged {
+            // Something went wrong.  Just send it to stderr, which
+            // probably won't do anything on Windows, but if we are
+            // debugging on another platform, that will be useful.
+            eprintln!("{}", text);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        // Write to stderr.
+        eprintln!("{}", text);
+    }
+}
+
 // Like eprintln!
 macro_rules! log {
     ($dst:expr $(,)?) => (
-        eprintln!("{}", $dst)
+        $crate::error::log_internal($dst)
     );
     ($dst:expr, $($arg:tt)*) => (
-        eprintln!($dst, $($arg)*)
+        $crate::error::log_internal(std::format!($dst, $($arg)*))
     );
 }
 
