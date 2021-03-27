@@ -5,6 +5,7 @@ use std::{
     ffi::{
         CStr,
     },
+    sync::atomic,
 };
 use libc::{
     c_char,
@@ -544,6 +545,25 @@ fn rnp_load_keys(ctx: *mut RnpContext,
     assert_ptr!(ctx);
     assert_ptr!(format);
     assert_ptr!(input);
+
+    lazy_static! {
+        static ref BANNER_SHOWN: atomic::AtomicBool
+            = atomic::AtomicBool::new(false);
+    };
+    if ! BANNER_SHOWN.load(atomic::Ordering::Relaxed) {
+        warn!("Your Thunderbird is using Sequoia's Octopus, version {}\n\
+               (sequoia-opnepgp: {}).  For details, and to report issues please\n\
+               see https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp .",
+              env!("CARGO_PKG_VERSION"), sequoia_openpgp::VERSION);
+        if let Some(path) = crate::tbprofile::TBProfile::path() {
+            warn!("Your Thunderbird profile appears to be: {:?}", path);
+        } else {
+            warn!("Failed to detect your Thunderbird profile.  Please report\n\
+                   open an issue at https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp .");
+        }
+        BANNER_SHOWN.store(true, atomic::Ordering::Relaxed);
+    }
+
 
     if CStr::from_ptr(format).to_bytes() != b"GPG" {
         return RNP_ERROR_BAD_FORMAT;
