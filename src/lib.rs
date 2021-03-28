@@ -113,11 +113,11 @@ mod gpg;
 
 mod tbprofile;
 mod wot;
-#[cfg(net)]
+#[cfg(feature="net")]
 mod parcimonie;
-#[cfg(not(net))]
+#[cfg(not(feature="net"))]
 mod parcimonie_stub;
-#[cfg(not(net))]
+#[cfg(not(feature="net"))]
 use parcimonie_stub as parcimonie;
 
 pub const P: &StandardPolicy = &StandardPolicy::new();
