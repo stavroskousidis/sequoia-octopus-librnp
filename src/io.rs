@@ -25,6 +25,17 @@ pub enum RnpOutput<'a> {
 }
 
 impl RnpInput {
+    /// Returns the input's file size, if it can be determined.
+    pub fn size(&self) -> openpgp::Result<u64> {
+        match self {
+            RnpInput::Ref(c) => Ok(c.get_ref().len() as u64),
+            RnpInput::Buf(c) => Ok(c.get_ref().len() as u64),
+            RnpInput::File(_, fp) => {
+                Ok(fp.metadata()?.len())
+            }
+        }
+    }
+
     /// Tries to clone this input.
     ///
     /// This may fail if the input refers to a file and reopening the
