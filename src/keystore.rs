@@ -10,6 +10,8 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
+        atomic,
+        atomic::AtomicUsize,
         RwLock,
         RwLockReadGuard,
         RwLockWriteGuard,
@@ -100,6 +102,14 @@ pub struct KeystoreData {
     // track the subkey.
     by_subkey_grip: HashMap<Keygrip, Vec<MapEntry<Fingerprint>>>,
 
+    // The last time that the keystore was *possibly* modified.  Each
+    // write attempt is a tick.  Unfortunately, this can also result
+    // in false negatives, because Keystore::cert_cell can be used to
+    // store a reference.  Right now that function is only used
+    // outside of the Keystore to lock and unlock secret key material.
+    // But, since this is just a safety measure, this is good enough.
+    last_update: Arc<AtomicUsize>,
+
     // The location of the keystore.  If set, the keystore is
     // periodically flushed to disk in the background.
     directory: Option<PathBuf>,
@@ -115,6 +125,8 @@ impl Default for KeystoreData {
             by_subkey_fp: Default::default(),
             by_subkey_id: Default::default(),
             by_subkey_grip: Default::default(),
+
+            last_update: Arc::new(AtomicUsize::new(0)),
 
             directory: None,
             flush_thread: None,
@@ -259,12 +271,23 @@ impl KeystoreData {
     // Periodically flush the key store to disk.
     fn flush_thread(ks: Arc<RwLock<Self>>) {
         rnp_function!(KeystoreData::flush_thread, super::TRACE);
+        let mut last_flush = 0;
+
         loop {
             // About once an hour (but not quite to avoid possible
             // resonance).
             thread::sleep(Duration::new(59 * 60, 0));
 
             let ks = ks.read().unwrap();
+
+            let last_update = ks.last_update.load(atomic::Ordering::Relaxed);
+            if last_flush == last_update {
+                t!("Not flushing keystore to disk: no changes");
+                continue;
+            } else {
+                last_flush = last_update
+            }
+
             if let Some(ref dir) = ks.directory {
                 let pubring_tmp = dir.join("pubring.gpg~");
                 let secring_tmp = dir.join("secring.gpg~");
@@ -360,6 +383,7 @@ impl KeystoreData {
     ///
     /// fp is the certificate's fingerprint.
     pub fn cert_cell(&self, fp: &Fingerprint) -> Option<Arc<RwLock<Cert>>> {
+        self.last_update.fetch_add(1, atomic::Ordering::Relaxed);
         self.by_primary_fp.get(fp).map(|e| e.cert_cell())
     }
 
@@ -484,6 +508,13 @@ impl KeystoreData {
                 cert_cell = Arc::clone(&e.cert);
 
                 let mut cert_ref = cert_cell.write().unwrap();
+
+                if *cert_ref == cert {
+                    // They are identical.  There is nothing to do.
+                    t!("Update doesn't change certificate.  Short-circuiting.");
+                    return;
+                }
+
                 *cert_ref = cert_ref.clone()
                     .insert_packets(cert.into_packets())
                     .expect("does not fail if the primary keys are equal");
@@ -505,6 +536,8 @@ impl KeystoreData {
                 false
             }
         };
+
+        self.last_update.fetch_add(1, atomic::Ordering::Relaxed);
 
         // If this is an update, then the primary key id and primary
         // key grip mapping exist and are correct.
@@ -674,6 +707,10 @@ impl KeystoreData {
             }
         }
 
+        if removed_one {
+            self.last_update.fetch_add(1, atomic::Ordering::Relaxed);
+        }
+
         removed_one
     }
 
@@ -717,6 +754,10 @@ impl KeystoreData {
                         }))
                     .expect("still valid");
             }
+        }
+
+        if removed_one {
+            self.last_update.fetch_add(1, atomic::Ordering::Relaxed);
         }
 
         removed_one
