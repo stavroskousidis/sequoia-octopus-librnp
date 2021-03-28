@@ -87,7 +87,6 @@ impl MapEntry<Fingerprint> {
     }
 }
 
-#[derive(Default)]
 pub struct KeystoreData {
     // The bool indicates whether the key is considered external.
     by_primary_fp: HashMap<Fingerprint, MapEntry<bool>>,
@@ -105,6 +104,22 @@ pub struct KeystoreData {
     // periodically flushed to disk in the background.
     directory: Option<PathBuf>,
     flush_thread: Option<thread::JoinHandle<()>>,
+}
+
+impl Default for KeystoreData {
+    fn default() -> Self {
+        Self {
+            by_primary_fp: Default::default(),
+            by_primary_id: Default::default(),
+            by_primary_grip: Default::default(),
+            by_subkey_fp: Default::default(),
+            by_subkey_id: Default::default(),
+            by_subkey_grip: Default::default(),
+
+            directory: None,
+            flush_thread: None,
+        }
+    }
 }
 
 #[derive(Default)]
