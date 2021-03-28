@@ -570,6 +570,8 @@ fn rnp_load_keys(ctx: *mut RnpContext,
     }
 
     let input = &mut *input;
+    let input_size = input.size();
+
     let certs = parse_keyring(input);
 
     let certs = match certs {
@@ -593,10 +595,31 @@ fn rnp_load_keys(ctx: *mut RnpContext,
     }
 
     match flags {
-        RNP_LOAD_SAVE_PUBLIC_KEYS =>
+        RNP_LOAD_SAVE_PUBLIC_KEYS => {
+            if let Ok(input_size) = input_size {
+                if let Some(profile) = tbprofile::TBProfile::path() {
+                    let pubring = profile.join("pubring.gpg");
+                    if let Ok(pubring) = std::fs::metadata(pubring) {
+                        let file_size = pubring.len();
+                        t!("input is {} bytes, pubring.gpg is {} bytes.",
+                           input_size, file_size);
+                        if input_size == file_size {
+                            t!("Looks like a match.  Periodically flushing \
+                                the keystore to disk.");
+                            (*ctx).certs.set_directory(profile);
+                        } else {
+                            t!("pubring.gpg does not match input.  \
+                                Conservatively disabling flushing the \
+                                keystore to disk.");
+                        }
+                    }
+                }
+            }
+
             for cert in acc {
                 (*ctx).insert_cert(cert);
-            },
+            }
+        }
         RNP_LOAD_SAVE_SECRET_KEYS =>
             for key in acc {
                 (*ctx).insert_key(key);

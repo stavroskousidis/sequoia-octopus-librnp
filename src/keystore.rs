@@ -4,12 +4,18 @@ use std::{
         hash_map::Entry,
     },
     fmt,
+    fs,
+    fs::File,
+    io::Write,
+    path::PathBuf,
     sync::{
         Arc,
         RwLock,
         RwLockReadGuard,
         RwLockWriteGuard,
     },
+    thread,
+    time::Duration,
 };
 
 use sequoia_openpgp as openpgp;
@@ -18,6 +24,7 @@ use openpgp::{
     KeyID,
     Cert,
     packet::prelude::*,
+    serialize::Serialize,
 };
 
 use crate::{
@@ -93,6 +100,11 @@ pub struct KeystoreData {
     // grip should not be removed.  To distinguish this case, we also
     // track the subkey.
     by_subkey_grip: HashMap<Keygrip, Vec<MapEntry<Fingerprint>>>,
+
+    // The location of the keystore.  If set, the keystore is
+    // periodically flushed to disk in the background.
+    directory: Option<PathBuf>,
+    flush_thread: Option<thread::JoinHandle<()>>,
 }
 
 #[derive(Default)]
@@ -131,6 +143,25 @@ impl Keystore {
 
     pub fn write(&self) -> RwLockWriteGuard<KeystoreData> {
         self.data.write().unwrap()
+    }
+
+    // The location of the keystore (where the pubring.gpg and
+    // secring.gpg files are).  If set, the keystore is periodically
+    // flushed to disk in the background.
+    pub fn set_directory(&mut self, directory: PathBuf) {
+        let mut ks = self.data.write().unwrap();
+
+        ks.directory = Some(directory);
+
+        if ks.flush_thread.is_none() {
+            // Start a thread to periodically flush everything to
+            // disk.
+            let ks_ref = self.create_ref();
+            ks.flush_thread
+                = Some(thread::spawn(move || {
+                    KeystoreData::flush_thread(ks_ref);
+                }));
+        }
     }
 }
 
@@ -210,6 +241,83 @@ impl fmt::Debug for KeystoreData {
 }
 
 impl KeystoreData {
+    // Periodically flush the key store to disk.
+    fn flush_thread(ks: Arc<RwLock<Self>>) {
+        rnp_function!(KeystoreData::flush_thread, super::TRACE);
+        loop {
+            // About once an hour (but not quite to avoid possible
+            // resonance).
+            thread::sleep(Duration::new(59 * 60, 0));
+
+            let ks = ks.read().unwrap();
+            if let Some(ref dir) = ks.directory {
+                let pubring_tmp = dir.join("pubring.gpg~");
+                let secring_tmp = dir.join("secring.gpg~");
+
+                t!("Writing keystore to {:?} and {:?}",
+                   pubring_tmp, secring_tmp);
+
+                let mut pubring_fd = match File::create(&pubring_tmp) {
+                    Ok(fd) => fd,
+                    Err(err) => {
+                        t!("Creating {:?}: {}", pubring_tmp, err);
+                        continue;
+                    }
+                };
+                let mut secring_fd = match File::create(&secring_tmp) {
+                    Ok(fd) => fd,
+                    Err(err) => {
+                        t!("Creating {:?}: {}", secring_tmp, err);
+                        continue;
+                    }
+                };
+
+                let mut ok = true;
+                for cert in ks.to_save() {
+                    let r = if cert.is_tsk() {
+                        cert.as_tsk().serialize(&mut secring_fd)
+                    } else {
+                        cert.serialize(&mut pubring_fd)
+                    };
+
+                    if let Err(err) = r {
+                        t!("Serializing {} {}: {}",
+                           if cert.is_tsk() { "secret key" } else { "certificate" },
+                           cert.fingerprint(), err);
+                        ok = false;
+                        break;
+                    }
+                }
+
+                if ok {
+                    if let Err(err) = pubring_fd.flush() {
+                        t!("Failed to flush {:?}: {}", pubring_tmp, err);
+                        continue;
+                    }
+                    if let Err(err) = secring_fd.flush() {
+                        t!("Failed to flush {:?}: {}", secring_tmp, err);
+                        continue;
+                    }
+
+                    let pubring = dir.join("pubring.gpg");
+                    if let Err(err) = fs::rename(&pubring_tmp, &pubring) {
+                        warn!("Failed to rename {:?} to {:?}: {}",
+                              pubring_tmp, pubring, err);
+                    }
+
+                    let secring = dir.join("secring.gpg");
+                    if let Err(err) = fs::rename(&secring_tmp, &secring) {
+                        warn!("Failed to rename {:?} to {:?}: {}",
+                              secring_tmp, secring, err);
+                    }
+
+                    t!("Keystore flushed to {:?} and {:?}",
+                       pubring, secring);
+                }
+            }
+        }
+    }
+
     /// Returns the number of certificates in the key store.
     pub fn count(&self) -> usize {
         self.by_primary_fp.len()
