@@ -509,7 +509,16 @@ impl KeystoreData {
 
                 let mut cert_ref = cert_cell.write().unwrap();
 
-                if *cert_ref == cert {
+                // XXX: When comparing the certificates we want to do:
+                //
+                //    certa.as_tsk() == certb.as_tsk()
+                //
+                // When https://gitlab.com/sequoia-pgp/sequoia/-/issues/701
+                // is closed, change the following code, which is more
+                // conservative than necessary.
+                let has_secret_key_material = cert_ref.is_tsk() || cert.is_tsk();
+
+                if !has_secret_key_material && *cert_ref == cert {
                     // They are identical.  There is nothing to do.
                     t!("Update doesn't change certificate.  Short-circuiting.");
                     return;
@@ -517,10 +526,10 @@ impl KeystoreData {
 
                 // Merge.
                 let cert_update = cert_ref.clone()
-                    .insert_packets(cert.into_packets())
+                    .insert_packets(cert.clone().into_packets())
                     .expect("does not fail if the primary keys are equal");
 
-                if *cert_ref == cert_update {
+                if !has_secret_key_material && *cert_ref == cert {
                     // They are identical.  There is nothing to do.
                     t!("Update doesn't add anything new.  Short-circuiting.");
                     return;
