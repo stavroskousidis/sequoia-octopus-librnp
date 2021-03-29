@@ -521,5 +521,10 @@ pub fn list_validity(ctx: &Ctx, if_changed: Option<&OutputHash>)
         }
     }
 
+    if ! key_validity.is_empty() {
+        validity.push((fingerprint.expect("set"),
+                       key_validity));
+    }
+
     Ok((validity, output_hash))
 }
