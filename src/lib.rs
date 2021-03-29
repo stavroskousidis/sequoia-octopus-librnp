@@ -516,7 +516,7 @@ fn load_gpg_keyring(ctx: &mut RnpContext,
         gpg_ctx_ = Some(gpg::Ctx::new()?);
         &gpg_ctx_.as_ref().unwrap()
     };
-    let export = gpg::export(&gpg_ctx, None)?;
+    let (export, _output_hash) = gpg::export(&gpg_ctx, None, None)?;
 
     for cert in parse_keyring(std::io::Cursor::new(export))? {
         match cert {

@@ -344,8 +344,10 @@ pub fn import(ctx: &Ctx, what: &[u8]) -> Result<()> {
     Ok(())
 }
 
-pub fn export(ctx: &Ctx, search: Option<&str>) -> Result<String> {
-    let doit = || -> Result<String> {
+pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&OutputHash>)
+    -> Result<(String, OutputHash)>
+{
+    let doit = || -> Result<(String, OutputHash)> {
         let mut gpg = Command::new("gpg");
         gpg
             .stdin(Stdio::null())
@@ -361,10 +363,22 @@ pub fn export(ctx: &Ctx, search: Option<&str>) -> Result<String> {
 
         let gpg = gpg.output()?;
 
-        Ok(String::from_utf8_lossy(&gpg.stdout).into_owned())
+        let mut output_hasher = Sha256::new();
+        output_hasher.update(&gpg.stdout);
+        let output_hash = OutputHash {
+            hash: output_hasher.finalize()[..].to_vec()
+        };
+        if let Some(if_changed) = if_changed {
+            if &output_hash == if_changed {
+                // Result is unchanged.
+                return Err(Error::Unchanged.into());
+            }
+        }
+
+        Ok((String::from_utf8_lossy(&gpg.stdout).into_owned(), output_hash))
     };
 
-    Ok(doit().context("Running gpg --export")?)
+    Ok(doit()?)
 }
 
 // If if_changed is not None, this hashes the output before parsing.
