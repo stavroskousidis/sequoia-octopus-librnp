@@ -15,8 +15,8 @@ use crate::gpg::Validity;
 use crate::tbprofile::TBProfile;
 
 // Carefully update TB's acceptance DB with GPG's validity.
-pub fn update_acceptance(gpg_ctx: &gpg::Ctx)
-    -> openpgp::Result<()>
+pub fn update_acceptance(gpg_ctx: &gpg::Ctx, output_hash: Option<&gpg::OutputHash>)
+    -> openpgp::Result<gpg::OutputHash>
 {
     rnp_function!(update_acceptance, super::TRACE);
 
@@ -57,9 +57,15 @@ pub fn update_acceptance(gpg_ctx: &gpg::Ctx)
             err
         })?;
 
-    let (validity, _output_hash) = match gpg::list_validity(&gpg_ctx, None) {
+    let (validity, output_hash) = match gpg::list_validity(&gpg_ctx, output_hash) {
         Ok(validity) => validity,
         Err(err) => {
+            match err.downcast_ref::<gpg::Error>() {
+                Some(gpg::Error::Unchanged) =>
+                    return Ok(output_hash.unwrap().clone()),
+                _ => (),
+            }
+
             let err = err.context("openpgp.sqlite: \
                                    Running  gpg --list-keys");
             warn!("{}", err);
@@ -189,6 +195,6 @@ pub fn update_acceptance(gpg_ctx: &gpg::Ctx)
 
     tx.commit()?;
 
-    Ok(())
+    Ok(output_hash)
 }
 

@@ -639,7 +639,7 @@ fn rnp_load_keys(ctx: *mut RnpContext,
                     warn!("Import gpg's keyring: {}", err);
                 }
 
-                if let Err(err) = wot::update_acceptance(&gpg_ctx) {
+                if let Err(err) = wot::update_acceptance(&gpg_ctx, None) {
                     warn!("Updating web of trust: {}", err);
                 }
             }
