@@ -515,9 +515,18 @@ impl KeystoreData {
                     return;
                 }
 
-                *cert_ref = cert_ref.clone()
+                // Merge.
+                let cert_update = cert_ref.clone()
                     .insert_packets(cert.into_packets())
                     .expect("does not fail if the primary keys are equal");
+
+                if *cert_ref == cert_update {
+                    // They are identical.  There is nothing to do.
+                    t!("Update doesn't add anything new.  Short-circuiting.");
+                    return;
+                }
+
+                *cert_ref = cert_update;
 
                 e.extra = e.extra && is_external;
 
