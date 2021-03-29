@@ -12,12 +12,17 @@ use std::{
         Arc,
         atomic,
         atomic::AtomicUsize,
+        mpsc,
+        Mutex,
         RwLock,
         RwLockReadGuard,
         RwLockWriteGuard,
     },
     thread,
-    time::Duration,
+    time::{
+        Duration,
+        SystemTime,
+    },
 };
 
 use sequoia_openpgp as openpgp;
@@ -116,6 +121,11 @@ pub struct KeystoreData {
     // periodically flushed to disk in the background.
     directory: Option<PathBuf>,
     flush_thread: Option<thread::JoinHandle<()>>,
+
+    // A sender to ping the thread and tell it to check for updates
+    // now.
+    gpg_sender: Option<Arc<Mutex<mpsc::Sender<()>>>>,
+    gpg_thread: Option<thread::JoinHandle<()>>,
 }
 
 impl Default for KeystoreData {
@@ -132,6 +142,9 @@ impl Default for KeystoreData {
 
             directory: None,
             flush_thread: None,
+
+            gpg_sender: None,
+            gpg_thread: None,
         }
     }
 }
@@ -209,7 +222,7 @@ impl Keystore {
         // an index and once it fills it, it only reloads it when the
         // user explicitly asks or on restart :/.
         let ctx = gpg::Ctx::new()?;
-        let (keyring, _keyring_hash) = gpg::export(&ctx, None, None)?;
+        let (keyring, keyring_hash) = gpg::export(&ctx, None, None)?;
 
         t!("Got {} bytes", keyring.len());
 
@@ -237,6 +250,21 @@ impl Keystore {
         }
         t!("Successfully added {} certificates, {} errors",
            inserted, errors);
+
+        if ks.gpg_thread.is_none() {
+            // Start a thread to periodically flush everything to
+            // disk.
+            let ks_ref = self.create_ref();
+            let (sender, receiver) = mpsc::channel();
+            ks.gpg_sender = Some(Arc::new(Mutex::new(sender)));
+
+            ks.flush_thread
+                = Some(thread::spawn(move || {
+                    KeystoreData::gpg_thread(ks_ref, receiver,
+                                             ctx, keyring_hash);
+                }));
+        }
+
         Ok(())
     }
 }
@@ -402,6 +430,104 @@ impl KeystoreData {
                        pubring, secring);
                 }
             }
+        }
+    }
+
+    // Monitor gpg for updates.
+    //
+    // This checks for updates to the keyring.
+    fn gpg_thread(ks: Arc<RwLock<Self>>, receiver: mpsc::Receiver<()>,
+                  gpg_ctx: gpg::Ctx, mut keyring_hash: gpg::OutputHash) {
+        rnp_function!(KeystoreData::gpg_thread, super::TRACE);
+
+        let mut last_check = SystemTime::now();
+        loop {
+            // About once an hour (but not quite to avoid possible
+            // resonance).  The first time through, we don't import
+            // the keyring.  We did that from the main thread, because
+            // reasons.
+            let r = receiver.recv_timeout(Duration::new(61 * 60, 0));
+            match r {
+                // Check now.
+                Ok(()) => {
+                    // Drain the queue.
+                    while let Ok(_) = receiver.recv_timeout(
+                        Duration::new(0, 0)) {
+                    }
+                },
+                // Poll now.
+                Err(mpsc::RecvTimeoutError::Timeout) => (),
+                // ks was destroyed.
+                Err(_) => {
+                    t!("Keystore disconnected.  Time to shutdown.");
+                    return;
+                }
+            }
+
+            let now = SystemTime::now();
+            let elapsed = now.duration_since(last_check);
+            match elapsed {
+                Err(err) => {
+                    t!("Error computing time since last update: {}", err);
+                    continue;
+                },
+                Ok(elapsed) => {
+                    if elapsed < Duration::new(90, 0) {
+                        t!("Throttling gpg_thread.");
+                        continue;
+                    }
+                }
+            }
+
+            t!("Checking for gpg updates...");
+            // Import the gpg keyring.
+            let keyring = match gpg::export(&gpg_ctx, None, Some(&keyring_hash)) {
+                Ok((keyring, keyring_hash_tmp)) => {
+                    t!("Got {} bytes", keyring.len());
+                    keyring_hash = keyring_hash_tmp;
+                    keyring
+                }
+                Err(err) => {
+                    t!("Exporting gpg keyring: {}", err);
+                    continue;
+                }
+            };
+
+            // Parse the keyring without the lock.
+            let certs = match parse_keyring(std::io::Cursor::new(keyring)) {
+                Ok(certs) => certs,
+                Err(err) => {
+                    t!("Parsing keyring: {}", err);
+                    continue;
+                }
+            };
+
+            // And now take the lock to insert the certificates.
+            let mut inserted = 0;
+            let mut errors = 0;
+
+            let mut ks = ks.write().unwrap();
+            for cert in certs {
+                match cert {
+                    Ok(c) => {
+                        ks.insert_external(c);
+                        inserted += 1;
+                    }
+                    Err(e) => {
+                        // We definitely don't want to error out when
+                        // importing stuff from gpg.  So, warn, but don't
+                        // stop.
+                        warn!("sequoia-octopus: Error parsing cert: {}", e);
+                        errors += 1;
+                    },
+                }
+            }
+            drop(ks);
+
+            t!("Successfully added {} certificates, {} errors",
+               inserted, errors);
+
+            last_check = SystemTime::now();
         }
     }
 
