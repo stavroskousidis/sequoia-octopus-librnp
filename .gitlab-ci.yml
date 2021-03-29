@@ -86,7 +86,11 @@ windows-msvc:
   script:
     - cargo build --no-default-features --features crypto-cng
     - cargo test --no-default-features --features crypto-cng
-  after_script: []
+  after_script:
+    - Get-childItem target\debug
+  artifacts:
+    paths:
+      - C:\builds\sequoia-pgp\sequoia-octopus-librnp\target\debug\sequoia_octopus_librnp.dll
   variables:
     CFLAGS: "" # Silence some C warnings when compiling with MSVC
 
