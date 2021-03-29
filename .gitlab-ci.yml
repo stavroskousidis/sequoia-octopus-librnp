@@ -1,7 +1,7 @@
 stages:
   - pre-check
-  - build
-  - test
+  - cargo_test
+  - tb_test
   - release
 
 before_script:
@@ -19,7 +19,7 @@ after_script:
 bullseye:
   tags:
     - linux
-  stage: build
+  stage: cargo_test
   image: registry.gitlab.com/sequoia-pgp/build-docker-image/bullseye:latest
   dependencies:
     - codespell
@@ -55,7 +55,7 @@ windows-gnu:
   tags:
     - win
     - win2019
-  stage: build
+  stage: cargo_test
   image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-gnu
   # This job takes ~20 minutes to run, let's only execute it manually or for
   # scheduled builds, otherwise this will stall MRs often not related to Windows
@@ -79,7 +79,7 @@ windows-msvc:
   tags:
     - win
     - win2019
-  stage: build
+  stage: cargo_test
   image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
   before_script:
     - rustc --version --verbose
@@ -113,7 +113,7 @@ windows-msvc-release:
 
 thunderbird-tests:
   image: registry.gitlab.com/sequoia-pgp/build-thunderbird/tbbuild:latest
-  stage: test
+  stage: tb_test
   needs: ["bullseye"]
   before_script:
     - apt install -y -qq --no-install-recommends git rustc cargo clang libclang-dev make pkg-config nettle-dev libssl-dev capnproto libsqlite3-dev procps
