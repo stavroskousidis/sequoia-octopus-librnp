@@ -30,7 +30,9 @@ use openpgp::{
 };
 
 use crate::{
+    gpg,
     Keygrip,
+    keyring::parse_keyring,
     parcimonie::Parcimonie,
 };
 
@@ -189,6 +191,53 @@ impl Keystore {
                     KeystoreData::flush_thread(ks_ref);
                 }));
         }
+    }
+
+    /// Load the gpg keyring into the keystore.
+    ///
+    /// Parse and load a keyring.  If this encounters some corruption
+    /// in the keyring and is able to recover, it does not report an
+    /// error.
+    ///
+    /// This also starts a thread to monitor the gpg store.  This
+    /// imports updates from the gpg keyring (XXX: but not removals!).
+    /// And, it updates the web of trust information.
+    pub fn load_gpg_keyring(&mut self) -> openpgp::Result<()> {
+        rnp_function!(Keystore::load_gpg_keyring, super::TRACE);
+
+        // Arg, we have to do this synchronously: Thunderbird creates
+        // an index and once it fills it, it only reloads it when the
+        // user explicitly asks or on restart :/.
+        let ctx = gpg::Ctx::new()?;
+        let (keyring, _keyring_hash) = gpg::export(&ctx, None, None)?;
+
+        t!("Got {} bytes", keyring.len());
+
+        let certs = parse_keyring(std::io::Cursor::new(keyring))?;
+
+        let mut inserted = 0;
+        let mut errors = 0;
+
+        // Only now take the lock.
+        let mut ks = self.data.write().unwrap();
+        for cert in certs {
+            match cert {
+                Ok(c) => {
+                    ks.insert_external(c);
+                    inserted += 1;
+                }
+                Err(e) => {
+                    // We definitely don't want to error out when
+                    // importing stuff from gpg.  So, warn, but don't
+                    // stop.
+                    warn!("sequoia-octopus: Error parsing cert: {}", e);
+                    errors += 1;
+                },
+            }
+        }
+        t!("Successfully added {} certificates, {} errors",
+           inserted, errors);
+        Ok(())
     }
 }
 
