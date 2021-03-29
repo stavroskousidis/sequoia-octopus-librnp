@@ -57,7 +57,7 @@ pub fn update_acceptance(gpg_ctx: &gpg::Ctx)
             err
         })?;
 
-    let validity = match gpg::list_validity(&gpg_ctx) {
+    let (validity, _output_hash) = match gpg::list_validity(&gpg_ctx, None) {
         Ok(validity) => validity,
         Err(err) => {
             let err = err.context("openpgp.sqlite: \

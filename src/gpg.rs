@@ -14,11 +14,31 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::process::Stdio;
 
+use sha2::Sha256;
+use sha2::Digest;
+
 use anyhow::{Context, Result};
 use csv::StringRecord;
 
 use sequoia_openpgp as openpgp;
 use openpgp::Fingerprint;
+
+/// Errors used in this module.
+///
+/// Note: This enum cannot be exhaustively matched to allow future
+/// extensions.
+#[non_exhaustive]
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
+pub enum Error {
+    /// The output is unchanged.
+    #[error("Output unchanged")]
+    Unchanged,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct OutputHash {
+    hash: Vec<u8>,
+}
 
 pub fn make_context() -> Result<Ctx> {
     let ctx = Ctx::ephemeral().context(
@@ -347,7 +367,12 @@ pub fn export(ctx: &Ctx, search: Option<&str>) -> Result<String> {
     Ok(doit().context("Running gpg --export")?)
 }
 
-fn list_keys_raw(ctx: &Ctx) -> Result<Vec<StringRecord>> {
+// If if_changed is not None, this hashes the output before parsing.
+// If the output's hash (as returned by a previous call to this
+// function) matches if_changed, this function returns an error.
+fn list_keys_raw(ctx: &Ctx, if_changed: Option<&OutputHash>)
+    -> Result<(Vec<StringRecord>, OutputHash)>
+{
     let doit = || -> Result<_> {
         let mut gpg = Command::new("gpg");
         gpg
@@ -360,6 +385,18 @@ fn list_keys_raw(ctx: &Ctx) -> Result<Vec<StringRecord>> {
             .arg("--with-colons");
 
         let gpg = gpg.output()?;
+
+        let mut output_hasher = Sha256::new();
+        output_hasher.update(&gpg.stdout);
+        let output_hash = OutputHash {
+            hash: output_hasher.finalize()[..].to_vec()
+        };
+        if let Some(if_changed) = if_changed {
+            if &output_hash == if_changed {
+                // Result is unchanged.
+                return Err(Error::Unchanged.into());
+            }
+        }
 
         // Although csv takes a byte string, it expects valid UTF-8.
         // Doing a lossy conversion might break a few User IDs, but
@@ -374,7 +411,7 @@ fn list_keys_raw(ctx: &Ctx) -> Result<Vec<StringRecord>> {
 
         // We don't expect gpg to return invalid records.  But, let's
         // ignore any just in case.
-        Ok(rdr.records().filter_map(|rec| {
+        let r = rdr.records().filter_map(|rec| {
             match rec {
                 Ok(rec) => Some(rec),
                 Err(err) => {
@@ -383,7 +420,9 @@ fn list_keys_raw(ctx: &Ctx) -> Result<Vec<StringRecord>> {
                     None
                 }
             }
-        }).collect())
+        }).collect();
+
+        Ok((r, output_hash))
     };
 
     Ok(doit().context("Running gpg --list-keys --with-colons")?)
@@ -396,12 +435,12 @@ pub enum Validity {
     Ultimately,
 }
 
-pub fn list_validity(ctx: &Ctx)
-    -> Result<Vec<(Fingerprint, Vec<(String, Validity)>)>>
+pub fn list_validity(ctx: &Ctx, if_changed: Option<&OutputHash>)
+    -> Result<(Vec<(Fingerprint, Vec<(String, Validity)>)>, OutputHash)>
 {
     rnp_function!(list_validity, super::TRACE);
 
-    let res = list_keys_raw(&ctx)?;
+    let (res, output_hash) = list_keys_raw(&ctx, if_changed)?;
 
     let mut validity: Vec<(Fingerprint, Vec<(String, Validity)>)>
         = Vec::new();
@@ -468,5 +507,5 @@ pub fn list_validity(ctx: &Ctx)
         }
     }
 
-    Ok(validity)
+    Ok((validity, output_hash))
 }
