@@ -57,7 +57,9 @@ pub fn update_acceptance(gpg_ctx: &gpg::Ctx, output_hash: Option<&gpg::OutputHas
             err
         })?;
 
-    let (validity, output_hash) = match gpg::list_validity(&gpg_ctx, output_hash) {
+    let (validity, output_hash)
+        = match gpg::list_validity(&gpg_ctx, None, output_hash)
+    {
         Ok(validity) => validity,
         Err(err) => {
             match err.downcast_ref::<gpg::Error>() {

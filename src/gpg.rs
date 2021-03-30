@@ -384,9 +384,14 @@ pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&OutputHash>)
 // If if_changed is not None, this hashes the output before parsing.
 // If the output's hash (as returned by a previous call to this
 // function) matches if_changed, this function returns an error.
-fn list_keys_raw(ctx: &Ctx, if_changed: Option<&OutputHash>)
+fn list_keys_raw(ctx: &Ctx, filter: Option<String>,
+                 if_changed: Option<&OutputHash>)
     -> Result<(Vec<StringRecord>, OutputHash)>
 {
+    rnp_function!(list_keys_raw, false);
+    t!("filter: {:?}", filter);
+    t!("if_chnaged: {:?}", if_changed);
+
     let doit = || -> Result<_> {
         let mut gpg = Command::new("gpg");
         gpg
@@ -397,6 +402,11 @@ fn list_keys_raw(ctx: &Ctx, if_changed: Option<&OutputHash>)
             .arg(ctx.directory("homedir")?)
             .arg("--list-keys")
             .arg("--with-colons");
+        if let Some(filter) = filter {
+            gpg.arg(filter);
+        }
+
+        t!("gpg command: {:?}", gpg);
 
         let gpg = gpg.output()?;
 
@@ -416,6 +426,7 @@ fn list_keys_raw(ctx: &Ctx, if_changed: Option<&OutputHash>)
         // Doing a lossy conversion might break a few User IDs, but
         // everyone uses UTF-8 these days.
         let output = String::from_utf8_lossy(&gpg.stdout);
+        t!("gpg output:\n{}", output);
         let output = output.as_bytes();
         let mut rdr = csv::ReaderBuilder::new()
             .has_headers(false)
@@ -449,12 +460,13 @@ pub enum Validity {
     Ultimately,
 }
 
-pub fn list_validity(ctx: &Ctx, if_changed: Option<&OutputHash>)
+pub fn list_validity(ctx: &Ctx, filter: Option<String>,
+                     if_changed: Option<&OutputHash>)
     -> Result<(Vec<(Fingerprint, Vec<(String, Validity)>)>, OutputHash)>
 {
     rnp_function!(list_validity, super::TRACE);
 
-    let (res, output_hash) = list_keys_raw(&ctx, if_changed)?;
+    let (res, output_hash) = list_keys_raw(&ctx, filter, if_changed)?;
 
     let mut validity: Vec<(Fingerprint, Vec<(String, Validity)>)>
         = Vec::new();
