@@ -9,6 +9,7 @@ use crate::{
     str_to_rnp_buffer,
     error::*,
     conversions::*,
+    wot,
 };
 
 pub struct RnpIdentifierIterator {
@@ -24,12 +25,18 @@ fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
                                   typ: *const c_char)
                                   -> RnpResult {
     rnp_function!(rnp_identifier_iterator_create, crate::TRACE);
-    let ctx = assert_ptr_ref!(ctx);
+    let ctx = assert_ptr_mut!(ctx);
     assert_ptr!(iter);
     assert_ptr!(typ);
 
     let typ = rnp_try!(RnpIdentifierType::from_rnp_id(typ));
     t!("type = {:?}", typ);
+
+    // Thunderbird is doing a scan.  Now is a good time to check for
+    // WoT updates.
+    if let Err(err) = wot::WoT::queue_update() {
+        t!("Queuing wot update: {}", err);
+    }
 
     // There are a few good reasons why we eagerly evaluate the
     // iterator:

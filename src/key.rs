@@ -58,6 +58,7 @@ use crate::{
     flags::*,
     conversions::*,
     error::*,
+    wot,
 };
 
 #[derive(Debug)]
@@ -207,6 +208,12 @@ fn rnp_locate_key(ctx: *mut RnpContext,
         rnp_try!(RnpIdentifierType::from_rnp_id(identifier_type))
             .with_identifier(identifier));
     t!("Locating key by {:?}", id);
+
+    // Thunderbird is looking up an identifier.  Now is a good time to
+    // check for WoT updates.
+    if let Err(err) = wot::WoT::queue_update() {
+        t!("Queuing wot update: {}", err);
+    }
 
     // (*ctx).cert also takes a read lock.  But we need to keep the
     // key store locked for when we look up the matching certificate's

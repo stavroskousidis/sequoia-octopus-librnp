@@ -172,6 +172,18 @@ impl WoT {
 
         Ok(())
     }
+
+    // Queue an update for the near future.
+    //
+    // This fails if the monitor thread has not yet been started.
+    pub fn queue_update() -> openpgp::Result<()>
+    {
+        if let Some(sender) = WOT.sender.lock().unwrap().deref_mut() {
+            return Ok(sender.send(())?);
+        }
+
+        Err(anyhow::anyhow!("WoT Monitor not yet started."))
+    }
 }
 
 impl WoTData {
