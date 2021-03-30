@@ -1,7 +1,12 @@
 use std::collections::HashSet;
+use std::ops::DerefMut;
 use std::sync::Arc;
+use std::sync::mpsc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
+use std::thread;
+use std::time::Duration;
+use std::time::SystemTime;
 
 use rusqlite::{
     Connection,
@@ -18,25 +23,31 @@ use crate::gpg;
 use crate::gpg::Validity;
 use crate::tbprofile::TBProfile;
 
+pub struct WoT {
+    data: Arc<Mutex<Option<WoTData>>>,
+    sender: Arc<Mutex<Option<mpsc::Sender<()>>>>,
+}
+
 struct WoTData {
     gpg_ctx: gpg::Ctx,
     conn: rusqlite::Connection,
     output_hash: Option<gpg::OutputHash>,
-}
-
-pub struct WoT {
-    data: Arc<Mutex<Option<WoTData>>>,
+    last_update: SystemTime,
 }
 
 // A singleton.
 lazy_static! {
-    static ref WOT: WoT
-        = WoT {
+    static ref WOT: Arc<WoT>
+        = Arc::new(WoT {
             data: Arc::new(Mutex::new(None)),
-        };
+            sender: Arc::new(Mutex::new(None)),
+        });
 }
 
 impl WoT {
+    // Return a locked WoTData.
+    //
+    // If WoT hasn't been initialized, do it now.
     fn lock() -> openpgp::Result<MutexGuard<'static, Option<WoTData>>> {
         let mut data = WOT.data.lock().unwrap();
         if data.is_some() {
@@ -132,19 +143,122 @@ impl WoT {
         *data = Some(WoTData {
             gpg_ctx,
             conn,
-            output_hash: None
+            output_hash: None,
+            last_update: std::time::UNIX_EPOCH,
         });
 
         Ok(data)
     }
 
-    // Carefully update TB's acceptance DB with GPG's validity.
-    pub fn update() -> openpgp::Result<()>
-    {
-        rnp_function!(WoT::update_acceptance, super::TRACE);
+    // Create a thread to start monitoring gpg's trust db for updates.
+    pub fn monitor() -> openpgp::Result<()> {
+        let data_ref = WoT::lock()?;
+        assert!(data_ref.is_some());
 
-        let mut wot = WoT::lock()?;
-        let data = wot.as_mut().expect("init succeeded");
+        let mut sender_ref = WOT.sender.lock().unwrap();
+        if sender_ref.is_some() {
+            // Already started the thread.
+            return Ok(());
+        }
+
+        // Start the thread.
+        let (sender, receiver) = mpsc::channel();
+        *sender_ref = Some(sender);
+        drop(sender_ref);
+
+        thread::spawn(move || {
+            WoTData::monitor(receiver);
+        });
+
+        Ok(())
+    }
+}
+
+impl WoTData {
+    fn worker(receiver: &mut mpsc::Receiver<()>)
+        -> openpgp::Result<()>
+    {
+        rnp_function!(WoTData::worker, super::TRACE);
+        let mut first_time = true;
+        loop {
+            // Check for updates about once an hour (but not quite to
+            // avoid possible resonance), or when we are asked.
+            if first_time {
+                first_time = false;
+            } else {
+                let r = receiver.recv_timeout(Duration::new(67 * 60, 0));
+                match r {
+                    // Check now.
+                    Ok(()) => {
+                        // Drain the queue.
+                        while let Ok(_) = receiver.recv_timeout(
+                            Duration::new(0, 0)) {
+                        }
+                    },
+                    // Poll now.
+                    Err(mpsc::RecvTimeoutError::Timeout) => (),
+                    // wot was destroyed.
+                    Err(_err) => {
+                        t!("Monitor disconnected (1).  Time to shutdown.");
+                        return Ok(());
+                    }
+                }
+            }
+
+            let mut data_ref = WOT.data.lock().unwrap();
+            let data = if let Some(data) = data_ref.deref_mut() {
+                data
+            } else {
+                t!("Monitor disconnected (2).  Time to shutdown.");
+                return Ok(());
+            };
+
+            let now = SystemTime::now();
+            let elapsed = now.duration_since(data.last_update);
+            match elapsed {
+                Err(err) => {
+                    t!("Error computing time since last update: {}", err);
+                    continue;
+                },
+                Ok(elapsed) => {
+                    if elapsed < Duration::new(10, 0) {
+                        t!("Throttling updates.");
+                        continue;
+                    }
+                }
+            }
+
+            t!("Checking for WoT updates...");
+
+            if let Err(err) = Self::update(&mut data_ref) {
+                warn!("Updating web of trust: {}", err);
+            }
+
+            data_ref.as_mut().unwrap().last_update = SystemTime::now();
+
+            drop(data_ref);
+        }
+    }
+
+    // Monitor the worker thread.
+    //
+    // If it returns an error, then it is restarted (after a short
+    // timeout).
+    fn monitor(mut receiver: mpsc::Receiver<()>)
+    {
+        rnp_function!(WoTData::monitor, super::TRACE);
+        while let Err(err) = Self::worker(&mut receiver) {
+            t!("WoT thread returned unexpectedly ({:?}), restarting", err);
+            thread::sleep(Duration::new(5 * 60, 0));
+        }
+    }
+
+    // Carefully update TB's acceptance DB with GPG's validity.
+    fn update(data: &mut MutexGuard<Option<WoTData>>) -> openpgp::Result<()>
+    {
+        rnp_function!(WoT::update, super::TRACE);
+
+        let data = data.as_mut().expect("init succeeded");
 
         let (validity, output_hash)
             = match gpg::list_validity(&data.gpg_ctx, None,
@@ -188,7 +302,7 @@ impl WoT {
             }
         };
 
-        WoT::import_validity(&mut tx, Some(managed_by_tb), validity)?;
+        WoTData::import_validity(&mut tx, Some(managed_by_tb), validity)?;
 
         tx.commit()?;
 

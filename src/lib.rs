@@ -609,8 +609,8 @@ fn rnp_load_keys(ctx: *mut RnpContext,
         }
 
         // And load the WoT data.
-        if let Err(err) = wot::WoT::update() {
-            t!("Updating WoT: {}", err);
+        if let Err(err) = wot::WoT::monitor() {
+            t!("Instantiating WoT updater: {}", err);
         }
     }
 
