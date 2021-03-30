@@ -609,15 +609,8 @@ fn rnp_load_keys(ctx: *mut RnpContext,
         }
 
         // And load the WoT data.
-        match gpg::Ctx::new() {
-            Ok(gpg_ctx) => {
-                if let Err(err) = wot::update_acceptance(&gpg_ctx, None) {
-                    warn!("Updating web of trust: {}", err);
-                }
-            }
-            Err(err) => {
-                warn!("Creating a gpg context: {}", err);
-            }
+        if let Err(err) = wot::WoT::update() {
+            t!("Updating WoT: {}", err);
         }
     }
 
