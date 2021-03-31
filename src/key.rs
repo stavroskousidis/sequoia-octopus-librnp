@@ -382,7 +382,12 @@ fn rnp_key_have_secret(key: *const RnpKey,
     assert_ptr!(key);
     assert_ptr!(result);
 
-    *result = (*key).has_secret();
+    let mut has_secret = (*key).has_secret();
+    if ! has_secret {
+        has_secret = (*(*key).ctx).certs.key_on_agent(&(*key).fingerprint());
+    }
+
+    *result = has_secret;
     RNP_SUCCESS
 }
 

@@ -1,12 +1,14 @@
 use std::{
     collections::{
         HashMap,
+        HashSet,
         hash_map::Entry,
     },
     fmt,
     fs,
     fs::File,
     io::Write,
+    iter::FromIterator,
     path::PathBuf,
     sync::{
         Arc,
@@ -97,6 +99,8 @@ impl MapEntry<Fingerprint> {
 }
 
 pub struct KeystoreData {
+    gpg_ctx: Option<gpg::Ctx>,
+
     // The bool indicates whether the key is considered external.
     by_primary_fp: HashMap<Fingerprint, MapEntry<bool>>,
     by_primary_id: HashMap<KeyID, Vec<MapEntry<()>>>,
@@ -108,6 +112,11 @@ pub struct KeystoreData {
     // grip should not be removed.  To distinguish this case, we also
     // track the subkey.
     by_subkey_grip: HashMap<Keygrip, Vec<MapEntry<Fingerprint>>>,
+
+    // Keys that are managed by the agent.
+    keys_on_agent: HashSet<Fingerprint>,
+    keys_on_agent_last_refresh: SystemTime,
+    keys_on_agent_hash: Option<gpg::OutputHash>,
 
     // The last time that the keystore was *possibly* modified.  Each
     // write attempt is a tick.  Unfortunately, this can also result
@@ -131,12 +140,18 @@ pub struct KeystoreData {
 impl Default for KeystoreData {
     fn default() -> Self {
         Self {
+            gpg_ctx: None,
+
             by_primary_fp: Default::default(),
             by_primary_id: Default::default(),
             by_primary_grip: Default::default(),
             by_subkey_fp: Default::default(),
             by_subkey_id: Default::default(),
             by_subkey_grip: Default::default(),
+
+            keys_on_agent: Default::default(),
+            keys_on_agent_last_refresh: std::time::UNIX_EPOCH,
+            keys_on_agent_hash: None,
 
             last_update: Arc::new(AtomicUsize::new(0)),
 
@@ -185,6 +200,19 @@ impl Keystore {
 
     pub fn write(&self) -> RwLockWriteGuard<KeystoreData> {
         self.data.write().unwrap()
+    }
+
+    /// Returns whether the key appears to be on the gpg agent.
+    ///
+    /// This is at most a few seconds out of date.
+    pub fn key_on_agent(&self, key: &Fingerprint) -> bool {
+        let (key_on_agent, need_refresh)
+            = self.data.read().unwrap().key_on_agent(key);
+        if need_refresh {
+            self.data.write().unwrap().key_on_agent_hard(key)
+        } else {
+            key_on_agent
+        }
     }
 
     // The location of the keystore (where the pubring.gpg and
@@ -529,6 +557,88 @@ impl KeystoreData {
 
             last_check = SystemTime::now();
         }
+    }
+
+    /// Returns a reference to a gpg::Ctx.
+    fn gpg_ctx(&mut self) -> Option<&gpg::Ctx> {
+        rnp_function!(KeystoreData::gpg_ctx, super::TRACE);
+
+        if self.gpg_ctx.is_none() {
+            match gpg::Ctx::new() {
+                Ok(ctx) => self.gpg_ctx = Some(ctx),
+                Err(err) => t!("Creating a gpg context: {}", err),
+            }
+        }
+        self.gpg_ctx.as_ref()
+    }
+
+    /// Returns whether the specified key appears to be on the gpg
+    /// agent.
+    ///
+    /// This always tries to refresh the cache first.
+    pub fn key_on_agent_hard(&mut self, key: &Fingerprint) -> bool {
+        rnp_function!(KeystoreData::key_on_agent_hard, super::TRACE);
+
+        self.gpg_ctx();
+        if let Some(ctx) = self.gpg_ctx.as_ref() {
+            match gpg::list_secret_keys(ctx, None, self.keys_on_agent_hash.as_ref())
+            {
+                Err(err) => {
+                    match err.downcast_ref::<gpg::Error>() {
+                        // Unchanged.  Short-circuit.
+                        Some(gpg::Error::Unchanged) => (),
+                        _ => t!("List gpg secret keys: {}", err),
+                    }
+                }
+                Ok((secret_keys, hash)) => {
+                    self.keys_on_agent_hash = Some(hash);
+                    self.keys_on_agent = HashSet::from_iter(
+                        secret_keys.into_iter().map(|(_primary, key)| key));
+                }
+            }
+        }
+        // We even set this on error, as we want to throttle them too.
+        self.keys_on_agent_last_refresh = SystemTime::now();
+
+        self.keys_on_agent.get(key).is_some()
+    }
+
+    /// Returns whether the key appears to be on the gpg agent.
+    ///
+    /// These values are cached.
+    ///
+    /// The first return value is whether, according to the cache, the
+    /// key is on the agent.
+    ///
+    /// The second return value is whether the cache is old and should
+    /// be refreshed.
+    ///
+    /// If the cache should be refreshed, you should follow up with a
+    /// call to `key_on_agent_hard`.
+    ///
+    /// The calls are split so that this function doesn't need a write
+    /// lock.
+    pub fn key_on_agent(&self, key: &Fingerprint) -> (bool, bool) {
+        rnp_function!(KeystoreData::key_on_agent, super::TRACE);
+
+        let now = SystemTime::now();
+        let elapsed = now.duration_since(self.keys_on_agent_last_refresh);
+        let expired = match elapsed {
+            // If the cache is more than 10 seconds out of date,
+            // refresh it.
+            Ok(elapsed) => {
+                if elapsed > Duration::new(10, 0) {
+                    true
+                } else {
+                    false
+                }
+            }
+            Err(_err) => {
+                true
+            }
+        };
+
+        (self.keys_on_agent.get(key).is_some(), expired)
     }
 
     /// Returns the number of certificates in the key store.
