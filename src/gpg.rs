@@ -384,7 +384,7 @@ pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&OutputHash>)
 // If if_changed is not None, this hashes the output before parsing.
 // If the output's hash (as returned by a previous call to this
 // function) matches if_changed, this function returns an error.
-fn list_keys_raw(ctx: &Ctx, filter: Option<String>,
+fn list_keys_raw(ctx: &Ctx, secret: bool, filter: Option<String>,
                  if_changed: Option<&OutputHash>)
     -> Result<(Vec<StringRecord>, OutputHash)>
 {
@@ -400,8 +400,12 @@ fn list_keys_raw(ctx: &Ctx, filter: Option<String>,
             .stderr(Stdio::null())
             .arg("--homedir")
             .arg(ctx.directory("homedir")?)
-            .arg("--list-keys")
             .arg("--with-colons");
+        if secret {
+            gpg.arg("--list-secret-keys");
+        } else {
+            gpg.arg("--list-keys");
+        }
         if let Some(filter) = filter {
             gpg.arg(filter);
         }
@@ -422,35 +426,42 @@ fn list_keys_raw(ctx: &Ctx, filter: Option<String>,
             }
         }
 
-        // Although csv takes a byte string, it expects valid UTF-8.
-        // Doing a lossy conversion might break a few User IDs, but
-        // everyone uses UTF-8 these days.
-        let output = String::from_utf8_lossy(&gpg.stdout);
-        t!("gpg output:\n{}", output);
-        let output = output.as_bytes();
-        let mut rdr = csv::ReaderBuilder::new()
-            .has_headers(false)
-            .delimiter(b':')
-            .flexible(true)
-            .from_reader(std::io::Cursor::new(output));
-
-        // We don't expect gpg to return invalid records.  But, let's
-        // ignore any just in case.
-        let r = rdr.records().filter_map(|rec| {
-            match rec {
-                Ok(rec) => Some(rec),
-                Err(err) => {
-                    warn!("Parsing gpg --list-keys --with-colons:\n  {}",
-                          err);
-                    None
-                }
-            }
-        }).collect();
+        let r = list_keys_raw_parse(&gpg.stdout)?;
 
         Ok((r, output_hash))
     };
 
     Ok(doit().context("Running gpg --list-keys --with-colons")?)
+}
+
+fn list_keys_raw_parse(stdout: &[u8])
+    -> Result<Vec<StringRecord>>
+{
+    // Although csv takes a byte string, it expects valid UTF-8.
+    // Doing a lossy conversion might break a few User IDs, but
+    // everyone uses UTF-8 these days.
+    let output = String::from_utf8_lossy(stdout);
+    let output = output.as_bytes();
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .delimiter(b':')
+        .flexible(true)
+        .from_reader(std::io::Cursor::new(output));
+
+    // We don't expect gpg to return invalid records.  But, let's
+    // ignore any just in case.
+    let r = rdr.records().filter_map(|rec| {
+        match rec {
+            Ok(rec) => Some(rec),
+            Err(err) => {
+                warn!("Parsing gpg --list-keys --with-colons:\n  {}",
+                      err);
+                None
+            }
+        }
+    }).collect();
+
+    Ok(r)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -466,7 +477,7 @@ pub fn list_validity(ctx: &Ctx, filter: Option<String>,
 {
     rnp_function!(list_validity, super::TRACE);
 
-    let (res, output_hash) = list_keys_raw(&ctx, filter, if_changed)?;
+    let (res, output_hash) = list_keys_raw(&ctx, false, filter, if_changed)?;
 
     let mut validity: Vec<(Fingerprint, Vec<(String, Validity)>)>
         = Vec::new();
@@ -539,4 +550,221 @@ pub fn list_validity(ctx: &Ctx, filter: Option<String>,
     }
 
     Ok((validity, output_hash))
+}
+
+pub fn list_secret_keys(ctx: &Ctx, filter: Option<String>,
+                        if_changed: Option<&OutputHash>)
+    -> Result<(Vec<(Fingerprint, Fingerprint)>, OutputHash)>
+{
+    rnp_function!(list_secret_keys, super::TRACE);
+
+    let (res, output_hash) = list_keys_raw(&ctx, true, filter, if_changed)?;
+    let secret_keys = list_secret_keys_parse(res)?;
+
+    Ok((secret_keys, output_hash))
+}
+
+pub fn list_secret_keys_parse(res: Vec<csv::StringRecord>)
+    -> Result<Vec<(Fingerprint, Fingerprint)>>
+{
+    rnp_function!(list_secret_keys_parse, super::TRACE);
+
+    let mut secret_keys: Vec<(Fingerprint, Fingerprint)> = Vec::new();
+
+    let mut primary_fingerprint: Option<Fingerprint> = None;
+    let mut key_has_secret = false;
+    let mut keys = 0;
+
+    // The output looks like:
+    //
+    //   $ gpg --with-colons -K neal@walfield | grep -E '^(pub|sec|fpr|ssb|sub)'
+    //   sec:r:1024:17:3BF609C68BAFCDBD:991801296:::u:::sca:::+:::::0:
+    //   fpr:::::::::11C294DF1D6C9698FEFE231D3BF609C68BAFCDBD:
+    //   ssb:r:1024:16:3DAD5ECF8191AFAE:991801300::::::e:::+::::
+    //   fpr:::::::::BAE80223CD24C35F8A56518E3DAD5ECF8191AFAE:
+    //   sec:u:3744:1:AACB3243630052D9:1428396777:1618145210::u:::scESCA:::#:::::0:
+    //   fpr:::::::::8F17777118A33DDA9BA48E62AACB3243630052D9:
+    //   ssb:u:2048:1:7223B56678E02528:1428399766:1618145244:::::s:::D27...
+    //   fpr:::::::::C03FA6411B03AE12576461187223B56678E02528:
+    //   ssb:u:2048:1:C2B819056C652598:1428399800:1618145277:::::e:::D27...
+    //   fpr:::::::::50E6D924308DBF223CFB510AC2B819056C652598:
+    //   ssb:u:2048:1:A3506AFB820ABD08:1428399828:1618145266:::::a:::D27...
+    //   fpr:::::::::2DC50AB55BE2F3B04C2D2CF8A3506AFB820ABD08:
+    //
+    // In short, we have: key and subkey records, which don't include
+    // the fingerprint, and we have 'fpr' records, which include the
+    // fingerprint of the preceding key.
+    for line in res.into_iter() {
+        match line.get(0) {
+            Some("pub") => {
+                t!("Start of new certificate");
+                primary_fingerprint = None;
+                key_has_secret = false;
+                keys = 0;
+            }
+            Some("sec") => {
+                t!("Start of new key");
+                primary_fingerprint = None;
+                key_has_secret = true;
+                keys = 0;
+            }
+
+            Some("sub") => {
+                t!("New subkey");
+                key_has_secret = false;
+                keys += 1;
+            }
+            Some("ssb") => {
+                t!("New secret subkey");
+                key_has_secret = true;
+                keys += 1;
+            }
+
+            // The first fpr is for the primary key.  The rest are for
+            // subkeys.
+            Some("fpr") => {
+                let fpr: Fingerprint = if let Some(fpr) = line.get(9) {
+                    t!("  Considering {}", fpr);
+                    match fpr.parse() {
+                        Ok(fpr) => fpr,
+                        Err(err) => {
+                            t!("Parsing {:?} as fingerprint: {}",
+                               fpr, err);
+                            continue;
+                        }
+                    }
+                } else {
+                    continue;
+                };
+
+                if keys == 0 {
+                    // Primary.
+                    if key_has_secret {
+                        secret_keys.push((fpr.clone(), fpr.clone()));
+                    }
+
+                    primary_fingerprint = Some(fpr);
+                } else if let Some(ref primary_fingerprint) = primary_fingerprint {
+                    // Subkey.
+                    if key_has_secret {
+                        secret_keys.push((primary_fingerprint.clone(),
+                                          fpr.clone()));
+                    }
+                }
+
+            }
+            _ => {
+                continue;
+            }
+        }
+    }
+
+    Ok(secret_keys)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_secret_keys() -> Result<()> {
+        // $ gpg --with-colons -K neal@walfield.org
+        let raw = r#"sec:r:1024:17:3BF609C68BAFCDBD:991801296:::u:::sca:::+:::::0:
+fpr:::::::::11C294DF1D6C9698FEFE231D3BF609C68BAFCDBD:
+grp:::::::::05962113260A2C8EA6A109FF29BDFB0135046EDB:
+uid:r::::1279109191::1B1B7482B7F9ECDBAF1240DE9DCD998175520447::Neal H. Walfield <neal@walfield.org>::::::::::0:
+uid:r::::1005763171::EE96475411968ECFDFA4119223DAE7EC591E3DFF::Neal H Walfield <neal@gnu.org>::::::::::0:
+uid:r::::991801296::9AD6D7918766A121EF89B575DBBB55F50A219D5E::Neal H Walfield <neal@cs.uml.edu>::::::::::0:
+uid:r::::991801340::296A2626DFCCD551020324659B64A82F1C213358::Neal H Walfield <neal@walfield.org>::::::::::0:
+uid:r::::1279108858::EDDE4C7DDAD6767B658E6AA40460D9335D3FD6B1::Neal H. Walfield <neal@cs.jhu.edu>::::::::::0:
+uid:r::::1279109115::DA1FB102143127EFC07BF8FF3B33F14D71A9F4D6::Neal H. Walfield <neal@gnu.org>::::::::::0:
+uid:r::::1279109142::B0ABC32AD3E5DDA33FA25A55EEDDC9B9DFBFC51F::Neal H. Walfield <neal@cs.uml.edu>::::::::::0:
+uid:r::::991801401::A6F224DB69F3D02EADAB0D8DCE5C70C1E67F7A49::Neal H Walfield <neal@debian.org>::::::::::0:
+ssb:r:1024:16:3DAD5ECF8191AFAE:991801300::::::e:::+::::
+fpr:::::::::BAE80223CD24C35F8A56518E3DAD5ECF8191AFAE:
+grp:::::::::E10FC1BFDDBAA7E7E5D9ED5EF7426F8FEFDDEAC5:
+sec:u:3744:1:AACB3243630052D9:1428396777:1618145210::u:::scESCA:::#:::::0:
+fpr:::::::::8F17777118A33DDA9BA48E62AACB3243630052D9:
+grp:::::::::C45986381F54F967C2F6B104521C8634090F326A:
+uid:u::::1555073210::1B1B7482B7F9ECDBAF1240DE9DCD998175520447::Neal H. Walfield <neal@walfield.org>::::::::::0:
+uid:u::::1555073229::59A9F6DB32F4942939989604985D0D623843E722::Neal H. Walfield <neal@gnupg.org>::::::::::0:
+uid:r::::::5737B70A0641BECFB13CA64599114B0D0BE9A824::Neal H. Walfield <neal@g10code.com>::::::::::0:
+uid:u::::1555073229::29DE54352C7620F4C908DB6E860BD77EFA13B709::Neal H. Walfield <neal@pep.foundation>::::::::::0:
+uid:u::::1555073229::56E1B5E6FB1E1FA0F1EFC398C4638563C873DF5B::Neal H. Walfield <neal@pep-project.org>::::::::::0:
+uid:u::::1555073229::168858B59F321107B0057756E417110B167C1DF4::Neal H. Walfield <neal@sequoia-pgp.org>::::::::::0:
+ssb:u:2048:1:7223B56678E02528:1428399766:1618145244:::::s:::D2760001240102000006030166360000:::23:
+fpr:::::::::C03FA6411B03AE12576461187223B56678E02528:
+grp:::::::::BE2FE8C8793141322AC30E3EAFD1E4F9D8DACCC4:
+ssb:u:2048:1:C2B819056C652598:1428399800:1618145277:::::e:::D2760001240102000006030166360000:::23:
+fpr:::::::::50E6D924308DBF223CFB510AC2B819056C652598:
+grp:::::::::9873FD355DE470DDC151CD9919AC9785C3C2FDDE:
+ssb:u:2048:1:A3506AFB820ABD08:1428399828:1618145266:::::a:::D2760001240102000006030166360000:::23:
+fpr:::::::::2DC50AB55BE2F3B04C2D2CF8A3506AFB820ABD08:
+grp:::::::::9483454871CC1239D4C2A1416F2742D39A14DB14:
+"#;
+
+        let r = list_keys_raw_parse(raw.as_bytes())?;
+        let r = list_secret_keys_parse(r)?;
+
+        assert_eq!(
+            r,
+            vec![
+                ("11C294DF1D6C9698FEFE231D3BF609C68BAFCDBD".parse().unwrap(),
+                 "11C294DF1D6C9698FEFE231D3BF609C68BAFCDBD".parse().unwrap()),
+                ("11C294DF1D6C9698FEFE231D3BF609C68BAFCDBD".parse().unwrap(),
+                 "BAE80223CD24C35F8A56518E3DAD5ECF8191AFAE".parse().unwrap()),
+                ("8F17777118A33DDA9BA48E62AACB3243630052D9".parse().unwrap(),
+                 "8F17777118A33DDA9BA48E62AACB3243630052D9".parse().unwrap()),
+                ("8F17777118A33DDA9BA48E62AACB3243630052D9".parse().unwrap(),
+                 "C03FA6411B03AE12576461187223B56678E02528".parse().unwrap()),
+                ("8F17777118A33DDA9BA48E62AACB3243630052D9".parse().unwrap(),
+                 "50E6D924308DBF223CFB510AC2B819056C652598".parse().unwrap()),
+                ("8F17777118A33DDA9BA48E62AACB3243630052D9".parse().unwrap(),
+                 "2DC50AB55BE2F3B04C2D2CF8A3506AFB820ABD08".parse().unwrap()),
+            ]);
+
+        // $ gpg --with-colons -k neal@walfield.org
+        let raw = r#"tru::1:1617140210:1618145210:3:1:5
+pub:r:1024:17:3BF609C68BAFCDBD:991801296:::u:::sca::::::::0:
+fpr:::::::::11C294DF1D6C9698FEFE231D3BF609C68BAFCDBD:
+uid:r::::1279109191::1B1B7482B7F9ECDBAF1240DE9DCD998175520447::Neal H. Walfield <neal@walfield.org>::::::::::0:
+uid:r::::1005763171::EE96475411968ECFDFA4119223DAE7EC591E3DFF::Neal H Walfield <neal@gnu.org>::::::::::0:
+uid:r::::991801296::9AD6D7918766A121EF89B575DBBB55F50A219D5E::Neal H Walfield <neal@cs.uml.edu>::::::::::0:
+uid:r::::991801340::296A2626DFCCD551020324659B64A82F1C213358::Neal H Walfield <neal@walfield.org>::::::::::0:
+uid:r::::1279108858::EDDE4C7DDAD6767B658E6AA40460D9335D3FD6B1::Neal H. Walfield <neal@cs.jhu.edu>::::::::::0:
+uid:r::::1279109115::DA1FB102143127EFC07BF8FF3B33F14D71A9F4D6::Neal H. Walfield <neal@gnu.org>::::::::::0:
+uid:r::::1279109142::B0ABC32AD3E5DDA33FA25A55EEDDC9B9DFBFC51F::Neal H. Walfield <neal@cs.uml.edu>::::::::::0:
+uid:r::::991801401::A6F224DB69F3D02EADAB0D8DCE5C70C1E67F7A49::Neal H Walfield <neal@debian.org>::::::::::0:
+sub:r:1024:16:3DAD5ECF8191AFAE:991801300::::::e:::::::
+fpr:::::::::BAE80223CD24C35F8A56518E3DAD5ECF8191AFAE:
+pub:r:1024:17:87234295786B0BAD:976762276:::-:::sca::::::::0:
+fpr:::::::::520054A53C19CBB2E7F5639687234295786B0BAD:
+uid:r::::979410749::A6F224DB69F3D02EADAB0D8DCE5C70C1E67F7A49::Neal H Walfield <neal@debian.org>::::::::::0:
+uid:r::::976762276::9AD6D7918766A121EF89B575DBBB55F50A219D5E::Neal H Walfield <neal@cs.uml.edu>::::::::::0:
+uid:r::::976769586::296A2626DFCCD551020324659B64A82F1C213358::Neal H Walfield <neal@walfield.org>::::::::::0:
+sub:r:1024:16:BCD1834A0CB6D455:976762281::::::e:::::::
+fpr:::::::::9C6961D19B435818A3B26E08BCD1834A0CB6D455:
+pub:u:3744:1:AACB3243630052D9:1428396777:1618145210::u:::scESCA::::::::0:
+fpr:::::::::8F17777118A33DDA9BA48E62AACB3243630052D9:
+uid:u::::1555073210::1B1B7482B7F9ECDBAF1240DE9DCD998175520447::Neal H. Walfield <neal@walfield.org>::::::::::0:
+uid:u::::1555073229::59A9F6DB32F4942939989604985D0D623843E722::Neal H. Walfield <neal@gnupg.org>::::::::::0:
+uid:r::::::5737B70A0641BECFB13CA64599114B0D0BE9A824::Neal H. Walfield <neal@g10code.com>::::::::::0:
+uid:u::::1555073229::29DE54352C7620F4C908DB6E860BD77EFA13B709::Neal H. Walfield <neal@pep.foundation>::::::::::0:
+uid:u::::1555073229::56E1B5E6FB1E1FA0F1EFC398C4638563C873DF5B::Neal H. Walfield <neal@pep-project.org>::::::::::0:
+uid:u::::1555073229::168858B59F321107B0057756E417110B167C1DF4::Neal H. Walfield <neal@sequoia-pgp.org>::::::::::0:
+sub:u:2048:1:7223B56678E02528:1428399766:1618145244:::::s::::::23:
+fpr:::::::::C03FA6411B03AE12576461187223B56678E02528:
+sub:u:2048:1:C2B819056C652598:1428399800:1618145277:::::e::::::23:
+fpr:::::::::50E6D924308DBF223CFB510AC2B819056C652598:
+sub:u:2048:1:A3506AFB820ABD08:1428399828:1618145266:::::a::::::23:
+fpr:::::::::2DC50AB55BE2F3B04C2D2CF8A3506AFB820ABD08:
+"#;
+
+        let r = list_keys_raw_parse(raw.as_bytes())?;
+        let r = list_secret_keys_parse(r)?;
+
+        assert_eq!(r, vec![]);
+
+        Ok(())
+    }
 }
