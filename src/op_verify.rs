@@ -18,6 +18,7 @@ use openpgp::{
         Signature,
         Key,
         key::{
+            PublicParts,
             SecretParts,
             UnspecifiedParts,
             UnspecifiedRole,
@@ -34,6 +35,8 @@ use openpgp::{
 };
 use openpgp::crypto::{self, SessionKey};
 use openpgp::packet::{PKESK, SKESK};
+
+use sequoia_ipc as ipc;
 
 use crate::{
     P,
@@ -616,6 +619,24 @@ impl<'a> Helper<'a> {
         r
     }
 
+    /// Returns the decryption key with the given keyid.
+    fn get_public_key(&self, id: &KeyID)
+                          -> Option<Key<PublicParts, UnspecifiedRole>>
+    {
+        let ks = self.ctx.certs.read();
+
+        let r = ks.by_subkey_id(id)
+            .chain(ks.by_primary_id(id))
+            .filter_map(|cert| {
+                cert.with_policy(P, None).ok()
+                    .and_then(|vcert| vcert.keys()
+                              .key_handle(id).nth(0))
+                    .map(|vka| vka.key().clone())
+            })
+            .nth(0);
+        r
+    }
+
     /// Tries to decrypt the given PKESK packet with `keypair` and try
     /// to decrypt the packet parser using `decrypt`.
     fn try_decrypt<D>(&self, pkesk: &PKESK,
@@ -741,6 +762,20 @@ impl<'a> DecryptionHelper for Helper<'a> {
                 {
                     self.result.pkesk_used = Some(pkesk.clone());
                     return Ok(fp);
+                }
+            }
+        }
+
+        for pkesk in pkesks {
+            if let Some(key) = self.get_public_key(pkesk.recipient()) {
+                let mut pair = ipc::gnupg::KeyPair::new(
+                    &ipc::gnupg::Context::new()?, key.parts_as_public())?;
+                if pkesk.decrypt(&mut pair, algo)
+                    .map(|(algo, session_key)| decrypt(algo, &session_key))
+                    .unwrap_or(false)
+                {
+                    self.result.pkesk_used = Some(pkesk.clone());
+                    return Ok(Some(key.fingerprint()));
                 }
             }
         }
