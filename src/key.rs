@@ -63,7 +63,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct RnpKey {
-    ctx: *mut RnpContext,
+    pub(crate) ctx: *mut RnpContext,
     key: Key<UnspecifiedParts, UnspecifiedRole>,
     cert: Option<Arc<RwLock<Cert>>>,
 }

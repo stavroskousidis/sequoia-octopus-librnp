@@ -10,6 +10,7 @@ use openpgp::{
     packet::{
         Key,
         key::{
+            PublicParts,
             SecretParts,
             UnspecifiedRole,
         },
@@ -19,6 +20,8 @@ use openpgp::{
         HashAlgorithm,
     },
 };
+
+use sequoia_ipc as ipc;
 
 use crate::{
     RnpContext,
@@ -35,7 +38,8 @@ pub struct RnpOpSign<'a> {
     ctx: &'a mut RnpContext,
     input: &'a mut RnpInput,
     output: &'a mut RnpOutput<'a>,
-    signers: Vec<Key<SecretParts, UnspecifiedRole>>,
+    secret_keys: Vec<Key<SecretParts, UnspecifiedRole>>,
+    agent_keys: Vec<Key<PublicParts, UnspecifiedRole>>,
     hash: Option<HashAlgorithm>,
     armor: bool,
     csf: bool,
@@ -57,7 +61,8 @@ fn rnp_op_sign_detached_create<'a>(op: *mut *mut RnpOpSign<'a>,
         ctx: &mut *ctx,
         input: &mut *input,
         output: &mut *output,
-        signers: Vec::new(),
+        secret_keys: Vec::new(),
+        agent_keys: Vec::new(),
         hash: None,
         armor: false,
         csf: false,
@@ -81,7 +86,8 @@ fn rnp_op_sign_cleartext_create<'a>(op: *mut *mut RnpOpSign<'a>,
         ctx: &mut *ctx,
         input: &mut *input,
         output: &mut *output,
-        signers: Vec::new(),
+        secret_keys: Vec::new(),
+        agent_keys: Vec::new(),
         hash: None,
         armor: false,
         csf: true,
@@ -115,7 +121,10 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
         }
 
         // Maybe sign the message.
-        if let Some(key) = op.signers.pop() {
+
+        // This is a bit ugly, because lifetimes.
+        let agent_keys: Vec<&Key<_, _>> = op.agent_keys.iter().collect();
+        if let Some(key) = op.secret_keys.pop() {
             let s =
                 op.ctx.decrypt_key_for(None, key, RnpPasswordFor::Sign)?
                 .into_keypair()?;
@@ -123,12 +132,38 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
                 .hash_algo(op.hash.unwrap_or_default())?
                 .detached();
 
-            for key in op.signers.drain(..) {
+            for key in op.secret_keys.drain(..) {
                 let s =
                     op.ctx.decrypt_key_for(None, key, RnpPasswordFor::Sign)?
                     .into_keypair()?;
                 signer = signer.add_signer(s);
             }
+
+            if agent_keys.len() > 0 {
+                let agent = ipc::gnupg::Context::new()?;
+                for key in agent_keys {
+                    let s = ipc::gnupg::KeyPair::new(&agent, key)?;
+                    signer = signer.add_signer(s);
+                }
+            }
+
+            message = signer.build()?;
+        } else if let Some(key) = op.agent_keys.get(0) {
+            let agent = ipc::gnupg::Context::new()?;
+            let s = ipc::gnupg::KeyPair::new(&agent, &key)?;
+
+            let mut signer = Signer::new(message, s)
+                .hash_algo(op.hash.unwrap_or_default())?
+                .detached();
+
+            let keys: Vec<&Key<_, _>> = op.agent_keys.iter().collect();
+            if keys.len() > 1 {
+                for key in &keys[1..] {
+                    let s = ipc::gnupg::KeyPair::new(&agent, key)?;
+                    signer = signer.add_signer(s);
+                }
+            }
+
             message = signer.build()?;
         }
 
@@ -149,7 +184,10 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
         let mut message = Message::new(&mut op.output);
 
         // Maybe sign the message.
-        if let Some(key) = op.signers.pop() {
+
+        // This is a bit ugly, because lifetimes.
+        let agent_keys: Vec<&Key<_, _>> = op.agent_keys.iter().collect();
+        if let Some(key) = op.secret_keys.pop() {
             let s =
                 op.ctx.decrypt_key_for(None, key, RnpPasswordFor::Sign)?
                 .into_keypair()?;
@@ -157,12 +195,38 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
                 .hash_algo(op.hash.unwrap_or_default())?
                 .cleartext();
 
-            for key in op.signers.drain(..) {
+            for key in op.secret_keys.drain(..) {
                 let s =
                     op.ctx.decrypt_key_for(None, key, RnpPasswordFor::Sign)?
                     .into_keypair()?;
                 signer = signer.add_signer(s);
             }
+
+            if agent_keys.len() > 0 {
+                let agent = ipc::gnupg::Context::new()?;
+                for key in agent_keys {
+                    let s = ipc::gnupg::KeyPair::new(&agent, key)?;
+                    signer = signer.add_signer(s);
+                }
+            }
+
+            message = signer.build()?;
+        } else if let Some(key) = op.agent_keys.get(0) {
+            let agent = ipc::gnupg::Context::new()?;
+            let s = ipc::gnupg::KeyPair::new(&agent, &key)?;
+
+            let mut signer = Signer::new(message, s)
+                .hash_algo(op.hash.unwrap_or_default())?
+                .cleartext();
+
+            let keys: Vec<&Key<_, _>> = op.agent_keys.iter().collect();
+            if keys.len() > 1 {
+                for key in &keys[1..] {
+                    let s = ipc::gnupg::KeyPair::new(&agent, key)?;
+                    signer = signer.add_signer(s);
+                }
+            }
+
             message = signer.build()?;
         }
 
@@ -192,8 +256,13 @@ fn rnp_op_sign_add_signature(op: *mut RnpOpSign,
         return RNP_ERROR_NOT_IMPLEMENTED;
     }
 
-    if let Ok(k) = (*key).deref().clone().parts_into_secret() {
-        (*op).signers.push(k);
+    let key: &RnpKey = &*key;
+
+    if let Ok(k) = key.deref().clone().parts_into_secret() {
+        (*op).secret_keys.push(k);
+        RNP_SUCCESS
+    } else if (*key.ctx).certs.key_on_agent(&key.fingerprint()) {
+        (*op).agent_keys.push(key.deref().clone().parts_into_public());
         RNP_SUCCESS
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
