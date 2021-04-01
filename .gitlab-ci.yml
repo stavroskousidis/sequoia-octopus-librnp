@@ -105,10 +105,10 @@ windows-msvc-release:
     - cargo build --release --no-default-features --features crypto-cng
   after_script:
     - Get-childItem target\release
-    - Rename-Item target\release\sequoia_octopus_librnp.dll librnp.dll
+    - Rename-Item target\release\sequoia_octopus_librnp.dll rnp.dll
   artifacts:
     paths:
-      - C:\builds\sequoia-pgp\sequoia-octopus-librnp\target\release\librnp.dll
+      - C:\builds\sequoia-pgp\sequoia-octopus-librnp\target\release\rnp.dll
   variables:
     CFLAGS: "" # Silence some C warnings when compiling with MSVC
 
