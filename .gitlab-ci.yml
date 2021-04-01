@@ -116,6 +116,7 @@ thunderbird-tests:
   stage: tb_test
   needs: ["bullseye"]
   before_script:
+    - apt update
     - apt install -y -qq --no-install-recommends git rustc cargo clang libclang-dev make pkg-config nettle-dev libssl-dev capnproto libsqlite3-dev procps
     - if [ -d $CARGO_TARGET_DIR ]; then find $CARGO_TARGET_DIR | wc --lines; du -sh $CARGO_TARGET_DIR; fi
     - if [ -d $CARGO_HOME ]; then find $CARGO_HOME | wc --lines; du -sh $CARGO_HOME; fi
