@@ -154,7 +154,7 @@ impl Ctx {
         let nl = |&c: &u8| c as char == '\n';
         let colon = |&c: &u8| c as char == ':';
 
-        let mut gpgconf = Command::new("gpgconf");
+        let mut gpgconf = new_background_command("gpgconf");
         if let Some(homedir) = homedir {
             gpgconf.arg("--homedir").arg(homedir);
 
@@ -327,7 +327,7 @@ pub enum GnupgError {
 
 pub fn import(ctx: &Ctx, what: &[u8]) -> Result<()> {
     let doit = || -> Result<()> {
-        let mut gpg = Command::new("gpg")
+        let mut gpg = new_background_command("gpg")
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -348,7 +348,7 @@ pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&OutputHash>)
     -> Result<(String, OutputHash)>
 {
     let doit = || -> Result<(String, OutputHash)> {
-        let mut gpg = Command::new("gpg");
+        let mut gpg = new_background_command("gpg");
         gpg
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -381,6 +381,26 @@ pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&OutputHash>)
     Ok(doit()?)
 }
 
+fn new_background_command<S>(program: S) -> Command
+where
+    S: AsRef<std::ffi::OsStr>,
+{
+    let mut command = Command::new(program);
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+
+        // see https://docs.microsoft.com/en-us/windows/win32/procthread/process-creation-flags
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    command = command;
+
+    command
+}
+
 // If if_changed is not None, this hashes the output before parsing.
 // If the output's hash (as returned by a previous call to this
 // function) matches if_changed, this function returns an error.
@@ -393,7 +413,7 @@ fn list_keys_raw(ctx: &Ctx, secret: bool, filter: Option<String>,
     t!("if_chnaged: {:?}", if_changed);
 
     let doit = || -> Result<_> {
-        let mut gpg = Command::new("gpg");
+        let mut gpg = new_background_command("gpg");
         gpg
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
