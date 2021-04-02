@@ -385,18 +385,18 @@ fn new_background_command<S>(program: S) -> Command
 where
     S: AsRef<std::ffi::OsStr>,
 {
-    let mut command = Command::new(program);
+    let command = Command::new(program);
 
     #[cfg(windows)]
-    {
+    let command = {
         use std::os::windows::process::CommandExt;
 
         // see https://docs.microsoft.com/en-us/windows/win32/procthread/process-creation-flags
         const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let mut command = command;
         command.creation_flags(CREATE_NO_WINDOW);
-    }
-
-    command = command;
+        command
+    };
 
     command
 }
