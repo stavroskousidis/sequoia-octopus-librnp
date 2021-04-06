@@ -105,7 +105,6 @@ use userid::RnpUserID;
 #[allow(dead_code)]
 mod import;
 mod keyring;
-use keyring::parse_keyring;
 // The gpg module is copied from OpenPGP CA.  We don't want to modify
 // it.
 #[allow(dead_code)]
@@ -543,28 +542,6 @@ fn rnp_load_keys(ctx: *mut RnpContext,
     let input = &mut *input;
     let input_size = input.size();
 
-    let certs = parse_keyring(input);
-
-    let certs = match certs {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("sequoia-octopus: Error reading certs: {}", e);
-            return RNP_ERROR_GENERIC;
-        },
-    };
-
-    let mut acc = Vec::new();
-    for cert in certs {
-        match cert {
-            Ok(c) => acc.push(c),
-            Err(e) => {
-                // XXX: How to deal with partial loads?
-                eprintln!("sequoia-octopus: Error parsing cert: {}", e);
-                return RNP_ERROR_GENERIC;
-            },
-        }
-    }
-
     match flags {
         RNP_LOAD_SAVE_PUBLIC_KEYS => {
             if let Ok(input_size) = input_size {
@@ -587,14 +564,19 @@ fn rnp_load_keys(ctx: *mut RnpContext,
                 }
             }
 
-            for cert in acc {
-                (*ctx).insert_cert(cert);
+            // Also load GPG's public key database.
+            if let Err(err) = (*ctx).certs.load_gpg_keyring() {
+                warn!("Import gpg's keyring: {}", err);
             }
+
+            // And load the WoT data.
+            if let Err(err) = wot::WoT::monitor() {
+                t!("Instantiating WoT updater: {}", err);
+            }
+
+            (*ctx).certs.start_parcimonie();
         }
-        RNP_LOAD_SAVE_SECRET_KEYS =>
-            for key in acc {
-                (*ctx).insert_key(key);
-            },
+        RNP_LOAD_SAVE_SECRET_KEYS => (),
         f => {
             eprintln!("sequoia-octopus: unexpected flags to rnp_load_keys: \
                        {:x}", f);
@@ -602,19 +584,20 @@ fn rnp_load_keys(ctx: *mut RnpContext,
         },
     }
 
-    if flags == RNP_LOAD_SAVE_PUBLIC_KEYS {
-        // Also load GPG's public key database.
-        if let Err(err) = (*ctx).certs.load_gpg_keyring() {
-            warn!("Import gpg's keyring: {}", err);
-        }
-
-        // And load the WoT data.
-        if let Err(err) = wot::WoT::monitor() {
-            t!("Instantiating WoT updater: {}", err);
-        }
+    use std::io::Read;
+    let mut data = Vec::new();
+    if let Err(err) = input.read_to_end(&mut data)
+    {
+        warn!("sequoia-octopus: Error reading input: {}", err);
+        return RNP_ERROR_GENERIC;
     }
 
-    (*ctx).certs.start_parcimonie();
+    if let Err(err) = (*ctx).certs.load_keyring_in_background(
+        data, flags == RNP_LOAD_SAVE_SECRET_KEYS)
+    {
+        warn!("sequoia-octopus: Error reading certs: {}", err);
+        return RNP_ERROR_GENERIC;
+    }
 
     RNP_SUCCESS
 }

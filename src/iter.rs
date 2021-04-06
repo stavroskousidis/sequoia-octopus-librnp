@@ -38,6 +38,12 @@ fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
         t!("Queuing wot update: {}", err);
     }
 
+    // We load the keyrings in the background.  But, once TB tries to
+    // do a scan, we have to wait: it creates an index, which it never
+    // updates on its own, and we want it to include all known
+    // certificates.
+    let _ = ctx.certs.block_on_load();
+
     // There are a few good reasons why we eagerly evaluate the
     // iterator:
     //
