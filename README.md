@@ -205,6 +205,24 @@ planned.
 
   [closer integration with GnuPG's keyring]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/issues/15
 
+## gpg agent Integration
+
+The Octopus automatically monitors what keys are loaded into gpg's
+agent, and reports to Thunderbird that secret key material is
+available for them.  This means that it is trivial to mark a key
+managed by the agent as a personal key in Thunderbird [without
+modifying Thunderbird's configuration files].  Also, attempts to decrypt
+messages encrypted to a key managed by the agent are automatically
+forwarded to the agent for decryption.
+
+  [without modifying Thunderbird's configuration files]: https://wiki.mozilla.org/Thunderbird:OpenPGP:Smartcards#Allow_the_use_of_external_GnuPG
+
+[Unlike Thunderbird] the Octopus talks directly to the agent.  Thus,
+it is not necessary to install GPGME; you only need to have `gpg` in
+your `PATH`.
+
+  [Unlike Thunderbird]: https://wiki.mozilla.org/Thunderbird:OpenPGP:Smartcards
+
 ## GnuPG Web of Trust
 
 Currently, Thunderbird only supports a custom "acceptance" mechanism
