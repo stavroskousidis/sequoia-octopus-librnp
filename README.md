@@ -78,6 +78,22 @@ cargo build --no-default-features --features crypto-cng
 cp target/debug/sequoia_octopus_librnp.dll path/to/thunderbird/.../dist/bin/rnp.dll # XXX: I'm guessing here
 ```
 
+### Precompiled Binaries for Windows
+
+If you are feeling particularly daring, you can download a precompiled
+[`rnp.dll`] for Windows.  This binary is created by our CI.  It
+corresponds to the current version of the `main` branch.  Before code
+is checked into the `main` branch, it must first pass our unit tests
+on both Debian and Windows, and it must past the Thunderbird unit
+tests on Debian.
+
+  [`rnp.dll`]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/jobs/artifacts/main/raw/target/release/rnp.dll?job=windows-msvc-release
+
+To use the Octopus, replace the `rnp.dll` binary in your Thunderbird
+installation.  This is usually at
+`C:\Users\USERNAME\AppData\Local\Mozilla Thunderbird\rnp.dll` where
+`USERNAME` is your username.
+
 # Support
 
 The Octopus is actively developed by the [Sequoia PGP] team.  We are
