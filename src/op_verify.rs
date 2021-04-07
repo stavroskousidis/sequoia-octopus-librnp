@@ -489,7 +489,21 @@ struct Helper<'a> {
 impl<'a> VerificationHelper for Helper<'a> {
     fn get_certs(&mut self, ids: &[KeyHandle])
                  -> openpgp::Result<Vec<Cert>> {
-        Ok(ids.iter().filter_map(|id| self.ctx.cert(&id.into())).collect())
+        Ok(ids.iter().filter_map(|id| {
+            match self.ctx.cert(&id.into()) {
+                Some(cert) => Some(cert),
+                None => {
+                    // The lookup failed.  If we are in the process of
+                    // loading a keyring, wait until that is done, and
+                    // then retry the lookup.
+                    if let Ok(true) = self.ctx.certs.block_on_load() {
+                        self.ctx.cert(&id.into())
+                    } else {
+                        None
+                    }
+                }
+            }
+        }).collect())
     }
 
     fn check(&mut self, structure: MessageStructure) -> openpgp::Result<()> {
@@ -682,19 +696,31 @@ impl<'a> DecryptionHelper for Helper<'a> {
         self.result.pkesks = pkesks.iter().cloned().collect();
         self.result.skesks = skesks.iter().cloned().collect();
 
-        // First, we try those keys that we can use without prompting
-        // for a password.
-        for pkesk in pkesks {
-            let keyid = pkesk.recipient();
-            if let Some(key) = self.get_decryption_key(&keyid) {
-                if ! key.secret().is_encrypted() {
-                    if let Some((_algo, _sk, fp)) =
-                        key.clone().into_keypair().ok().and_then(|mut k| {
-                            self.try_decrypt(pkesk, algo, &mut k, &mut decrypt)
-                        })
-                    {
-                        self.result.pkesk_used = Some(pkesk.clone());
-                        return Ok(fp);
+        // Even if we happen to be loading a keyring in the
+        // background, try the lookup.
+        for &block in [false, true].iter() {
+            if block {
+                if let Ok(false) = self.ctx.certs.block_on_load() {
+                    // We didn't block.  It is extremely unlikely that
+                    // the keystore was updated.
+                    break;
+                }
+            }
+
+            // First, we try those keys that we can use without
+            // prompting for a password.
+            for pkesk in pkesks {
+                let keyid = pkesk.recipient();
+                if let Some(key) = self.get_decryption_key(&keyid) {
+                    if ! key.secret().is_encrypted() {
+                        if let Some((_algo, _sk, fp)) =
+                            key.clone().into_keypair().ok().and_then(|mut k| {
+                                self.try_decrypt(pkesk, algo, &mut k, &mut decrypt)
+                            })
+                        {
+                            self.result.pkesk_used = Some(pkesk.clone());
+                            return Ok(fp);
+                        }
                     }
                 }
             }

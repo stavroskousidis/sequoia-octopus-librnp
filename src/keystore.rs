@@ -338,14 +338,16 @@ impl Keystore {
     ///
     /// This includes the initial load of the gpg keyring, and any
     /// keyrings added via `Keystore::load_keyring_in_background`.
-    pub fn block_on_load(&mut self) -> openpgp::Result<()> {
+    ///
+    /// Returns whether we blocked.
+    pub fn block_on_load(&mut self) -> openpgp::Result<bool> {
         // We do *not* start the gpg thread if it is not already
         // running.  This must only be done by rnp_load_keys.
         rnp_function!(Keystore::block_on_load, super::TRACE);
 
         let in_init = self.in_init.0.lock().unwrap();
         if *in_init == 0 {
-            return Ok(());
+            return Ok(false);
         }
 
         // We're going to block TB.  We can't convince TB to show a
@@ -403,7 +405,7 @@ impl Keystore {
             }
         }
 
-        Ok(())
+        Ok(true)
     }
 }
 

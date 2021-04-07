@@ -620,6 +620,7 @@ fn rnp_save_keys(ctx: *mut RnpContext,
     let mut r = Ok(());
     match flags {
         RNP_LOAD_SAVE_PUBLIC_KEYS => {
+            let _ = (*ctx).certs.block_on_load();
             for cert in (*ctx).certs.read().to_save().filter(|cert| ! cert.is_tsk()) {
                 if let Err(err) = cert.serialize(output) {
                     r = Err(err);
@@ -628,6 +629,7 @@ fn rnp_save_keys(ctx: *mut RnpContext,
             }
         },
         RNP_LOAD_SAVE_SECRET_KEYS => {
+            let _ = (*ctx).certs.block_on_load();
             for cert in (*ctx).certs.read().to_save().filter(|cert| cert.is_tsk()) {
                 if let Err(err) = cert.as_tsk().serialize(output) {
                     r = Err(err);
