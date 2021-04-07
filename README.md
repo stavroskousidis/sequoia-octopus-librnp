@@ -26,11 +26,23 @@ recover.
 ## Known limitations
 
 - There may be dragons.
+
 - When Thunderbird auto-updates, it overwrites the Octopus' version of
   `librnp.so` with its own version.  This issue has been [reported to
   Thunderbird].
 
+- Thunderbird reads and caches the available certificates on startup.
+  Thus if you add a new certificate to gpg, even though the Octopus
+  will load it, Thunderbird [will not notice it] until either you
+  manually reimport the keys using Thunderbird's `OpenPGP Keyring
+  Manager`, `File`, `Reload Key Cache`, or you restart Thunderbird.
+
+  Note: Thunderbird only caches the list of keys and some meta-data,
+  so it will normally take advantage of any updates inserted into the
+  gpg keystore or fetched via Parcimonie.
+
   [reported to Thunderbird]: https://bugzilla.mozilla.org/show_bug.cgi?id=1698540
+  [will not notice it]: https://bugzilla.mozilla.org/show_bug.cgi?id=1703373
 
 # Support
 
