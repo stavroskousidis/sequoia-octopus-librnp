@@ -225,78 +225,46 @@ your `PATH`.
 
 ## GnuPG Web of Trust
 
-Currently, Thunderbird only supports a custom "acceptance" mechanism
-for authenticating OpenPGP certificate.  There is currently no way to
-make use of OpenPGP's standard authentication mechanisms; Thunderbird
-ignores key signatures, and it is not possible to add [certification
-authorities].
+The Octopus automatically monitors what keys are loaded into gpg's
+agent, and reports to Thunderbird that secret key material is
+available for them.  This means that it is trivial to mark a key
+managed by the agent as a personal key in Thunderbird [without
+modifying Thunderbird's configuration files].  Also, attempts to decrypt
+messages encrypted to a key managed by the agent are automatically
+forwarded to the agent for decryption.
+
+  [without modifying Thunderbird's configuration files]: https://wiki.mozilla.org/Thunderbird:OpenPGP:Smartcards#Allow_the_use_of_external_GnuPG
+
+[Unlike Thunderbird] the Octopus talks directly to the agent.  Thus,
+it is not necessary to install GPGME; you only need to have `gpg` in
+your `PATH`.
+
+  [Unlike Thunderbird]: https://wiki.mozilla.org/Thunderbird:OpenPGP:Smartcards
+
+## GnuPG's Web of Trust Data
+
+Thunderbird only supports a custom "acceptance" mechanism for
+authenticating OpenPGP certificate.  Thunderbird ignores key
+signatures, and it is not possible to add [certification authorities].
 
   [certification authorities]: https://openpgp-ca.org
 
-When Thunderbird starts up, the Octopus loads the set of authenticated
-certificates, and merges them into Thunderbird's key acceptance
-database.  This means certificates that are considered authenticated
-by GnuPG are also considered authenticated by Thunderbird.
+When Thunderbird starts up, the Octopus reads gpg's trust database,
+and merges it into Thunderbird's acceptance database.  This means
+certificates that are considered authenticated by GnuPG are also
+considered authenticated by Thunderbird.
 
-The integration is done carefully.  If a user has manually accepted a
+This integration is done carefully.  If a user has manually accepted a
 certificate in Thunderbird, that setting is not overridden.  This
 happens not only during the initial import, but also later: when the
 user accepts a certificate in Thunderbird, the Octopus detects this
-and will no longer update that certificate's acceptance using GnuPG's
-trust database.
+and will no longer update that certificate's acceptance based on
+GnuPG's trust database.
 
-To take advantage of this feature, you need to use `gpg`.  For
-instance to add the FSFE's OpenPGP CA key, you could do:
-
-```
-$ gpg --auto-key-locate nodefault,clear,wkd --locate-keys openpgp-ca@fsfe.org
-$ gpg --edit-key 'A30A C9F8 FA7A 883C 0060  3070 699D 9E7F 63B4 0E79'
-...
-gpg> tlsign
-
-pub  rsa4096/0x699D9E7F63B40E79
-     created: 2021-01-21  expires: never       usage: C
-     trust: unknown       validity: unknown
- Primary key fingerprint: A30A C9F8 FA7A 883C 0060  3070 699D 9E7F 63B4 0E79
-
-     FSFE OpenPGP CA <openpgp-ca@fsfe.org>
-
-Please decide how far you trust this user to correctly verify other users' keys
-(by looking at passports, checking fingerprints from different sources, etc.)
-
-  1 = I trust marginally
-  2 = I trust fully
-
-Your selection? 1
-
-Please enter the depth of this trust signature.
-A depth greater than 1 allows the key you are signing to make
-trust signatures on your behalf.
-
-Your selection? 1
-
-Please enter a domain to restrict this signature, or enter for none.
-
-Your selection? fsfe.org
-
-Are you sure that you want to sign this key with your
-key "Neal H. Walfield (certification key)" (0xCDFDE3090F11A850)
-
-The signature will be marked as non-exportable.
-
-Really sign? (y/N) y
-
-gpg> save
-```
-
-When you restart, many `@fsfe.org` certificates will now be considered
-marginally trusted (i.e., partially authenticated).
-
-The Octopus does [not yet monitor GnuPG] for changes to its trust
-database.  So, it is necessary to restart Thunderbird to notice any
-changes.
-
-  [not yet monitor GnuPG]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/issues/11
+The Octopus monitors GnuPG for changes to its trust database.  So,
+unlike when a new certificate is added to GnuPG's keystore, it is not
+necessary to restart Thunderbird to notice changes to the trust
+database.
 
 ## Parcimonie
 
