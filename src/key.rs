@@ -124,7 +124,7 @@ impl RnpKey {
     }
 
     fn find_cert(&mut self) {
-        rnp_function!(RnpKey::cert, super::TRACE);
+        rnp_function!(RnpKey::find_cert, super::TRACE);
         if self.cert.is_none() {
             t!("Arg, need to find cert in the key store!");
 
