@@ -78,6 +78,43 @@ cargo build --no-default-features --features crypto-cng
 cp target/debug/sequoia_octopus_librnp.dll path/to/thunderbird/.../dist/bin/rnp.dll # XXX: I'm guessing here
 ```
 
+### Using Debian's Thunderbird
+
+The following recipe was tested with version `1:78.9.0-1~deb10u1` of
+Thunderbird (from Debian Bullseye).  This uses `dpkg`'s diversion
+mechanism to move `librnp.so` out of the way.
+
+```sh
+$ sudo apt install thunderbird
+...
+thunderbird is already the newest version (1:78.9.0-1~deb10u1).
+...
+$ ls -l /usr/lib/thunderbird/librnp.so
+-rw-r--r-- 1 root root 723248 Mar 24 19:57 /usr/lib/thunderbird/librnp.so
+$ sudo dpkg-divert --divert /usr/lib/thunderbird/librnp-orig.so --rename /usr/lib/thunderbird/librnp.so
+Adding 'local diversion of /usr/lib/thunderbird/librnp.so to /usr/lib/thunderbird/librnp-orig.so'
+$ sudo cp .../target/release/libsequoia_octopus_librnp.so /usr/lib/thunderbird/
+$ sudo ln -sf libsequoia_octopus_librnp.so /usr/lib/thunderbird/librnp.so
+$ ls -l /usr/lib/thunderbird/*rnp*
+-rw-r--r-- 1 root root    723248 Mar 24 19:57 /usr/lib/thunderbird/librnp-orig.so
+lrwxrwxrwx 1 root root        28 Apr  7 13:59 /usr/lib/thunderbird/librnp.so -> libsequoia_octopus_librnp.so
+-rwxr-xr-x 1 root root 129988280 Apr  7 14:01 /usr/lib/thunderbird/libsequoia_octopus_librnp.so
+```
+
+If you are using the debug version, then change 'release' to 'debug'.
+
+To uninstall the Octopus, you just need to remove the symlink and the
+diversion.
+
+```
+$ sudo rm /usr/lib/thunderbird/librnp.so
+$ sudo dpkg-divert --rename --remove /usr/lib/thunderbird/librnp.so
+Removing 'local diversion of /usr/lib/thunderbird/librnp.so to /usr/lib/thunderbird/librnp-orig.so'
+$ ls -l /usr/lib/thunderbird/*rnp*
+-rw-r--r-- 1 root root    723248 Mar 24 19:57 /usr/lib/thunderbird/librnp.so
+-rwxr-xr-x 1 root root 129988280 Apr  7 14:01 /usr/lib/thunderbird/libsequoia_octopus_librnp.so
+```
+
 ### Precompiled Binaries for Windows
 
 If you are feeling particularly daring, you can download a precompiled
