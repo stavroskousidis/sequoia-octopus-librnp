@@ -1,4 +1,4 @@
-# A Sequoia-based OpenPGP backend for Thunderbird
+# A Sequoia-based OpenPGP Backend for Thunderbird
 
 This is a drop-in replacement for the [RNP] library supported and
 shipped by Thunderbird.
@@ -20,8 +20,8 @@ RNP API as used by Thunderbird using Sequoia.
 
 This is a young project.  Use it with caution with your production
 Thunderbird profile and production keys, and make sure you have a
-backup (of at least `pubring.gpg` and `secring.gpg`) and know how to
-recover.
+backup (of at least `pubring.gpg`, `secring.gpg`, and
+`openpgp.sqlite`) and know how to recover.
 
 ## Known limitations
 
@@ -71,30 +71,35 @@ Debian.
 
   [unit tests from Thunderbird]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/merge_requests/18
 
-## Building & installing
+## Building & Installing
 
 First of all, you will need to [install Sequoia's build dependencies].
 Then, building the Octopus is only a matter of invoking `cargo build`,
 optionally with the `--release` flag to build an optimized build
 suitable for end users.  Non-release builds print debugging and
 tracing information to stderr.  You may optionally select one of
-Sequoia's cryptographic backends, for example to use [Windows CNG].
+Sequoia's cryptographic backends, for example, on Windows you'll
+probably want to use the [Windows CNG] backend instead of the [Nettle]
+backend.
 
-The result is a shared library (i.e. a `*.so` on Linux and *BSD, a
-`*.dll` on Windows, etc.).  To use it, make your Thunderbird pick it
-up instead of the `librnp.so`, e.g. by replacing it.  The details are
-dependent on your deployment, and this is something distributors need
-to figure out.  This document will demonstrate how to replace RNP in a
-local build of Thunderbird.
+The result of the build is a shared library (i.e. a `*.so` on Linux
+and *BSD, a `*.dll` on Windows, etc.).  To use it, make your
+Thunderbird pick it up instead of the `librnp.so` that it ships,
+e.g. by replacing it.  The details are dependent on your deployment,
+and this is something distributors need to figure out.  This document
+will demonstrate how to replace RNP in a local build of Thunderbird.
 
 [install Sequoia's build dependencies]: https://gitlab.com/sequoia-pgp/sequoia#requirements
 [Windows CNG]: https://docs.microsoft.com/en-us/windows/win32/seccng/cng-portal
+[Nettle]: http://www.lysator.liu.se/~nisse/nettle/
 
 Note: the Octopus is fully backwards compatible with RNP.  In
 particular, it uses the same format for storing keys and stores them
 in the same way.  Thus, if you decide you don't like the Octopus, you
 can simply restore the original `librnp`, restart Thunderbird, and
-Thunderbird will work as before with all of your data.
+Thunderbird will work as before with all of your data.  Of course, you
+should still make a backup (of at least `pubring.gpg`, `secring.gpg`,
+and `openpgp.sqlite`).
 
 ### Debug build with the default cryptographic backend
 
@@ -177,12 +182,12 @@ Thunderbird.
 
 ## GnuPG Keyring Integration
 
-When Thunderbird starts, it asks `librnp` to parse its keyring.  At
-this point, the Octopus also runs `gpg --export` and includes that in
-the results that it returns to Thunderbird.  This makes the user's
-GnuPG keyring available to Thunderbird.  This can be disabled by
-setting the `GNUPGHOME` environment variable to `/dev/null` as
-follows:
+When Thunderbird starts, it asks RNP to parse its keyring.  At this
+point, the Octopus also runs `gpg --export` and includes that in the
+results.  This makes the user's GnuPG keyring available to
+Thunderbird.  (From that point on the Octopus also monitors GnuPG's
+keystore for updates.)  This can be disabled by setting the
+`GNUPGHOME` environment variable to `/dev/null` as follows:
 
 ```sh
 GNUPGHOME=/dev/null thunderbird
@@ -190,12 +195,21 @@ GNUPGHOME=/dev/null thunderbird
 
 The certificates imported from GnuPG can be used as normal.  It is
 possible to examine them in Thunderbird's OpenPGP Key Manager, set
-their "acceptance", etc.  The only known limitation is that if a
-certificate managed by GnuPG is removed using the Thunderbird
-certificate manager, it will reappear the next time Thunderbird loads
-the keyring (this will typically only happen when the user restarts
-Thunderbird) unless the certificate is also manually deleted from the
-GnuPG keyring.
+their "acceptance", etc.
+
+There are two known limitations.  First, the first time an OpenPGP
+operation is performed, Thunderbird scans the keystore and creates an
+index of the available keys.  Thunderbird [does not currently update
+this index] on its own.  Thus, keys that are added to gpg's keystore
+will not be visible to Thunderbird until either the cache is manually
+flushed (`OpenPGP Keyring Manager`, `File`, `Reload Key Cache`), or
+you restart Thunderbird.  Second, if you remove a certificate managed
+by GnuPG using the Thunderbird certificate manager, it will be removed
+from the in-memory keystore, but it is currently not actually removed
+from your gpg keystore.  As such, it will reappear the next time
+Thunderbird loads the keyring.
+
+  [does not currently update this index]: https://bugzilla.mozilla.org/show_bug.cgi?id=1703373
 
 The Octopus carefully keeps track of what certificates were loaded
 from GnuPG and only writes them out to Thunderbird's keyring if they
@@ -282,13 +296,20 @@ removed when Enigmail was integrated into Thunderbird.
 The Parcimonie feature in the Octopus currently checks for updates on
 [keys.openpgp.org] and in the appropriate Web Key Directories ([WKDs])
 using the aforementioned privacy preserving mechanisms.  It checks for
-updates for all non-revoked, valid certificates about once a week on
+updates for all non-revoked, valid certificates about once a week, on
 average.  It also supports merging updates from [User ID-less
 certificates].
 
   [keys.openpgp.org]: https://keys.openpgp.org
   [WKDs]: https://wiki.gnupg.org/WKD
   [User ID-less certificates]: https://bugzilla.mozilla.org/show_bug.cgi?id=1634524
+
+Before importing a certificate, we first check if it appears to be
+[flooded].  If so, we strip third-party certifications from keys that
+we don't have a certificate for as those certifications are
+effectively useless.
+
+  [flooded]: https://dkg.fifthhorseman.net/blog/openpgp-certificate-flooding.html
 
 This feature is controlled by the `net` feature, which is enabled by
 default.  To disable it (and elide the dependencies on `sequoia-net`
@@ -307,7 +328,10 @@ has patched MD5 out of the version of RNP that they distribute,
 however, Thunderbird continues to support unlimited use of SHA-1,
 which is known to be [vulnerable to collision attacks].  Sequoia, and
 by extension, the Octopus, rejects certificates and messages that use
-vulnerable cryptographic primitives.
+weak cryptographic primitives.  Because RNP does not have a mechanism
+to indicate that a certificate or component should not be used, the
+Octopus reports these keys as having expired one second after their
+creation time.
 
   [rejects cryptographic algorithms that are known to be weak by default]: https://docs.sequoia-pgp.org/sequoia_openpgp/policy/struct.StandardPolicy.html
   [RNP still accepts MD5]: https://bugzilla.mozilla.org/show_bug.cgi?id=1641720
@@ -316,11 +340,11 @@ vulnerable cryptographic primitives.
 ## Protection from Surreptitious Forwarding
 
 When Thunderbird creates an email it uses the RFC 1847 Encapsulation
-method [construct], which has been [known to not work] for over 20
+method [construct], which has been [known to be broken] for over 20
 years.  The issue is that if Alice signs a message and sends it to
 Bob, Bob can use the signature in a different context.
 
-This problem can be fixed by using OpenPGP's intended recipient
+This security issue can be fixed by using OpenPGP's intended recipient
 feature.  Then, if Bob forwards the signed message (e.g., "I owe you
 100 Euros") to Carol, Carol's MUA will mark the signature as invalid
 as she is not the intended recipient of the message.
@@ -329,101 +353,117 @@ In the Octopus, we detect the use of the encapsulation method and
 automatically and transparently replace it with the safer [combined
 method] whenever possible.  Specifically, when we encrypt a message,
 we check whether we just generated the signed part.  If so, we fix it.
+Because this generates another signature, if you are using a key
+managed by gpg's agent, you may be prompted to authorize a second
+signature.
 
   [construct]: https://bugzilla.mozilla.org/show_bug.cgi?id=1688863
-  [known to not work]: https://theworld.com/~dtd/sign_encrypt/sign_encrypt7.html
+  [known to be broken]: https://theworld.com/~dtd/sign_encrypt/sign_encrypt7.html
   [combined method]: https://tools.ietf.org/html/rfc3156#section-4
 
 # Non-Functional Advantages
 
 Sequoia has a number of non-functional advantages relative to RNP.
-These include:
 
-  - Sequoia automatically [encrypts unencrypted secret key material in
-    memory] when it is not in use.  This makes secret key exfiltration
-    ala [Heartbleed] much harder, and protects against [Sprectre],
-    Rowhammer, etc.-style attacks.  [OpenSSH] uses the same type of
-    protection.
+## Keys Encrypted at Rest
 
-    RNP has the concept of locking and unlocking keys, but this is
-    explicit, and Thunderbird does not always relock keys after use.
+Sequoia automatically [encrypts unencrypted secret key material in
+memory] when it is not in use.  This makes secret key exfiltration ala
+[Heartbleed] much harder, and protects against [Sprectre], Rowhammer,
+etc.-style attacks.  [OpenSSH] uses the same type of protection.
 
-      [encrypts unencrypted secret key material in memory]: https://docs.sequoia-pgp.org/sequoia_openpgp/crypto/mem/struct.Encrypted.html
-      [Heartbleed]: https://en.wikipedia.org/wiki/Heartbleed
-      [Sprectre]: https://en.wikipedia.org/wiki/Spectre_(security_vulnerability)
-      [OpenSSH]: https://www.undeadly.org/cgi?action=article;sid=20190621081455
+RNP has the concept of locking and unlocking keys, but this is
+explicit, and Thunderbird does not always relock keys after use.
 
-  - [SHA-1 is broken].  Unfortunately, [SHA-1 is still widely used].
-    To deal with this Sequoia implements a number of countermeasures:
+  [encrypts unencrypted secret key material in memory]: https://docs.sequoia-pgp.org/sequoia_openpgp/crypto/mem/struct.Encrypted.html
+  [Heartbleed]: https://en.wikipedia.org/wiki/Heartbleed
+  [Sprectre]: https://en.wikipedia.org/wiki/Spectre_(security_vulnerability)
+  [OpenSSH]: https://www.undeadly.org/cgi?action=article;sid=20190621081455
 
-      - Sequoia uses [SHA1-CD], a variant of SHA-1 that detects and
-        mitigates collision attacks.  This protection is also used
-        by, for instance, [GitHub].
+## SHA-1 Mitigations
 
-      - Sequoia only accepts SHA-1 in [safer contexts].  For instance,
-        SHA-1 over data is rejected by default.  But, SHA-1
-        self-signatures that are not suspicious are allowed.
+[SHA-1 is broken].  Unfortunately, [SHA-1 is still widely used].  To
+deal with this Sequoia implements a number of countermeasures:
 
-      - Sequoia has announced a timeline to completely [deprecate the
-        use of SHA-1]: in 2023 SHA-1 will no longer be accepted for
-        digital signatures.
+  - Sequoia uses [SHA1-CD], a variant of SHA-1 that detects and
+    mitigates collision attacks.  This protection is also used by
+    [GitHub], among others.
 
-      [SHA-1 is broken]: https://sha-mbles.github.io/
-      [SHA-1 is still widely used]: https://gitlab.com/sequoia-pgp/sequoia/-/issues/595
-      [SHA1-CD]: https://github.com/cr-marcstevens/sha1collisiondetection
-      [GitHub]: https://github.blog/2017-03-20-sha-1-collision-detection-on-github-com/
-      [safer contexts]: https://docs.sequoia-pgp.org/sequoia_openpgp/policy/enum.HashAlgoSecurity.html
-      [deprecate the use of SHA-1]: https://docs.sequoia-pgp.org/sequoia_openpgp/policy/struct.StandardPolicy.html#method.reject_hash_property_at
+  - Sequoia only accepts SHA-1 in [safer contexts].  For instance,
+    SHA-1 over messages, and its use in third-party certifications are
+    rejected by default.  But, SHA-1 self-signatures that are not
+    suspicious are allowed.
 
-    RNP accepts SHA-1 everywhere without any additional protections.
-    It even [accepts] [MD5].  (Thunderbird carries a patch to disable
-    MD5 support.)
+  - Sequoia has announced a timeline to completely [deprecate the
+    use of SHA-1]: in 2023 SHA-1 will no longer be accepted for
+    digital signatures.
 
-      [accepts]: https://tests.sequoia-pgp.org/#Detached_Sign-Verify_roundtrip_with_key__Bob___MD5
-      [MD5]: https://github.com/rnpgp/rnp/issues/1281
+  [SHA-1 is broken]: https://sha-mbles.github.io/
+  [SHA-1 is still widely used]: https://gitlab.com/sequoia-pgp/sequoia/-/issues/595
+  [SHA1-CD]: https://github.com/cr-marcstevens/sha1collisiondetection
+  [GitHub]: https://github.blog/2017-03-20-sha-1-collision-detection-on-github-com/
+  [safer contexts]: https://docs.sequoia-pgp.org/sequoia_openpgp/policy/enum.HashAlgoSecurity.html
+  [deprecate the use of SHA-1]: https://docs.sequoia-pgp.org/sequoia_openpgp/policy/struct.StandardPolicy.html#method.reject_hash_property_at
 
-  - Sequoia includes a salt in signatures and self-signatures to
-    defend against collision attacks (among others).  [OpenSSH], for
-    instance, does the same thing.  Should the collision resistance of
-    another hash be broken, this will frustrate attackers trying to
-    perform a SHA-1 is a Shambles-style attack.
+RNP accepts SHA-1 everywhere without any additional protections.  By
+default, it even [accepts] [MD5].  Happily, Thunderbird carries a
+patch to disable MD5 support.
 
-      [OpenSSH]: https://github.com/openssh/openssh-portable/blob/master/PROTOCOL.certkeys#L151
+  [accepts]: https://tests.sequoia-pgp.org/#Detached_Sign-Verify_roundtrip_with_key__Bob___MD5
+  [MD5]: https://github.com/rnpgp/rnp/issues/1281
 
-  - RNP maintains separate public and secret keyrings.  This can lead
-    to a so-called split-brain problem where a certificate is present
-    in both keyrings, and confusingly one version is returned
-    sometimes and the other version other times.  This is also the
-    model that GnuPG 1.x used, and is one of the reasons that GnuPG
-    migrated to a single OpenPGP keystore in GnuPG 2.0 with only the
-    secret key material held by the agent.
+## Collision Protection
 
-    To avoid this problem, the Octopus merges the two databases.  To
-    remain backwards compatible with RNP, when the Octopus writes out
-    the certificates, certificates with secret key material are
-    written to `secring.gpg` and those without are written to
-    `pubring.gpg`.
+Sequoia includes a salt in signatures and self-signatures to defend
+against collision attacks, among others.  [OpenSSH does the same
+thing].  Should the collision resistance of another hash be broken,
+this will frustrate attackers trying to perform a Shambles-style
+attack.
 
-  - Thanks to Rust's [safer concurrency paradigms], it is less
-    dangerous and less complicated for the Octopus to use threads than
-    libraries written in other languages.  The Octopus uses this, for
-    instance, to [parse keyrings faster].
+  [OpenSSH does the same thing]: https://github.com/openssh/openssh-portable/blob/master/PROTOCOL.certkeys#L151
 
-      [safer concurrency paradigms]: https://doc.rust-lang.org/book/ch16-00-concurrency.html
-      [parse keyrings faster]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/blob/595d1e20f71f3a62f8772ab457f11974bd9be2e9/src/keyring.rs#L173
+## No Split Brain Problem
 
-  - Sequoia implements [nearly all] [of the OpenPGP RFC].  The missing
-    bits are either obsolete or insecure.
+RNP maintains separate public and secret keyrings.  This can lead to a
+so-called split-brain problem where a certificate is present in both
+keyrings, and confusingly one version is returned sometimes and the
+other version other times.  This is also the model that GnuPG 1.x
+used, and is one of the reasons that GnuPG migrated to a single
+OpenPGP keystore in GnuPG 2.0 with only the secret key material held
+by the agent.
+
+To avoid this problem, the Octopus merges the two databases.  To
+remain backwards compatible with RNP, when the Octopus writes out the
+certificates, certificates with secret key material are written to
+`secring.gpg` and those without are written to `pubring.gpg`.
+
+## Multi-threading
+
+Thanks to Rust's [safer concurrency paradigms], it is less dangerous
+and less complicated for the Octopus to use threads than libraries
+written in other languages.  The Octopus uses this, for instance, to
+[parse keyrings faster].  And to perform updates in the background.
+
+  [safer concurrency paradigms]: https://doc.rust-lang.org/book/ch16-00-concurrency.html
+  [parse keyrings faster]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/blob/595d1e20f71f3a62f8772ab457f11974bd9be2e9/src/keyring.rs#L173
+
+## OpenPGP Conformance
+
+Sequoia implements [nearly all] [of the OpenPGP RFC].  The missing
+bits are either obsolete or insecure.
 
       [nearly all]: https://sequoia-pgp.org/status/
       [of the OpenPGP RFC]: https://tests.sequoia-pgp.org/
 
-    RNP doesn't implement a number of important parts.  For instance,
-    it does not reject [unknown critical subpackets] and notations.
-    This is a security problem.  RNP doesn't handle [unknown packet
-    versions].  This is a future compatibility problem.  More examples
-    can be found in the [OpenPGP interoperability test suite].
+RNP doesn't implement a number of important parts.  For instance, it
+does not reject [unknown critical subpackets] and notations.  This is
+a security problem.  RNP doesn't handle [unknown packet versions].
+This is a future compatibility problem.  RNP also doesn't handle
+"esoteric" keys, like [shared keys] where only the encryption subkey's
+secret key material is shared.  This is a compatibility problem.  More
+examples can be found in the [OpenPGP interoperability test suite].
 
     [unknown packet versions]: https://github.com/rnpgp/rnp/issues/1257
     [unknown critical subpackets]: https://github.com/rnpgp/rnp/issues/1234
+    [shared keys]: https://bugzilla.mozilla.org/show_bug.cgi?id=1703368
     [OpenPGP interoperability test suite]: https://tests.sequoia-pgp.org/
