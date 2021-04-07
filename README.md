@@ -32,6 +32,33 @@ recover.
 
   [reported to Thunderbird]: https://bugzilla.mozilla.org/show_bug.cgi?id=1698540
 
+# Support
+
+The Octopus is actively developed by the [Sequoia PGP] team.  We are
+primarily financed by the [pep foundation].  Our mandate is
+specifically to improve the OpenPGP ecosystem, and more generally to
+improve internet freedom tools.
+
+  [Sequoia PGP]: https://sequoia-pgp.org/
+  [pep foundation]: https://pep.foundation/
+
+Currently, the Octopus is developed outside of Thunderbird.  There are
+two main reasons for this.  First, the Thunderbird developers do not
+want to invest resources in supporting a new OpenPGP backend after
+having recently invested in RNP.  Second, Sequoia and the Octopus are
+licensed under the GPLv2+.  Although the GPLv2+ is [compatible with
+MPL 2.0], adding GPLv2+ code to Thunderbird is not currently aligned
+with their licensing strategy.
+
+  [compatible with MPL 2.0]: https://www.gnu.org/licenses/license-list.html#MPL-2.0
+
+In terms of testing, the Octopus includes a number of unit tests.  Our
+CI runs these checks against all commits on Debian and Windows.  It
+also runs the OpenPGP relevant [unit tests from Thunderbird] on
+Debian.
+
+  [unit tests from Thunderbird]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/merge_requests/18
+
 ## Building & installing
 
 First of all, you will need to [install Sequoia's build dependencies].
@@ -130,32 +157,6 @@ To use the Octopus, replace the `rnp.dll` binary in your Thunderbird
 installation.  This is usually at
 `C:\Users\USERNAME\AppData\Local\Mozilla Thunderbird\rnp.dll` where
 `USERNAME` is your username.
-
-# Support
-
-The Octopus is actively developed by the [Sequoia PGP] team.  We are
-primarily financed by the [pep foundation].  Our mandate is
-specifically to improve the OpenPGP ecosystem, and more generally to
-improve internet freedom tools.
-
-  [Sequoia PGP]: https://sequoia-pgp.org/
-  [pep foundation]: https://pep.foundation/
-
-Currently, the Octopus is developed outside of Thunderbird.  There are
-two main reasons for this.  First, the Thunderbird developers do not
-want to invest resources in supporting a new OpenPGP backend after
-having recently invested in RNP.  Second, Sequoia and the Octopus are
-licensed under the GPLv2+.  Although the GPLv2+ is [compatible with
-MPL 2.0], adding GPLv2+ code to Thunderbird is not currently aligned
-with their licensing strategy.
-
-  [compatible with MPL 2.0]: https://www.gnu.org/licenses/license-list.html#MPL-2.0
-
-In terms of testing, the Octopus includes a number of unit tests.  Our
-CI runs these checks against all commits.  It also runs the OpenPGP
-relevant [unit tests from Thunderbird].
-
-  [unit tests from Thunderbird]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/merge_requests/18
 
 # Additional Features
 
