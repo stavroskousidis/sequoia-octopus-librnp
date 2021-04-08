@@ -150,7 +150,7 @@ If you are using the debug version, then change 'release' to 'debug'.
 To uninstall the Octopus, you just need to remove the symlink and the
 diversion.
 
-```
+```sh
 $ sudo rm /usr/lib/thunderbird/librnp.so
 $ sudo dpkg-divert --rename --remove /usr/lib/thunderbird/librnp.so
 Removing 'local diversion of /usr/lib/thunderbird/librnp.so to /usr/lib/thunderbird/librnp-orig.so'
@@ -220,24 +220,6 @@ planned.
   [closer integration with GnuPG's keyring]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/issues/15
 
 ## gpg agent Integration
-
-The Octopus automatically monitors what keys are loaded into gpg's
-agent, and reports to Thunderbird that secret key material is
-available for them.  This means that it is trivial to mark a key
-managed by the agent as a personal key in Thunderbird [without
-modifying Thunderbird's configuration files].  Also, attempts to decrypt
-messages encrypted to a key managed by the agent are automatically
-forwarded to the agent for decryption.
-
-  [without modifying Thunderbird's configuration files]: https://wiki.mozilla.org/Thunderbird:OpenPGP:Smartcards#Allow_the_use_of_external_GnuPG
-
-[Unlike Thunderbird] the Octopus talks directly to the agent.  Thus,
-it is not necessary to install GPGME; you only need to have `gpg` in
-your `PATH`.
-
-  [Unlike Thunderbird]: https://wiki.mozilla.org/Thunderbird:OpenPGP:Smartcards
-
-## GnuPG Web of Trust
 
 The Octopus automatically monitors what keys are loaded into gpg's
 agent, and reports to Thunderbird that secret key material is
@@ -369,7 +351,7 @@ Sequoia has a number of non-functional advantages relative to RNP.
 
 Sequoia automatically [encrypts unencrypted secret key material in
 memory] when it is not in use.  This makes secret key exfiltration ala
-[Heartbleed] much harder, and protects against [Sprectre], Rowhammer,
+[Heartbleed] much harder, and protects against [Spectre], Rowhammer,
 etc.-style attacks.  [OpenSSH] uses the same type of protection.
 
 RNP has the concept of locking and unlocking keys, but this is
@@ -377,7 +359,7 @@ explicit, and Thunderbird does not always relock keys after use.
 
   [encrypts unencrypted secret key material in memory]: https://docs.sequoia-pgp.org/sequoia_openpgp/crypto/mem/struct.Encrypted.html
   [Heartbleed]: https://en.wikipedia.org/wiki/Heartbleed
-  [Sprectre]: https://en.wikipedia.org/wiki/Spectre_(security_vulnerability)
+  [Spectre]: https://en.wikipedia.org/wiki/Spectre_(security_vulnerability)
   [OpenSSH]: https://www.undeadly.org/cgi?action=article;sid=20190621081455
 
 ## SHA-1 Mitigations
@@ -452,8 +434,8 @@ written in other languages.  The Octopus uses this, for instance, to
 Sequoia implements [nearly all] [of the OpenPGP RFC].  The missing
 bits are either obsolete or insecure.
 
-      [nearly all]: https://sequoia-pgp.org/status/
-      [of the OpenPGP RFC]: https://tests.sequoia-pgp.org/
+   [nearly all]: https://sequoia-pgp.org/status/
+   [of the OpenPGP RFC]: https://tests.sequoia-pgp.org/
 
 RNP doesn't implement a number of important parts.  For instance, it
 does not reject [unknown critical subpackets] and notations.  This is
@@ -463,7 +445,7 @@ This is a future compatibility problem.  RNP also doesn't handle
 secret key material is shared.  This is a compatibility problem.  More
 examples can be found in the [OpenPGP interoperability test suite].
 
-    [unknown packet versions]: https://github.com/rnpgp/rnp/issues/1257
-    [unknown critical subpackets]: https://github.com/rnpgp/rnp/issues/1234
-    [shared keys]: https://bugzilla.mozilla.org/show_bug.cgi?id=1703368
-    [OpenPGP interoperability test suite]: https://tests.sequoia-pgp.org/
+  [unknown packet versions]: https://github.com/rnpgp/rnp/issues/1257
+  [unknown critical subpackets]: https://github.com/rnpgp/rnp/issues/1234
+  [shared keys]: https://bugzilla.mozilla.org/show_bug.cgi?id=1703368
+  [OpenPGP interoperability test suite]: https://tests.sequoia-pgp.org/
