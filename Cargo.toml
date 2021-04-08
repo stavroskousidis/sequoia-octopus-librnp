@@ -4,6 +4,9 @@ description = "Reimplementation of RNP's interface using Sequoia for use with Th
 version = "0.0.0"
 authors = [
     "Justus Winter <justus@sequoia-pgp.org>",
+    "Neal H. Walfield <neal@sequoia-pgp.org>",
+    "Nora Widdecke <nora@sequoia-pgp.org>",
+    "Wiktor Kwapisiewicz <wiktor@sequoia-pgp.org>",
 ]
 homepage = "https://sequoia-pgp.org/"
 repository = "https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp"
