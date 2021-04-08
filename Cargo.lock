@@ -1706,7 +1706,7 @@ dependencies = [
 
 [[package]]
 name = "sequoia-octopus-librnp"
-version = "0.0.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "buffered-reader",
