@@ -172,8 +172,7 @@ tests on Debian.
 
 To use the Octopus, replace the `rnp.dll` binary in your Thunderbird
 installation.  This is usually at
-`C:\Users\USERNAME\AppData\Local\Mozilla Thunderbird\rnp.dll` where
-`USERNAME` is your username.
+`C:\Program Files\Mozilla Thunderbird\rnp.dll`.
 
 # Additional Features
 
