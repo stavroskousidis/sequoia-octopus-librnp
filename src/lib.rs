@@ -58,6 +58,9 @@ macro_rules! stub {
 mod error;
 use error::*;
 
+#[allow(dead_code)]
+mod stubs;
+
 // XXX: This is a copy of sequoia/ipc/src/keygrip.rs.
 mod keygrip;
 use keygrip::*;
