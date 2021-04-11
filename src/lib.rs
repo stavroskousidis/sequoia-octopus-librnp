@@ -46,9 +46,9 @@ const TRACE: bool = cfg!(debug_assertions);
 macro_rules! stub {
     ($s: ident) => {
         #[no_mangle] pub extern "C"
-        fn $s() -> RnpResult {
+        fn $s() -> crate::RnpResult {
             log!("\nSTUB: {}\n", stringify!($s));
-            RNP_ERROR_NOT_IMPLEMENTED
+            crate::RNP_ERROR_NOT_IMPLEMENTED
         }
     };
 }
