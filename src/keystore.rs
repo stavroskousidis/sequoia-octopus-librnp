@@ -322,13 +322,17 @@ impl Keystore {
                                       import_secret_keys: bool)
         -> openpgp::Result<()>
     {
-        self.gpg_thread_start()?;
+        if let Err(err) = self.gpg_thread_start() {
+            warn!("Failed to start gpg thread: {}", err);
+            KeystoreData::load_keyring(
+                &mut self.data, &keyring, import_secret_keys, false)?;
+        } else {
+            *self.in_init.0.lock().unwrap() += 1;
 
-        *self.in_init.0.lock().unwrap() += 1;
-
-        self.gpg_sender.as_ref().expect("started thread")
-            .lock().unwrap()
-            .send(Some((keyring, import_secret_keys)))?;
+            self.gpg_sender.as_ref().expect("started thread")
+                .lock().unwrap()
+                .send(Some((keyring, import_secret_keys)))?;
+        }
 
         Ok(())
     }
