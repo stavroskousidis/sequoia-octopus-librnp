@@ -573,6 +573,52 @@ impl KeystoreData {
         }
     }
 
+    fn load_keyring(ks: &Arc<RwLock<KeystoreData>>,
+                    keyring: &[u8], import_secret_keys: bool, external: bool)
+        -> openpgp::Result<()>
+    {
+        rnp_function!(KeystoreData::load_keyring, super::TRACE);
+
+        // Parse the keyring without the lock.
+        let certs = match parse_keyring(std::io::Cursor::new(keyring)) {
+            Ok(certs) => certs,
+            Err(err) => {
+                t!("Parsing keyring: {}", err);
+                return Err(err);
+            }
+        };
+
+        // And now take the lock to insert the certificates.
+        let mut inserted = 0;
+        let mut errors = 0;
+
+        let mut ks = ks.write().unwrap();
+        for cert in certs {
+            match cert {
+                Ok(mut c) => {
+                    if ! import_secret_keys {
+                        c = c.strip_secret_key_material();
+                    }
+                    ks.insert_(c, external);
+                    inserted += 1;
+                }
+                Err(e) => {
+                    // We definitely don't want to error out when
+                    // importing stuff from gpg.  So, warn, but don't
+                    // stop.
+                    warn!("sequoia-octopus: Error parsing cert: {}", e);
+                    errors += 1;
+                },
+            }
+        }
+        drop(ks);
+
+        t!("Successfully added {} certificates, {} errors",
+           inserted, errors);
+
+        Ok(())
+    }
+
     // Monitor gpg for updates.
     //
     // This checks for updates to the keyring.
@@ -583,45 +629,6 @@ impl KeystoreData {
         rnp_function!(KeystoreData::gpg_thread, super::TRACE);
 
         let mut keyring_hash: Option<gpg::OutputHash> = None;
-
-        let parse = |keyring: &[u8], import_secret_keys: bool, external: bool| {
-            // Parse the keyring without the lock.
-            let certs = match parse_keyring(std::io::Cursor::new(keyring)) {
-                Ok(certs) => certs,
-                Err(err) => {
-                    t!("Parsing keyring: {}", err);
-                    return;
-                }
-            };
-
-            // And now take the lock to insert the certificates.
-            let mut inserted = 0;
-            let mut errors = 0;
-
-            let mut ks = ks.write().unwrap();
-            for cert in certs {
-                match cert {
-                    Ok(mut c) => {
-                        if ! import_secret_keys {
-                            c = c.strip_secret_key_material();
-                        }
-                        ks.insert_(c, external);
-                        inserted += 1;
-                    }
-                    Err(e) => {
-                        // We definitely don't want to error out when
-                        // importing stuff from gpg.  So, warn, but don't
-                        // stop.
-                        warn!("sequoia-octopus: Error parsing cert: {}", e);
-                        errors += 1;
-                    },
-                }
-            }
-            drop(ks);
-
-            t!("Successfully added {} certificates, {} errors",
-               inserted, errors);
-        };
 
         let mut last_check = std::time::UNIX_EPOCH;
         let mut first_time = true;
@@ -657,8 +664,11 @@ impl KeystoreData {
             match r {
                 // Import a keyring in the background.
                 Ok(Some((keyring, import_secret_keys))) => {
-                    // Parse a keyring in the backgroun.
-                    parse(&keyring, import_secret_keys, false);
+                    if let Err(err) = KeystoreData::load_keyring(
+                        &ks, &keyring, import_secret_keys, false)
+                    {
+                        warn!("Loading keyring: {}", err);
+                    }
 
                     let mut in_init_ = in_init.0.lock().unwrap();
                     assert!(*in_init_ > 0);
@@ -721,7 +731,11 @@ impl KeystoreData {
                 }
             };
 
-            parse(keyring.as_bytes(), false, true);
+            if let Err(err) = KeystoreData::load_keyring(
+                &ks, keyring.as_bytes(), false, true)
+            {
+                warn!("Loading keyring: {}", err);
+            }
 
             if first_time {
                 first_time = false;
