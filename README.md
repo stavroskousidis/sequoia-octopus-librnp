@@ -180,6 +180,11 @@ installed in `C:\Program Files (x86)`), then you need to either switch
 to a 64-bit version of Thunderbird or compile a 32-bit version of the
 Octopus yourself.
 
+Before starting Thunderbird with the Octopus, be sure to backup the
+files `pubring.gpg`, `secring.gpg`, and `openpgp.sqlite` in your
+Thunderbird profile.  Your Thunderbird profile is usually located in
+`C:\Users\USERNAME\AppData\Roaming\Thunderbird\Profiles\PROFILEXXX.default`.
+
 # Additional Features
 
 This library includes a number of additional features that enhance
