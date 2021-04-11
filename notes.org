@@ -60,6 +60,14 @@
     >            authorized to issue revocation signature secret key.
 *** there is no way to automatically dearmor inputs
     There is rnp_input_dearmor_if_needed but it is not public.
+*** rnp_key_valid_till
+
+rnp_key_valid_till returns a 32-bit timestamp, but the expiration time
+is a 33-bit quanitity (the expiration time is a 32-bit offset relative
+to the key's 32-bit creation time).
+
+https://github.com/rnpgp/rnp/issues/1480
+
 ** implementation
 *** very little documentation in the code
 *** C-style runtime polymorphism with explicit vtables in C++ code

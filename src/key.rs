@@ -1,4 +1,5 @@
 use std::{
+    cmp::min,
     ffi::{
         CStr,
     },
@@ -1275,6 +1276,64 @@ fn rnp_key_set_expiration(key: *mut RnpKey,
     } else {
         RNP_SUCCESS
     }
+}
+
+#[no_mangle] pub unsafe extern "C"
+fn rnp_key_valid_till(key: *mut RnpKey,
+                      result: *mut u32)
+                      -> RnpResult {
+    rnp_function!(rnp_key_valid_till, crate::TRACE);
+    let key = assert_ptr_mut!(key);
+    assert_ptr!(result);
+
+    // We need to clone it, because key.cert() takes a &mut.
+    let k = key.key.clone().parts_into_public();
+    let cert = if let Some(cert) = key.cert() {
+        cert
+    } else {
+        return RNP_ERROR_BAD_PARAMETERS;
+    };
+
+    let vc = if let Ok(vc) = cert.with_policy(P, None) {
+        vc
+    } else {
+        // Not valid.
+        *result = 0;
+        return RNP_SUCCESS;
+    };
+
+    // Make sure the key is valid.
+    let ka = if let Some(ka) = vc.keys().filter(|ka| *ka.key() == k).nth(0) {
+        ka
+    } else {
+        *result = 0;
+        return RNP_SUCCESS;
+    };
+
+    // A key's expiration is the minimum of its expiration
+    // and the primary key's expiration.
+
+    // Recall: None means the key doesn't expire.
+    let t = match (vc.primary_key().key_expiration_time(),
+                   ka.key_expiration_time())
+    {
+        (Some(p), Some(s)) => min(p, s),
+        (None, Some(s)) => s,
+        (Some(p), None) => p,
+        (None, None) => std::time::UNIX_EPOCH
+            + Duration::new(u32::MAX as u64, 0),
+    };
+
+    // The key expiration time is a 33-bit number, but the
+    // RNP API only has place for a 32-bit number :/.
+    if let Ok(unix) = t.duration_since(std::time::UNIX_EPOCH) {
+        *result = min(u32::MAX as u64, unix.as_secs()) as u32;
+    } else {
+        // Ummm... this shouldn't happen, but if it does just consider
+        // the key to be invalid.
+        *result = 0;
+    }
+    RNP_SUCCESS
 }
 
 #[cfg(test)]
