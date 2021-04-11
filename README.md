@@ -159,7 +159,7 @@ $ ls -l /usr/lib/thunderbird/*rnp*
 -rwxr-xr-x 1 root root 129988280 Apr  7 14:01 /usr/lib/thunderbird/libsequoia_octopus_librnp.so
 ```
 
-### Precompiled Binaries for Windows
+### Precompiled Binaries for 64-bit Windows
 
 If you are feeling particularly daring, you can download a precompiled
 [`rnp.dll`] for Windows.  This binary is created by our CI.  It
@@ -171,8 +171,14 @@ tests on Debian.
   [`rnp.dll`]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/jobs/artifacts/main/raw/target/release/rnp.dll?job=windows-msvc-release
 
 To use the Octopus, replace the `rnp.dll` binary in your Thunderbird
-installation.  This is usually at
-`C:\Program Files\Mozilla Thunderbird\rnp.dll`.
+installation.  Thunderbird is usually installed to `C:\Program
+Files\Mozilla Thunderbird\rnp.dll`.
+
+Note: this will only work with a 64-bit build of Thunderbird.  If you
+are using a 32-bit build (you can tell as your Thunderbird would be
+installed in `C:\Program Files (x86)`), then you need to either switch
+to a 64-bit version of Thunderbird or compile a 32-bit version of the
+Octopus yourself.
 
 # Additional Features
 
