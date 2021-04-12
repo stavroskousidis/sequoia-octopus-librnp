@@ -34,6 +34,7 @@ use openpgp::{
         UserID,
     },
     policy::{
+        NullPolicy,
         StandardPolicy,
     },
     serialize::Serialize,
@@ -123,6 +124,7 @@ mod parcimonie_stub;
 use parcimonie_stub as parcimonie;
 
 pub const P: &StandardPolicy = &StandardPolicy::new();
+pub const NP: &NullPolicy = &NullPolicy::new();
 
 #[allow(dead_code)]
 fn cert_dump(cert: &Cert) {

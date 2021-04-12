@@ -1291,14 +1291,25 @@ fn rnp_key_valid_till(key: *mut RnpKey,
     let cert = if let Some(cert) = key.cert() {
         cert
     } else {
+        t!("Could not find key's certificate.");
         return RNP_ERROR_BAD_PARAMETERS;
     };
 
-    let vc = if let Ok(vc) = cert.with_policy(P, None) {
+    // According to the rnp_key_valid_till's documentation
+    // (https://github.com/rnpgp/rnp/blob/7b636f1/include/rnp/rnp.h#L1518),
+    // this function returns 0 if the key was never valid.
+    //
+    // Thunderbird only checks if the result is 0, and if so does not
+    // show the key in the OpenPGP Key Manager.  So, if a key was
+    // *ever* valid, then we should return a non-zero result.  This
+    // means we want the Null policy (there is a cryptographically
+    // valid signature), not the Standard Policy, which is stricter.
+    let vc = if let Ok(vc) = cert.with_policy(crate::NP, None) {
         vc
     } else {
-        // Not valid.
+        // If it is not even valid with the null policy, return 0.
         *result = 0;
+        t!("cert not valid.");
         return RNP_SUCCESS;
     };
 
@@ -1306,7 +1317,9 @@ fn rnp_key_valid_till(key: *mut RnpKey,
     let ka = if let Some(ka) = vc.keys().filter(|ka| *ka.key() == k).nth(0) {
         ka
     } else {
+        // If it is not even valid with the null policy, return 0.
         *result = 0;
+        t!("key not valid.");
         return RNP_SUCCESS;
     };
 
@@ -1328,10 +1341,12 @@ fn rnp_key_valid_till(key: *mut RnpKey,
     // RNP API only has place for a 32-bit number :/.
     if let Ok(unix) = t.duration_since(std::time::UNIX_EPOCH) {
         *result = min(u32::MAX as u64, unix.as_secs()) as u32;
+        t!("valid till: {}", *result);
     } else {
-        // Ummm... this shouldn't happen, but if it does just consider
-        // the key to be invalid.
+        // Ummm... this shouldn't happen, but if it does
+        // conservatively consider the key to be invalid.
         *result = 0;
+        t!("time failure.");
     }
     RNP_SUCCESS
 }
