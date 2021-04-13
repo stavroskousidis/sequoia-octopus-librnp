@@ -41,6 +41,7 @@ use openpgp::{
     types::{
         HashAlgorithm,
         ReasonForRevocation,
+        RevocationStatus,
     },
 };
 
@@ -1297,7 +1298,8 @@ fn rnp_key_valid_till(key: *mut RnpKey,
 
     // According to the rnp_key_valid_till's documentation
     // (https://github.com/rnpgp/rnp/blob/7b636f1/include/rnp/rnp.h#L1518),
-    // this function returns 0 if the key was never valid.
+    // this function returns 0 if the key was never valid.  Otherwise,
+    // it returns the minimum of the expiration and revocation time.
     //
     // Thunderbird only checks if the result is 0, and if so does not
     // show the key in the OpenPGP Key Manager.  So, if a key was
@@ -1326,20 +1328,36 @@ fn rnp_key_valid_till(key: *mut RnpKey,
     // A key's expiration is the minimum of its expiration
     // and the primary key's expiration.
 
+    let t_min = |a, b| {
+        match (a, b) {
+            (Some(p), Some(s)) => Some(min(p, s)),
+            (None, Some(s)) => Some(s),
+            (Some(p), None) => Some(p),
+            (None, None) => None,
+        }
+    };
+
     // Recall: None means the key doesn't expire.
-    let t = match (vc.primary_key().key_expiration_time(),
-                   ka.key_expiration_time())
-    {
-        (Some(p), Some(s)) => min(p, s),
-        (None, Some(s)) => s,
-        (Some(p), None) => p,
-        (None, None) => std::time::UNIX_EPOCH
-            + Duration::new(u32::MAX as u64, 0),
+    let mut t = t_min(vc.primary_key().key_expiration_time(),
+                      ka.key_expiration_time());
+
+    if let RevocationStatus::CouldBe(revs) = vc.revocation_status() {
+        t = revs.into_iter().fold(t, |t, rev| {
+            t_min(t, rev.signature_creation_time())
+        });
+    };
+    if let RevocationStatus::CouldBe(revs) = ka.revocation_status() {
+        t = revs.into_iter().fold(t, |t, rev| {
+            t_min(t, rev.signature_creation_time())
+        });
     };
 
     // The key expiration time is a 33-bit number, but the
     // RNP API only has place for a 32-bit number :/.
-    if let Ok(unix) = t.duration_since(std::time::UNIX_EPOCH) {
+    if let Ok(unix) = t
+        .unwrap_or(std::time::UNIX_EPOCH + Duration::new(u32::MAX as u64, 0))
+        .duration_since(std::time::UNIX_EPOCH)
+    {
         *result = min(u32::MAX as u64, unix.as_secs()) as u32;
         t!("valid till: {}", *result);
     } else {
