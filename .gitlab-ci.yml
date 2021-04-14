@@ -90,6 +90,26 @@ windows-msvc:
   variables:
     CFLAGS: "" # Silence some C warnings when compiling with MSVC
 
+windows-msvc-32:
+  tags:
+    - win
+    - win2019
+  stage: cargo_test
+  image:
+    name: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
+    # Set up a 32-bit environment with VsDevCmd.bat -arch=x86, line copied from Dockerfile.windows.msvc
+    entrypoint: ["C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat", "-arch=x86", "&&", "type", "README", "&&", "powershell.exe", "-NoLogo", "-ExecutionPolicy", "Bypass"]
+  before_script:
+    - rustup default stable-i686-pc-windows-msvc
+    - rustup show
+    - rustc --version --verbose
+    - cargo --version
+  script:
+    - cargo +stable-i686-pc-windows-msvc build --no-default-features --features crypto-cng --target i686-pc-windows-msvc
+    - cargo +stable-i686-pc-windows-msvc test --no-default-features --features crypto-cng --target i686-pc-windows-msvc
+  variables:
+    CFLAGS: "" # Silence some C warnings when compiling with MSVC
+
 windows-msvc-release:
   tags:
     - win
@@ -103,6 +123,29 @@ windows-msvc-release:
     - cargo --version
   script:
     - cargo build --release --no-default-features --features crypto-cng
+  after_script:
+    - Get-childItem target\release
+    - Rename-Item target\release\sequoia_octopus_librnp.dll rnp.dll
+  artifacts:
+    paths:
+      - C:\builds\sequoia-pgp\sequoia-octopus-librnp\target\release\rnp.dll
+  variables:
+    CFLAGS: "" # Silence some C warnings when compiling with MSVC
+
+windows-msvc-release-32:
+  tags:
+    - win
+    - win2019
+  only:
+    - main
+  stage: release
+  image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
+  before_script:
+    - rustup default stable-i686-pc-windows-msvc
+    - rustc --version --verbose
+    - cargo --version
+  script:
+    - cargo +stable-i686-pc-windows-msvc build --release --no-default-features --features crypto-cng --target i686-pc-windows-msvc
   after_script:
     - Get-childItem target\release
     - Rename-Item target\release\sequoia_octopus_librnp.dll rnp.dll
