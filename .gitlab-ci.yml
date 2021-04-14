@@ -87,6 +87,7 @@ windows-msvc:
   script:
     - cargo build --no-default-features --features crypto-cng
     - cargo test --no-default-features --features crypto-cng
+  after_script: []
   variables:
     CFLAGS: "" # Silence some C warnings when compiling with MSVC
 
@@ -107,6 +108,7 @@ windows-msvc-32:
   script:
     - cargo +stable-i686-pc-windows-msvc build --no-default-features --features crypto-cng --target i686-pc-windows-msvc
     - cargo +stable-i686-pc-windows-msvc test --no-default-features --features crypto-cng --target i686-pc-windows-msvc
+  after_script: []
   variables:
     CFLAGS: "" # Silence some C warnings when compiling with MSVC
 
