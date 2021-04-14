@@ -92,11 +92,11 @@ fn rnp_uid_handle_destroy(uid: *mut RnpUserID)
 use openpgp::cert::amalgamation::ComponentAmalgamation;
 use openpgp::packet::Signature;
 fn signatures<'a>(ca: ComponentAmalgamation<'a, UserID>)
-                  -> impl Iterator<Item = &'a Signature> {
-    ca.self_revocations()
-        .chain(ca.self_signatures())
-        .chain(ca.certifications())
-        .chain(ca.other_revocations())
+                  -> impl Iterator<Item = (&'a Signature, Option<bool>)> {
+    ca.self_revocations().map(|sig| (sig, Some(true)))
+        .chain(ca.self_signatures().map(|sig| (sig, Some(true))))
+        .chain(ca.certifications().map(|sig| (sig, None)))
+        .chain(ca.other_revocations().map(|sig| (sig, None)))
 }
 
 // XXX: what signatures to consider?  all of them?
@@ -109,13 +109,13 @@ fn rnp_uid_get_signature_at(uid: *const RnpUserID,
     let uid = assert_ptr_ref!(uid);
     let sig = assert_ptr_mut!(sig);
 
-    if let Some(s) = signatures(
+    if let Some((s, valid)) = signatures(
         uid.cert.userids().nth(uid.nth_uid)
             .expect("we know it's there")
     ).nth(idx)
     {
         *sig = Box::into_raw(Box::new(
-            RnpSignature::new(uid.ctx, s.clone())));
+            RnpSignature::new(uid.ctx, s.clone(), valid)));
         RNP_SUCCESS
     } else {
         RNP_ERROR_BAD_PARAMETERS

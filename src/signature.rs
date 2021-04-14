@@ -27,6 +27,9 @@ use crate::{
 pub struct RnpSignature {
     ctx: *const RnpContext,
     sig: Signature,
+    // Whether the signature is known to be good.  If None, then we
+    // don't know.
+    valid: Option<bool>,
 }
 
 impl std::ops::Deref for RnpSignature {
@@ -38,10 +41,13 @@ impl std::ops::Deref for RnpSignature {
 }
 
 impl RnpSignature {
-    pub fn new(ctx: *const RnpContext, sig: Signature) -> Self {
+    pub fn new(ctx: *const RnpContext, sig: Signature, valid: Option<bool>)
+        -> Self
+    {
         Self {
             ctx,
-            sig
+            sig,
+            valid,
         }
     }
 }
@@ -107,4 +113,41 @@ fn rnp_signature_get_signer(sig: *const RnpSignature,
     }
     *key = std::ptr::null_mut();
     RNP_SUCCESS
+}
+
+#[no_mangle] pub unsafe extern "C"
+fn rnp_signature_is_valid(sig: *const RnpSignature,
+                          flags: u32)
+                          -> RnpResult {
+    assert_ptr!(sig);
+    let sig = &*sig;
+
+    // According to the rnp documentation, flags must currently be
+    // zero.
+    if flags != 0 {
+        return RNP_ERROR_BAD_PARAMETERS;
+    }
+
+    if let Some(valid) = sig.valid {
+        if valid {
+            // The signature could have expired in the meantime.  (In
+            // fact, the key that created the signature could have
+            // expired, but we ignore that :/.)
+            if sig.signature_alive(None, None).is_ok() {
+                return RNP_SUCCESS;
+            } else {
+                return RNP_ERROR_SIGNATURE_EXPIRED
+            }
+        } else {
+            return RNP_ERROR_SIGNATURE_INVALID;
+        }
+    }
+
+    // XXX: We need to check the signature, but we don't have enough
+    // context.  This only effects third-party certifications and
+    // third-party revocations (right now, all other places where an
+    // RnpSignature is created include set the signature's validity).
+    // As Thunderbird doesn't appear to care about the validity of
+    // these signatures, don't complicate the implementation... yet.
+    RNP_ERROR_SIGNATURE_INVALID
 }

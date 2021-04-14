@@ -302,7 +302,9 @@ fn rnp_op_verify_signature_get_handle(sig: *mut RnpOpVerifySignature,
     assert_ptr!(handle);
     let sig = &*sig;
     *handle =
-        Box::into_raw(Box::new(RnpSignature::new(sig.ctx, sig.sig.clone())));
+        Box::into_raw(Box::new(
+            RnpSignature::new(sig.ctx, sig.sig.clone(),
+                              Some(sig.status == RNP_SUCCESS))));
     RNP_SUCCESS
 }
 
