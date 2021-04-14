@@ -9,6 +9,7 @@ use openpgp::{
         amalgamation::{
             ValidAmalgamation,
             ValidateAmalgamation,
+            ValidUserIDAmalgamation,
         },
     },
     packet::{
@@ -44,6 +45,34 @@ impl RnpUserID {
                      cert,
                      nth_uid
                  })
+    }
+
+    /// Returns whether the User ID is safe to display.
+    ///
+    /// A User ID is safe to display if it is valid under the standard
+    /// policy or the certificate is NOT valid under the standard
+    /// policy.
+    ///
+    /// This function does not return whether a User ID is safe to use
+    /// if
+    fn safe_to_display<'a>(&'a self) -> Option<ValidUserIDAmalgamation<'a>> {
+        if let Ok(vc) = self.cert.with_policy(P, None) {
+            // The certificate is valid under the standard policy.  Is
+            // the User ID?
+            vc.userids().filter(|u| u.userid() == &self.uid).nth(0)
+        } else if let Ok(vua) = self.cert.userids().nth(self.nth_uid)
+            .expect("we know it's there")
+            .with_policy(crate::NP, None)
+        {
+            // The certificate is not valid under the standard policy.
+            // It is safe to treat the User ID as if it wre valid
+            // under the NULL policy.
+            Some(vua)
+        } else {
+            // The certificate is not even valid under the null
+            // policy.  Treat it as invalid.
+            None
+        }
     }
 }
 
@@ -119,10 +148,7 @@ fn rnp_uid_is_revoked(uid: *const RnpUserID,
     let uid = assert_ptr_ref!(uid);
     let result = assert_ptr_mut!(result);
 
-    if let Ok(vua) = uid.cert.userids().nth(uid.nth_uid)
-        .expect("we know it's there")
-        .with_policy(P, None)
-    {
+    if let Some(vua) = uid.safe_to_display() {
         use openpgp::types::RevocationStatus::*;
         *result =
             match vua.revocation_status() {
@@ -131,10 +157,11 @@ fn rnp_uid_is_revoked(uid: *const RnpUserID,
                 NotAsFarAsWeKnow => false,
             };
     } else {
-        // Not valid under the policy.  Treat as revoked.
-        t!("UserID not valid under the standard policy, treating as revoked");
+        // The User ID is not safe to display (it may or may not
+        // actually be revoked).  Treat it as revoked.
         *result = true;
     }
+
     RNP_SUCCESS
 }
 
@@ -146,21 +173,12 @@ fn rnp_uid_is_valid(uid: *const RnpUserID,
     let uid = assert_ptr_ref!(uid);
     let result = assert_ptr_mut!(result);
 
-    let vc = if let Ok(vc) = uid.cert.with_policy(P, None) {
-        vc
-    } else {
-        // Not valid.
-        *result = false;
-        return RNP_SUCCESS;
-    };
-
-    // Make sure the User ID is valid.
-    if vc.userids().filter(|ua| *ua.userid() == uid.uid).nth(0).is_some() {
+    if let Some(_) = uid.safe_to_display() {
         *result = true;
     } else {
+        // The User ID is not safe to display.  Treat as invalid.
         *result = false;
-    };
-
+    }
     RNP_SUCCESS
 }
 
