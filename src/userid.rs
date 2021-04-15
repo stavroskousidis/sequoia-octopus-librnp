@@ -1,3 +1,5 @@
+use std::fmt;
+
 use libc::{
     size_t,
 };
@@ -25,12 +27,22 @@ use crate::{
     error::*,
 };
 
-#[derive(Debug)]
 pub struct RnpUserID {
     ctx: *const RnpContext,
     uid: UserID,
     cert: Cert,
     nth_uid: usize,
+}
+
+impl fmt::Debug for RnpUserID {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("RnpUserID")
+            .field("ctx", &self.ctx)
+            .field("uid", &String::from_utf8_lossy(self.uid.value()))
+            .field("cert", &self.cert.fingerprint().to_hex())
+            .field("nth_uid", &self.nth_uid)
+            .finish()
+    }
 }
 
 impl RnpUserID {

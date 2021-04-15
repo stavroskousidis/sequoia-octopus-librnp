@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     io,
 };
 use libc::{
@@ -64,7 +65,7 @@ enum SignatureMode<'a> {
     Detached(&'a mut RnpInput),
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct RnpOpVerifyResult {
     // Information about the symmetric encryption.
     mode: RnpProtectionMode,
@@ -82,6 +83,24 @@ pub struct RnpOpVerifyResult {
 
     // Any signatures.
     signatures: Vec<RnpOpVerifySignature>,
+}
+
+impl fmt::Debug for RnpOpVerifyResult {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("RnpOpVerifyResult")
+            .field("mode", &self.mode)
+            .field("cipher", &self.cipher)
+            .field("pkesks", &self.pkesks.len())
+            .field("skesks", &self.skesks.len())
+            .field("pkesk_used", &self.pkesk_used.as_ref().map(|pkesk| {
+                self.pkesks.iter().position(|x| x == pkesk).expect("added")
+            }))
+            .field("skesk_used", &self.skesk_used.as_ref().map(|skesk| {
+                self.skesks.iter().position(|x| x == skesk).expect("added")
+            }))
+            .field("signatures", &self.signatures)
+            .finish()
+    }
 }
 
 impl RnpOpVerifyResult {
@@ -106,12 +125,24 @@ impl RnpOpVerifyResult {
     }
 }
 
-#[derive(Debug)]
 pub struct RnpOpVerifySignature {
     ctx: *mut RnpContext,
     status: RnpResult,
     sig: Signature,
     key: Option<(Key<UnspecifiedParts, UnspecifiedRole>, Cert)>,
+}
+
+impl fmt::Debug for RnpOpVerifySignature {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("RnpOpVerifySignature")
+            .field("ctx", &self.ctx)
+            .field("status", &format_args!("{:X}", self.status))
+            .field("sig", &self.sig)
+            .field("key", &self.key.as_ref().map(|(k, c)| {
+                (c.fingerprint().to_hex(), k.fingerprint().to_hex())
+            }))
+            .finish()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]

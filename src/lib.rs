@@ -148,9 +148,8 @@ fn cert_dump(cert: &Cert) {
             Some(SecretKeyMaterial::Unencrypted(_)) => {
                 eprint!(" has unencrypted secret key material");
             }
-            Some(SecretKeyMaterial::Encrypted(m)) => {
-                eprint!(" has encrypted secret key material: {:?}",
-                        m.ciphertext());
+            Some(SecretKeyMaterial::Encrypted(_)) => {
+                eprint!(" has encrypted secret key material");
             }
             None => {
                 eprint!(" has NO secret key material");
@@ -419,8 +418,7 @@ impl RnpContext {
             }
 
             if let Some(got) = buf.iter().position(|b| *b == 0) {
-                t!("password_cb returned {:?}",
-                   String::from_utf8_lossy(&buf[..got]));
+                t!("password_cb returned a password");
                 Some(Password::from(&buf[..got]))
             } else {
                 eprintln!("sequoia-octopus: given password exceeded buffer");
@@ -488,7 +486,9 @@ impl RnpContext {
                       -> openpgp::Result<()>
     {
         rnp_function!(RnpContext::key_unlock, crate::TRACE);
-        t!("key: {}; password: {:?}", key.fingerprint(), password);
+        t!("key: {}; password: {:?}",
+           key.fingerprint(),
+           if password.is_some() { "provided" } else { "None" });
 
         if ! key.has_unencrypted_secret() {
             let pk_algo = key.pk_algo();

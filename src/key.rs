@@ -3,6 +3,7 @@ use std::{
     ffi::{
         CStr,
     },
+    fmt,
     io,
     sync::{
         Arc,
@@ -63,11 +64,30 @@ use crate::{
     wot,
 };
 
-#[derive(Debug)]
 pub struct RnpKey {
     pub(crate) ctx: *mut RnpContext,
     key: Key<UnspecifiedParts, UnspecifiedRole>,
     cert: Option<Arc<RwLock<Cert>>>,
+}
+
+impl fmt::Debug for RnpKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("RnpKey")
+            .field("ctx", &self.ctx)
+            .field("key", &self.key.fingerprint())
+            .field("cert", {
+                &if let Some(c) = self.cert.as_ref() {
+                    if let Ok(c) = c.read() {
+                        c.fingerprint().to_hex()
+                    } else {
+                        "[LOCKED]".into()
+                    }
+                } else {
+                    "Unknown".into()
+                }
+            })
+            .finish()
+    }
 }
 
 impl RnpKey {
@@ -898,7 +918,6 @@ fn rnp_key_protect(rnp_key: *mut RnpKey,
     let fp = rnp_key.fingerprint();
     assert_ptr!(password);
     let password = rnp_try!(cstr_to_str(password));
-    t!("password = {:?}", password);
 
     let ctx = &mut *rnp_key.ctx;
     let mut key =
@@ -953,7 +972,8 @@ fn rnp_key_unprotect(rnp_key: *mut RnpKey,
     } else {
         Some(rnp_try!(cstr_to_str(password)))
     };
-    t!("password = {:?}", password);
+    t!("password = {:?}",
+       if password.is_some() { "Something" } else { "None" });
 
     let ctx = &mut *rnp_key.ctx;
     let mut key =
