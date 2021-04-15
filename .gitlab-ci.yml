@@ -141,7 +141,9 @@ windows-msvc-release-32:
   only:
     - main
   stage: release
-  image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
+  image:
+    name: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
+    entrypoint: ["C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat", "-arch=x86", "&&", "type", "README", "&&", "powershell.exe", "-NoLogo", "-ExecutionPolicy", "Bypass"]
   before_script:
     - rustup default stable-i686-pc-windows-msvc
     - rustc --version --verbose
@@ -149,11 +151,11 @@ windows-msvc-release-32:
   script:
     - cargo +stable-i686-pc-windows-msvc build --release --no-default-features --features crypto-cng --target i686-pc-windows-msvc
   after_script:
-    - Get-childItem target\release
-    - Rename-Item target\release\sequoia_octopus_librnp.dll rnp.dll
+    - Get-childItem -Path target\i686-pc-windows-msvc\
+    - Rename-Item target\i686-pc-windows-msvc\release\sequoia_octopus_librnp.dll rnp.dll
   artifacts:
     paths:
-      - C:\builds\sequoia-pgp\sequoia-octopus-librnp\target\release\rnp.dll
+      - C:\builds\sequoia-pgp\sequoia-octopus-librnp\target\i686-pc-windows-msvc\release\rnp.dll
   variables:
     CFLAGS: "" # Silence some C warnings when compiling with MSVC
 
