@@ -146,10 +146,7 @@ impl RnpKey {
     }
 
     fn find_cert(&mut self) {
-        rnp_function!(RnpKey::find_cert, super::TRACE);
         if self.cert.is_none() {
-            t!("Arg, need to find cert in the key store!");
-
             // There may be multiple certificates with the same key.
             // Prefer an exact match (i.e., fingerprint *and* secret
             // key material match), if one is available.
@@ -474,6 +471,8 @@ fn rnp_key_get_expiration(key: *mut RnpKey,
         // Expired immediately.  0 is special and means does not expire.
         *expiration = 1;
     }
+    t!("{} expires {} seconds after its creation",
+       fp, *expiration);
     RNP_SUCCESS
 }
 
@@ -901,7 +900,8 @@ fn rnp_key_is_protected(key: *mut RnpKey,
     let key = assert_ptr_ref!(key);
     assert_ptr!(result);
     *result = key.has_secret() && ! key.has_unencrypted_secret();
-    t!("Key {:X} is protected? {}", key.fingerprint(), *result);
+    t!("Key {:X} is {}protected?", key.fingerprint(),
+       if *result { "" } else { "not " });
     RNP_SUCCESS
 }
 

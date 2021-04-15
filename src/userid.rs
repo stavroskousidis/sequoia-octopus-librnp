@@ -174,6 +174,10 @@ fn rnp_uid_is_revoked(uid: *const RnpUserID,
         *result = true;
     }
 
+    t!("{}:{:?}: is{} revoked",
+       uid.cert.fingerprint(), String::from_utf8_lossy(uid.uid.value()),
+       if *result { "" } else { " not" });
+
     RNP_SUCCESS
 }
 
@@ -191,6 +195,11 @@ fn rnp_uid_is_valid(uid: *const RnpUserID,
         // The User ID is not safe to display.  Treat as invalid.
         *result = false;
     }
+
+    t!("{}:{:?}: is{} valid",
+       uid.cert.fingerprint(), String::from_utf8_lossy(uid.uid.value()),
+       if *result { "" } else { " not" });
+
     RNP_SUCCESS
 }
 
@@ -203,19 +212,21 @@ fn rnp_uid_is_primary(uid: *const RnpUserID,
     let uid = assert_ptr_ref!(uid);
     let result = assert_ptr_mut!(result);
 
-    let vc = if let Ok(vc) = uid.cert.with_policy(P, None) {
-        vc
+    if let Ok(vc) = uid.cert.with_policy(P, None) {
+        if let Ok(ua) = vc.primary_userid() {
+            *result = ua.userid() == &uid.uid
+        } else {
+            *result = false;
+        }
     } else {
         // Not valid.
         *result = false;
-        return RNP_SUCCESS;
     };
 
-    if let Ok(ua) = vc.primary_userid() {
-        *result = ua.userid() == &uid.uid
-    } else {
-        *result = false;
-    }
+    t!("{}:{:?}: is{} primary",
+       uid.cert.fingerprint(), String::from_utf8_lossy(uid.uid.value()),
+       if *result { "" } else { " not" });
+
     RNP_SUCCESS
 }
 

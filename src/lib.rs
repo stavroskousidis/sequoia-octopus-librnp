@@ -583,8 +583,8 @@ fn rnp_load_keys(ctx: *mut RnpContext,
         }
         RNP_LOAD_SAVE_SECRET_KEYS => (),
         f => {
-            eprintln!("sequoia-octopus: unexpected flags to rnp_load_keys: \
-                       {:x}", f);
+            warn!("sequoia-octopus: unexpected flags to rnp_load_keys: {:x}",
+                  f);
             return RNP_ERROR_BAD_PARAMETERS;
         },
     }

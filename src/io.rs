@@ -1,5 +1,6 @@
 use std::{
     io,
+    fmt,
     fs::File,
     path::PathBuf,
 };
@@ -11,11 +12,32 @@ use openpgp::{
 
 use super::*;
 
-#[derive(Debug)]
 pub enum RnpInput {
     Ref(io::Cursor<&'static [u8]>),
     Buf(io::Cursor<Vec<u8>>),
     File(PathBuf, File),
+}
+
+impl fmt::Debug for RnpInput {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RnpInput::Ref(c) => {
+                f.debug_struct("RnpInput")
+                    .field("Ref", &c.get_ref().len())
+                    .finish()
+            }
+            RnpInput::Buf(c) => {
+                f.debug_struct("RnpInput")
+                    .field("Vec", &c.get_ref().len())
+                    .finish()
+            }
+            RnpInput::File(p, _) => {
+                f.debug_struct("RnpInput")
+                    .field("File", p)
+                    .finish()
+            }
+        }
+    }
 }
 
 pub enum RnpOutput<'a> {
