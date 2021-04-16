@@ -23,6 +23,9 @@ use csv::StringRecord;
 use sequoia_openpgp as openpgp;
 use openpgp::Fingerprint;
 
+// Setting this to false will cause the creation of a context to fail.
+const ENABLE_GPG: bool = true;
+
 /// Errors used in this module.
 ///
 /// Note: This enum cannot be exhaustively matched to allow future
@@ -100,6 +103,10 @@ impl Ctx {
         homedir: Option<&Path>,
         ephemeral: Option<tempfile::TempDir>,
     ) -> Result<Self> {
+        if ! ENABLE_GPG {
+            return Err(anyhow::anyhow!("gpg disabled at compile time"));
+        }
+
         let mut components: BTreeMap<String, PathBuf> = Default::default();
         let mut directories: BTreeMap<String, PathBuf> = Default::default();
         let mut sockets: BTreeMap<String, PathBuf> = Default::default();

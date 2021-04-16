@@ -272,7 +272,6 @@ impl Keystore {
 
         let ks_ref = self.create_ref();
         let (sender, receiver) = mpsc::channel();
-        self.gpg_sender = Some(Arc::new(Mutex::new(sender)));
         let ctx = gpg::Ctx::new()?;
 
         let in_init = Arc::clone(&self.in_init);
@@ -288,6 +287,8 @@ impl Keystore {
             = Some(thread::spawn(move || {
                 KeystoreData::gpg_thread(ks_ref, receiver, ctx, in_init);
             }));
+
+        self.gpg_sender = Some(Arc::new(Mutex::new(sender)));
 
         Ok(true)
     }
