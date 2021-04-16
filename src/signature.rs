@@ -136,7 +136,7 @@ fn rnp_signature_is_valid(sig: *const RnpSignature,
             if sig.signature_alive(None, None).is_ok() {
                 return RNP_SUCCESS;
             } else {
-                return RNP_ERROR_SIGNATURE_EXPIRED
+                return RNP_ERROR_SIGNATURE_EXPIRED;
             }
         } else {
             return RNP_ERROR_SIGNATURE_INVALID;
