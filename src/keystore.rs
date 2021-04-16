@@ -272,7 +272,6 @@ impl Keystore {
 
         let ks_ref = self.create_ref();
         let (sender, receiver) = mpsc::channel();
-        let ctx = gpg::Ctx::new()?;
 
         let in_init = Arc::clone(&self.in_init);
 
@@ -285,7 +284,7 @@ impl Keystore {
 
         ks.gpg_thread
             = Some(thread::spawn(move || {
-                KeystoreData::gpg_thread(ks_ref, receiver, ctx, in_init);
+                KeystoreData::gpg_thread(ks_ref, receiver, in_init);
             }));
 
         self.gpg_sender = Some(Arc::new(Mutex::new(sender)));
@@ -629,11 +628,11 @@ impl KeystoreData {
     // This checks for updates to the keyring.
     fn gpg_thread(ks: Arc<RwLock<Self>>,
                   receiver: mpsc::Receiver<Option<(Vec<u8>, bool)>>,
-                  gpg_ctx: gpg::Ctx,
                   in_init: Arc<(Mutex<usize>, Condvar)>) {
         rnp_function!(KeystoreData::gpg_thread, super::TRACE);
 
         let mut keyring_hash: Option<gpg::OutputHash> = None;
+        let mut gpg_ctx: Option<gpg::Ctx> = None;
 
         let mut last_check = std::time::UNIX_EPOCH;
         let mut first_time = true;
@@ -717,29 +716,35 @@ impl KeystoreData {
                 }
             }
 
-            t!("Checking for gpg updates (last check was: {:?} ago)...",
-               elapsed);
             last_check = SystemTime::now();
+            if gpg_ctx.is_none() {
+                // See if the user install gpg in the meantime.
+                gpg_ctx = gpg::Ctx::new().ok();
+            }
+            if let Some(gpg_ctx) = gpg_ctx.as_ref() {
+                t!("Checking for gpg updates (last check was: {:?} ago)...",
+                   elapsed);
 
-            // Import the gpg keyring.
-            let keyring = match gpg::export(
-                &gpg_ctx, None, keyring_hash.as_ref())
-            {
-                Ok((keyring, keyring_hash_tmp)) => {
-                    t!("Got {} bytes", keyring.len());
-                    keyring_hash = Some(keyring_hash_tmp);
-                    keyring
-                }
-                Err(err) => {
-                    t!("Exporting gpg keyring: {}", err);
-                    continue;
-                }
-            };
+                // Import the gpg keyring.
+                let keyring = match gpg::export(
+                    gpg_ctx, None, keyring_hash.as_ref())
+                {
+                    Ok((keyring, keyring_hash_tmp)) => {
+                        t!("Got {} bytes", keyring.len());
+                        keyring_hash = Some(keyring_hash_tmp);
+                        keyring
+                    }
+                    Err(err) => {
+                        t!("Exporting gpg keyring: {}", err);
+                        continue;
+                    }
+                };
 
-            if let Err(err) = KeystoreData::load_keyring(
-                &ks, keyring.as_bytes(), false, true)
-            {
-                warn!("Loading keyring: {}", err);
+                if let Err(err) = KeystoreData::load_keyring(
+                    &ks, keyring.as_bytes(), false, true)
+                {
+                    warn!("Loading keyring: {}", err);
+                }
             }
 
             if first_time {
