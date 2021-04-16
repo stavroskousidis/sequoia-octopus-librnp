@@ -716,7 +716,6 @@ impl KeystoreData {
                 }
             }
 
-            last_check = SystemTime::now();
             if gpg_ctx.is_none() {
                 // See if the user install gpg in the meantime.
                 gpg_ctx = gpg::Ctx::new().ok();
@@ -726,24 +725,23 @@ impl KeystoreData {
                    elapsed);
 
                 // Import the gpg keyring.
-                let keyring = match gpg::export(
+                match gpg::export(
                     gpg_ctx, None, keyring_hash.as_ref())
                 {
                     Ok((keyring, keyring_hash_tmp)) => {
                         t!("Got {} bytes", keyring.len());
                         keyring_hash = Some(keyring_hash_tmp);
-                        keyring
+
+
+                        if let Err(err) = KeystoreData::load_keyring(
+                            &ks, keyring.as_bytes(), false, true)
+                        {
+                            warn!("Loading keyring: {}", err);
+                        }
                     }
                     Err(err) => {
                         t!("Exporting gpg keyring: {}", err);
-                        continue;
                     }
-                };
-
-                if let Err(err) = KeystoreData::load_keyring(
-                    &ks, keyring.as_bytes(), false, true)
-                {
-                    warn!("Loading keyring: {}", err);
                 }
             }
 
@@ -759,7 +757,6 @@ impl KeystoreData {
                 drop(in_init_);
             }
 
-            // The update could have taken a few seconds.  Reset it.
             last_check = SystemTime::now();
         }
     }
