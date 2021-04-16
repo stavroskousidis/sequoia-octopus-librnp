@@ -90,8 +90,10 @@ impl fmt::Debug for RnpOpVerifyResult {
         f.debug_struct("RnpOpVerifyResult")
             .field("mode", &self.mode)
             .field("cipher", &self.cipher)
-            .field("pkesks", &self.pkesks.len())
-            .field("skesks", &self.skesks.len())
+            .field("pkesks", &self.pkesks.iter().map(|pkesk| {
+                pkesk.recipient().to_hex()
+            }).collect::<Vec<String>>())
+            .field("skesk count", &self.skesks.len())
             .field("pkesk_used", &self.pkesk_used.as_ref().map(|pkesk| {
                 self.pkesks.iter().position(|x| x == pkesk).expect("added")
             }))
@@ -540,6 +542,8 @@ impl<'a> VerificationHelper for Helper<'a> {
     }
 
     fn check(&mut self, structure: MessageStructure) -> openpgp::Result<()> {
+        rnp_function!(Helper::check, super::TRACE);
+
         use self::VerificationError::*;
 
         let n_layers = structure.iter().count();
@@ -548,9 +552,10 @@ impl<'a> VerificationHelper for Helper<'a> {
                 (i, MessageLayer::SignatureGroup { results })
                     if i == n_layers - 1 =>
                 {
-                    for result in results {
+                    for (signo, result) in results.into_iter().enumerate() {
                         match result {
                             Ok(GoodChecksum { sig, ka, .. }) => {
+                                t!("Signature {}.{} is good", i, signo);
                                 self.result.signatures.push(
                                     RnpOpVerifySignature {
                                         ctx: self.ctx as *mut _,
@@ -561,7 +566,9 @@ impl<'a> VerificationHelper for Helper<'a> {
                                                    ka.cert().clone())),
                                     });
                             },
-                            Err(MalformedSignature { sig, .. }) => {
+                            Err(MalformedSignature { sig, error }) => {
+                                t!("Signature {}.{} is malformed: {}",
+                                   i, signo, error);
                                 self.result.signatures.push(
                                     RnpOpVerifySignature {
                                         ctx: self.ctx as *mut _,
@@ -571,6 +578,8 @@ impl<'a> VerificationHelper for Helper<'a> {
                                     });
                             },
                             Err(MissingKey { sig, .. }) => {
+                                t!("Signature {}.{}: can't verify, missing key",
+                                   i, signo);
                                 self.result.signatures.push(
                                     RnpOpVerifySignature {
                                         ctx: self.ctx as *mut _,
@@ -579,7 +588,10 @@ impl<'a> VerificationHelper for Helper<'a> {
                                         key: None,
                                     });
                             },
-                            Err(UnboundKey { sig, .. }) => {
+                            Err(UnboundKey { sig, cert, error }) => {
+                                t!("Signature {}.{}: can't verify, \
+                                    unbound key from {}: {}",
+                                   i, signo, cert.fingerprint(), error);
                                 self.result.signatures.push(
                                     RnpOpVerifySignature {
                                         ctx: self.ctx as *mut _,
@@ -588,7 +600,10 @@ impl<'a> VerificationHelper for Helper<'a> {
                                         key: None,
                                     });
                             },
-                            Err(BadKey { sig, ka, .. }) => {
+                            Err(BadKey { sig, ka, error }) => {
+                                t!("Signature {}.{}: can't verify, \
+                                    bad key ({}): {}",
+                                   i, signo, ka.fingerprint(), error);
                                 self.result.signatures.push(
                                     RnpOpVerifySignature {
                                         ctx: self.ctx as *mut _,
@@ -599,7 +614,9 @@ impl<'a> VerificationHelper for Helper<'a> {
                                                    ka.cert().clone())),
                                     });
                             },
-                            Err(BadSignature { sig, ka, .. }) => {
+                            Err(BadSignature { sig, ka, error }) => {
+                                t!("Signature {}.{}: bad signature by {}: {}",
+                                   i, signo, ka.fingerprint(), error);
                                 self.result.signatures.push(
                                     RnpOpVerifySignature {
                                         ctx: self.ctx as *mut _,
