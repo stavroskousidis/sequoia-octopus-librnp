@@ -160,7 +160,7 @@ windows-msvc-release-32:
     CFLAGS: "" # Silence some C warnings when compiling with MSVC
 
 thunderbird-tests:
-  image: registry.gitlab.com/sequoia-pgp/build-thunderbird/tbbuild:latest
+  image: registry.gitlab.com/sequoia-pgp/build-thunderbird/tbbuild:for_ci
   stage: tb_test
   needs: ["bullseye"]
   before_script:
