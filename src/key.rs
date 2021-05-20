@@ -906,6 +906,53 @@ fn rnp_key_is_protected(key: *mut RnpKey,
 }
 
 #[no_mangle] pub unsafe extern "C"
+fn rnp_key_get_protection_type(key: *mut RnpKey, typ: *mut *const c_char)
+                        -> RnpResult {
+    use openpgp::crypto::S2K;
+    use openpgp::packet::key::SecretKeyMaterial;
+
+    rnp_function!(rnp_key_get_protection_type, crate::TRACE);
+    let key = assert_ptr_ref!(key);
+    assert_ptr!(typ);
+
+    let r_typ = if let Ok(key) = key.parts_as_secret() {
+        match key.secret() {
+            SecretKeyMaterial::Unencrypted(_) => "None",
+            SecretKeyMaterial::Encrypted(e) => {
+                #[allow(deprecated)]
+                match e.s2k() {
+                    S2K::Iterated { .. } => "Encrypted-Hashed",
+                    S2K::Salted { .. } => "Encrypted",
+                    S2K::Simple { .. } => "Encrypted",
+                    S2K::Private { tag: 101, parameters } =>
+                        if let Some(parameters) = parameters {
+                            match parameters.get(0) {
+                                Some(0) => // PGP_S2K_GPG_NONE
+                                    "Unknown",
+                                Some(1) => // PGP_S2K_GPG_NO_SECRET
+                                    "GPG-None",
+                                Some(2) => // PGP_S2K_GPG_SMARTCARD
+                                    "GPG-Smartcard",
+                                _ =>
+                                    "Unknown",
+                            }
+                        } else {
+                            "Unknown"
+                        },
+                    _ => "Unknown",
+                }
+            }
+        }
+    } else {
+        "Unknown"
+    };
+
+    *typ = str_to_rnp_buffer(r_typ);
+
+    RNP_SUCCESS
+}
+
+#[no_mangle] pub unsafe extern "C"
 fn rnp_key_protect(rnp_key: *mut RnpKey,
                    password: *const c_char,
                    _cipher: *const c_char,
