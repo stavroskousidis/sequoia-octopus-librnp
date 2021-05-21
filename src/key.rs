@@ -915,7 +915,17 @@ fn rnp_key_get_protection_type(key: *mut RnpKey, typ: *mut *const c_char)
     let key = assert_ptr_ref!(key);
     assert_ptr!(typ);
 
-    let r_typ = if let Ok(key) = key.parts_as_secret() {
+    let r_typ = if (*(*key).ctx).certs.key_on_agent(&(*key).fingerprint()) {
+        // The secret key material is available, but we have no idea
+        // how it is protected (it's unclear why this is even
+        // relevant!).  But, if we don't return something that
+        // suggests that the secret key material is available
+        // *locally*, then Thunderbird will decide the key doesn't
+        // really have secret key material (even if
+        // rnp_key_have_secret returns true :/).  So, we just say that
+        // the secret key material is unencrypted.
+        "None"
+    } else if let Ok(key) = key.parts_as_secret() {
         match key.secret() {
             SecretKeyMaterial::Unencrypted(_) => "None",
             SecretKeyMaterial::Encrypted(e) => {
