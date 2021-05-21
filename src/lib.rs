@@ -661,7 +661,23 @@ fn rnp_get_public_key_count(ctx: *mut RnpContext,
                             count: *mut size_t)
                             -> RnpResult {
     assert_ptr!(ctx);
-    *count = (*ctx).certs.read().iter().filter(|cert| ! cert.is_tsk()).count();
+
+    // Make sure the agent listing is up to date.
+    let mut ks = (*ctx).certs.write();
+    ks.key_on_agent_hard(
+        &Fingerprint::from_bytes(b"0000 0000 0000 0000  0000 0000 0000 0000"));
+    drop(ks);
+
+    let ks = (*ctx).certs.read();
+    *count = ks.iter().filter(|cert| {
+        if cert.is_tsk() {
+            false
+        } else if ks.key_on_agent(&cert.fingerprint()).0 {
+            false
+        } else {
+            true
+        }
+    }).count();
     RNP_SUCCESS
 }
 
@@ -669,8 +685,26 @@ fn rnp_get_public_key_count(ctx: *mut RnpContext,
 fn rnp_get_secret_key_count(ctx: *mut RnpContext,
                             count: *mut size_t)
                             -> RnpResult {
+    rnp_function!(rnp_get_secret_key_count, TRACE);
+
     assert_ptr!(ctx);
-    *count = (*ctx).certs.read().iter().filter(|cert| cert.is_tsk()).count();
+
+    // Make sure the agent listing is up to date.
+    let mut ks = (*ctx).certs.write();
+    ks.key_on_agent_hard(
+        &Fingerprint::from_bytes(b"0000 0000 0000 0000  0000 0000 0000 0000"));
+    drop(ks);
+
+    let ks = (*ctx).certs.read();
+    *count = ks.iter().filter(|cert| {
+        if cert.is_tsk() {
+            true
+        } else {
+            let fpr = &cert.fingerprint();
+            ks.key_on_agent(fpr).0
+        }
+    }).count();
+    t!("-> {}", *count);
     RNP_SUCCESS
 }
 
