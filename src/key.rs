@@ -899,8 +899,9 @@ fn rnp_key_is_protected(key: *mut RnpKey,
     rnp_function!(rnp_key_is_protected, crate::TRACE);
     let key = assert_ptr_ref!(key);
     assert_ptr!(result);
-    *result = key.has_secret() && ! key.has_unencrypted_secret();
-    t!("Key {:X} is {}protected?", key.fingerprint(),
+    *result = (key.has_secret() && ! key.has_unencrypted_secret())
+        || (*key.ctx).certs.key_on_agent(&key.fingerprint());
+    t!("Key {:X} is {}protected", key.fingerprint(),
        if *result { "" } else { "not " });
     RNP_SUCCESS
 }
