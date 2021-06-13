@@ -73,6 +73,36 @@ Debian.
 
 ## Building & Installing
 
+### Using official Linux distribution packages
+
+The Octopus is available from the standard **Fedora** repositories since
+Fedora 34. The official Thunderbird package has also been adapted to allow
+users to choose which of the available PGP backends is used.
+
+If the `thunderbird` package is already installed (and at least at version
+78.11.0), then swapping the RNP backend with the Octopus can be done by
+running the following command:
+
+```sh
+sudo dnf swap thunderbird-librnp-rnp sequoia-octopus-librnp
+```
+
+Switching back to the default backend works the same way, only with reversed
+arguments for the `dnf swap` command:
+
+```sh
+sudo dnf swap sequoia-octopus-librnp thunderbird-librnp-rnp
+```
+
+If Thunderbird is not yet installed, then the preferred OpenPGP backend can be
+specified at install time, as well:
+
+```sh
+sudo dnf install thunderbird sequoia-octopus-librnp
+```
+
+### Building manually
+
 First of all, you will need to [install Sequoia's build dependencies].
 Then, building the Octopus is only a matter of invoking `cargo build`,
 optionally with the `--release` flag to build an optimized build
