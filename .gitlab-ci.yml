@@ -101,16 +101,22 @@ windows-msvc-32:
   stage: cargo_test
   image:
     name: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
-    # Set up a 32-bit environment with VsDevCmd.bat -arch=x86, line copied from Dockerfile.windows.msvc
-    entrypoint: ["C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat", "-arch=x86", "&&", "type", "README", "&&", "powershell.exe", "-NoLogo", "-ExecutionPolicy", "Bypass"]
+    # Set up a cross compilation environment for building x86 binaries on amd64, line copied from Dockerfile.windows.msvc
+    # see https://renenyffenegger.ch/notes/Windows/dirs/Program-Files-x86/Microsoft-Visual-Studio/version/edition/Common7/Tools/VsDevCmd_bat
+    #
+    # Alternatively: ["C:\\BuildTools\\VC\\Auxiliary\\Build\\vcvarsamd64_x86.bat", "&&", "type", "README", "&&", "powershell.exe", "-NoLogo", "-ExecutionPolicy", "Bypass"]
+    # see https://docs.microsoft.com/en-us/cpp/build/building-on-the-command-line?view=msvc-160
+    entrypoint: ["C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat", "-arch=x86", "-host_arch=amd64", "&&", "type", "README", "&&", "powershell.exe", "-NoLogo", "-ExecutionPolicy", "Bypass"]
   before_script:
+    - rm rust-toolchain
     - rustup default stable-i686-pc-windows-msvc
+    - rustup target add i686-pc-windows-msvc
     - rustup show
     - rustc --version --verbose
     - cargo --version
   script:
-    - cargo +stable-i686-pc-windows-msvc build --no-default-features --features crypto-cng --target i686-pc-windows-msvc
-    - cargo +stable-i686-pc-windows-msvc test --no-default-features --features crypto-cng --target i686-pc-windows-msvc
+    - cargo build --no-default-features --features crypto-cng --target i686-pc-windows-msvc
+    - cargo test --no-default-features --features crypto-cng --target i686-pc-windows-msvc
   after_script: []
   variables:
     CFLAGS: "" # Silence some C warnings when compiling with MSVC
@@ -149,13 +155,16 @@ windows-msvc-release-32:
   stage: release
   image:
     name: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
-    entrypoint: ["C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat", "-arch=x86", "&&", "type", "README", "&&", "powershell.exe", "-NoLogo", "-ExecutionPolicy", "Bypass"]
+    entrypoint: ["C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat", "-arch=x86", "-host_arch=amd64", "&&", "type", "README", "&&", "powershell.exe", "-NoLogo", "-ExecutionPolicy", "Bypass"]
   before_script:
+    - rm rust-toolchain
     - rustup default stable-i686-pc-windows-msvc
+    - rustup target add i686-pc-windows-msvc
+    - rustup show
     - rustc --version --verbose
     - cargo --version
   script:
-    - cargo +stable-i686-pc-windows-msvc build --release --no-default-features --features crypto-cng --target i686-pc-windows-msvc
+    - cargo build --release --no-default-features --features crypto-cng --target i686-pc-windows-msvc
   after_script:
     - Get-childItem -Path target\i686-pc-windows-msvc\
     - Rename-Item target\i686-pc-windows-msvc\release\sequoia_octopus_librnp.dll rnp.dll
