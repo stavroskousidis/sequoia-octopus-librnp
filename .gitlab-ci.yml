@@ -82,6 +82,9 @@ windows-msvc:
   stage: cargo_test
   image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
   before_script:
+    - rm rust-toolchain
+    - rustup default stable-x86_64-pc-windows-msvc
+    - rustup show
     - rustc --version --verbose
     - cargo --version
   script:
@@ -121,6 +124,9 @@ windows-msvc-release:
   stage: release
   image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
   before_script:
+    - rm rust-toolchain
+    - rustup default stable-x86_64-pc-windows-msvc
+    - rustup show
     - rustc --version --verbose
     - cargo --version
   script:
