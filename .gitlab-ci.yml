@@ -146,6 +146,32 @@ windows-msvc-release:
   variables:
     CFLAGS: "" # Silence some C warnings when compiling with MSVC
 
+debug-windows-msvc-release:
+  tags:
+    - win
+    - win2019
+  only:
+    - main
+  stage: release
+  image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
+  before_script:
+    - rm rust-toolchain
+    - rustup default stable-x86_64-pc-windows-msvc
+    - rustup show
+    - rustc --version --verbose
+    - cargo --version
+  script:
+    - cargo build --no-default-features --features crypto-cng
+  after_script:
+    - Get-childItem target\debug
+    - Rename-Item target\debug\sequoia_octopus_librnp.dll rnp.dll
+  artifacts:
+    name: "sequoia-octopus-librnp-$CI_COMMIT_SHORT_SHA-debug"
+    paths:
+      - C:\builds\sequoia-pgp\sequoia-octopus-librnp\target\debug\rnp.dll
+  variables:
+    CFLAGS: "" # Silence some C warnings when compiling with MSVC
+
 windows-msvc-release-32:
   tags:
     - win
