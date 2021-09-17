@@ -6,8 +6,9 @@ use libc::{
 fn rnp_version_string_full() -> *const c_char {
     lazy_static::lazy_static! {
         static ref VERSION: Vec<u8> = {
-            let mut b = format!("{}+sequoia-openpgp-{}",
+            let mut b = format!("{}-{}+sequoia-openpgp-{}",
                                 env!("CARGO_PKG_VERSION"),
+                                env!("VERGEN_GIT_SHA_SHORT"),
                                 sequoia_openpgp::VERSION)
                 .into_bytes();
             b.push(0); // Sentinel.
