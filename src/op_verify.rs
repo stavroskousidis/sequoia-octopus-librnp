@@ -292,7 +292,12 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
             status
         } else {
             _warn!("{}", e);
-            RNP_ERROR_GENERIC
+            // We need to return an error that Thunderbird
+            // understands.  It does not understand RNP_ERROR_GENERIC
+            // in this context.  See:
+            //
+            // https://searchfox.org/comm-central/rev/35c9e2929a5ae37d07192315db3787dc01f73441/mail/extensions/openpgp/content/modules/RNP.jsm#953
+            RNP_ERROR_DECRYPT_FAILED
         }
     } else {
         RNP_SUCCESS
