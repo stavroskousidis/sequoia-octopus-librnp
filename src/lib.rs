@@ -525,7 +525,7 @@ fn rnp_load_keys(ctx: *mut RnpContext,
     };
     if ! BANNER_SHOWN.load(atomic::Ordering::Relaxed) {
         warn!("Your Thunderbird is using Sequoia's Octopus, version {}\n\
-               (sequoia-opnepgp: {}).  For details, and to report issues please\n\
+               (sequoia-openpgp: {}).  For details, and to report issues please\n\
                see https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp .",
               env!("CARGO_PKG_VERSION"), sequoia_openpgp::VERSION);
         if let Some(path) = crate::tbprofile::TBProfile::path() {
