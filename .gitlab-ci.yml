@@ -141,6 +141,7 @@ windows-msvc-release:
     - Get-childItem target\release
     - Rename-Item target\release\sequoia_octopus_librnp.dll rnp.dll
   artifacts:
+    name: "sequoia-octopus-librnp-64-bit-$CI_COMMIT_SHORT_SHA"
     paths:
       - C:\builds\sequoia-pgp\sequoia-octopus-librnp\target\release\rnp.dll
   variables:
@@ -166,7 +167,7 @@ debug-windows-msvc-release:
     - Get-childItem target\debug
     - Rename-Item target\debug\sequoia_octopus_librnp.dll rnp.dll
   artifacts:
-    name: "sequoia-octopus-librnp-$CI_COMMIT_SHORT_SHA-debug"
+    name: "sequoia-octopus-librnp-64-bit-$CI_COMMIT_SHORT_SHA-debug"
     paths:
       - C:\builds\sequoia-pgp\sequoia-octopus-librnp\target\debug\rnp.dll
   variables:
@@ -195,6 +196,7 @@ windows-msvc-release-32:
     - Get-childItem -Path target\i686-pc-windows-msvc\
     - Rename-Item target\i686-pc-windows-msvc\release\sequoia_octopus_librnp.dll rnp.dll
   artifacts:
+    name: "sequoia-octopus-librnp-32-bit-$CI_COMMIT_SHORT_SHA"
     paths:
       - C:\builds\sequoia-pgp\sequoia-octopus-librnp\target\i686-pc-windows-msvc\release\rnp.dll
   variables:
