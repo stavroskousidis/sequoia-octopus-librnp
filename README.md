@@ -210,6 +210,11 @@ installed in `C:\Program Files (x86)`), then you need to either switch
 to a 64-bit version of Thunderbird or compile a 32-bit version of the
 Octopus yourself.
 
+If you encounter any errors and wish to investigate, there is also a [debug
+build] available.
+
+  [debug build]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/jobs/artifacts/main/download?job=debug-windows-msvc-release
+
 Before starting Thunderbird with the Octopus, be sure to backup the
 files `pubring.gpg`, `secring.gpg`, and `openpgp.sqlite` in your
 Thunderbird profile.  Your Thunderbird profile is usually located in
