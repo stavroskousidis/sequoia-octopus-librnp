@@ -198,7 +198,7 @@ is checked into the `main` branch, it must first pass our unit tests
 on both Debian and Windows, and it must past the Thunderbird unit
 tests on Debian.
 
-  [`rnp.dll`]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/jobs/artifacts/main/raw/target/release/rnp.dll?job=windows-msvc-release
+  [`rnp.dll`]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/jobs/artifacts/main/download?job=windows-msvc-release
 
 To use the Octopus, replace the `rnp.dll` binary in your Thunderbird
 installation.  Thunderbird is usually installed to `C:\Program
