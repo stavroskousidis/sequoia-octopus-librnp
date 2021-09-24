@@ -147,8 +147,22 @@ cp target/release/libsequoia_octopus_librnp.so path/to/thunderbird/obj-x86_64-pc
 
 ### Debug build with the Windows CNG cryptographic backend
 
+The following recipes create debug builds.  To create a release build,
+add `--release` after `cargo build` (`cargo build --release ...`).
+
+For a 64-bit build, run:
+
 ```sh
-cargo build --no-default-features --features crypto-cng
+rustup target add x86_64-pc-windows-msvc
+cargo build --no-default-features --features crypto-cng --target x86_64-pc-windows-msvc
+cp target/debug/sequoia_octopus_librnp.dll path/to/thunderbird/.../dist/bin/rnp.dll # XXX: I'm guessing here
+```
+
+For a 32-bit build, run:
+
+```sh
+rustup target add i686-pc-windows-msvc
+cargo build --no-default-features --features crypto-cng --target i686-pc-windows-msvc
 cp target/debug/sequoia_octopus_librnp.dll path/to/thunderbird/.../dist/bin/rnp.dll # XXX: I'm guessing here
 ```
 
