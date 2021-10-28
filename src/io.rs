@@ -229,6 +229,24 @@ fn rnp_output_to_armor<'a>(sink: *mut RnpOutput<'a>,
 }
 
 #[no_mangle] pub unsafe extern "C"
+fn rnp_output_armor_set_line_length<'a>(_: *mut RnpOutput<'a>,
+                                        llen: size_t)
+                                        -> RnpResult {
+    rnp_function!(rnp_output_armor_set_line_length, crate::TRACE);
+    if llen == 64 {
+        // This is Sequoia's default line length, there is nothing to
+        // do.  Another job well done.
+    } else {
+        // Currently, there is no API to change the line length, nor
+        // do I think there is a use case for changing the line
+        // length.  Emit a warning and move on.
+        warn!("rnp_output_armor_set_line_length: setting length to {} ignored",
+              llen);
+    }
+    RNP_SUCCESS
+}
+
+#[no_mangle] pub unsafe extern "C"
 fn rnp_output_destroy(output: *mut RnpOutput) -> RnpResult {
     if ! output.is_null() {
         drop(Box::from_raw(output));
