@@ -57,15 +57,11 @@ windows-gnu:
     - win2019
   stage: cargo_test
   image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-gnu
-  # This job takes ~20 minutes to run, let's only execute it manually or for
-  # scheduled builds, otherwise this will stall MRs often not related to Windows
-  only:
-    - /windows/i # refs containing 'windows' keyword
-    - tags
-    - web
-    - schedules
   before_script:
     - clang -v
+    - rm rust-toolchain
+    - rustup default stable
+    - rustup show
     - rustc --version --verbose
     - cargo --version
   script:
