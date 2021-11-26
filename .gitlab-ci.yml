@@ -127,6 +127,7 @@ windows-msvc-release:
     - win2019
   only:
     - main
+  needs: ["windows-msvc"]
   stage: release
   image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
   before_script:
@@ -179,6 +180,7 @@ windows-msvc-release-32:
     - win2019
   only:
     - main
+  needs: ["windows-msvc-32"]
   stage: release
   image:
     name: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
