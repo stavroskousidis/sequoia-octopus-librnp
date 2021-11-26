@@ -123,7 +123,7 @@ windows-msvc-release:
     - win2019
   only:
     - main
-  needs: ["windows-msvc"]
+  needs: ["windows-msvc", "thunderbird-tests-esr78", "thunderbird-tests-beta", "thunderbird-tests-esr91"]
   stage: release
   image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
   before_script:
@@ -150,6 +150,7 @@ debug-windows-msvc-release:
     - win2019
   only:
     - main
+  needs: ["windows-msvc", "thunderbird-tests-esr78", "thunderbird-tests-beta", "thunderbird-tests-esr91"]
   stage: release
   image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
   before_script:
@@ -176,7 +177,7 @@ windows-msvc-release-32:
     - win2019
   only:
     - main
-  needs: ["windows-msvc-32"]
+  needs: ["windows-msvc-32", "thunderbird-tests-esr78", "thunderbird-tests-beta", "thunderbird-tests-esr91"]
   stage: release
   image:
     name: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
