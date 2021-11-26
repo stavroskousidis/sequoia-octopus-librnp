@@ -224,8 +224,6 @@ windows-msvc-release-32:
   after_script: []
   tags:
     - cookiejar
-  except:
-    - schedules
   variables:
     CARGO_TARGET_DIR: $CI_PROJECT_DIR/../target.$CI_CONCURRENT_ID.bullseye
     RUSTFLAGS: -D warnings -A unused-parens
