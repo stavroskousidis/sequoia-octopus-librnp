@@ -238,6 +238,10 @@ thunderbird-tests-beta:
   extends: .thunderbird-tests
   image: registry.gitlab.com/sequoia-pgp/build-thunderbird/tbbuild_beta:for_ci
 
+thunderbird-tests-esr91:
+  extends: .thunderbird-tests
+  image: registry.gitlab.com/sequoia-pgp/build-thunderbird/tbbuild_esr91:for_ci
+
 variables:
   DEBIAN_FRONTEND: noninteractive
   CARGO_HOME: $CI_PROJECT_DIR/../cargo
