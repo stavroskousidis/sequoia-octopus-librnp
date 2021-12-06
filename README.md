@@ -133,21 +133,28 @@ Thunderbird will work as before with all of your data.  Of course, you
 should still make a backup (of at least `pubring.gpg`, `secring.gpg`,
 and `openpgp.sqlite`).
 
-### Debug build with the default cryptographic backend
+#### Building on Linux
+
+To use a debug build, do the following:
 
 ```sh
 cargo build
 cp target/debug/libsequoia_octopus_librnp.so path/to/thunderbird/obj-x86_64-pc-linux-gnu/dist/bin/librnp.so
 ```
 
-### Release build with the default cryptographic backend
+To use a release build, do the following:
 
 ```sh
 cargo build --release
 cp target/release/libsequoia_octopus_librnp.so path/to/thunderbird/obj-x86_64-pc-linux-gnu/dist/bin/librnp.so
 ```
 
-### Debug build with the Windows CNG cryptographic backend
+#### Building on Windows (MSVC)
+
+There still exist some 32-bit installations of Thunderbird, even on 64-bit Windows.
+The bitness of Thunderbird and the Octopus *must* match, so please check with "About Thunderbird".
+
+The MSVC toolchain only supports the Windows CNG cryptographic backend.
 
 The following recipes create debug builds.  To create a release build,
 add `--release` after `cargo build` (`cargo build --release ...`).
@@ -157,7 +164,8 @@ For a 64-bit build, run:
 ```sh
 rustup target add x86_64-pc-windows-msvc
 cargo build --no-default-features --features crypto-cng --target x86_64-pc-windows-msvc
-cp target/debug/sequoia_octopus_librnp.dll path/to/thunderbird/.../dist/bin/rnp.dll # XXX: I'm guessing here
+cp target/x86_64-pc-windows-msvc/debug/sequoia_octopus_librnp.dll "C:\Program Files\Mozilla Thunderbird\rnp.dll"
+
 ```
 
 For a 32-bit build, run:
@@ -165,7 +173,51 @@ For a 32-bit build, run:
 ```sh
 rustup target add i686-pc-windows-msvc
 cargo build --no-default-features --features crypto-cng --target i686-pc-windows-msvc
-cp target/debug/sequoia_octopus_librnp.dll path/to/thunderbird/.../dist/bin/rnp.dll # XXX: I'm guessing here
+cp target/i686-pc-windows-msvc/debug/sequoia_octopus_librnp.dll "C:\Program Files (x86)\Mozilla Thunderbird\rnp.dll"
+```
+
+#### Building on Windows (MSYS2)
+
+There still exist some 32-bit installations of Thunderbird, even on 64-bit Windows.
+The bitness of Thunderbird and the Octopus *must* match, so please check with "About Thunderbird".
+
+The MSYS2 toolchain supports both the Nettle and the Windows CNG cryptographic backend.
+
+The following recipes create debug builds.  To create a release build,
+add `--release` after `cargo build` (`cargo build --release ...`).
+
+For a 64-bit build with CNG, run:
+
+```sh
+rustup target add x86_64-pc-windows-gnu
+cargo build --no-default-features --features crypto-cng --target x86_64-pc-windows-gnu
+cp target/x86_64-pc-windows-gnu/debug/sequoia_octopus_librnp.dll "C:\Program Files\Mozilla Thunderbird\rnp.dll"
+
+```
+
+For a 32-bit build with CNG, run:
+
+```sh
+rustup target add i686-pc-windows-gnu
+cargo build --no-default-features --features crypto-cng --target i686-pc-windows-gnu
+cp target/i686-pc-windows-gnu/debug/sequoia_octopus_librnp.dll "C:\Program Files (x86)\Mozilla Thunderbird\rnp.dll"
+```
+
+For a 64-bit build with Nettle, run:
+
+```sh
+rustup target add x86_64-pc-windows-gnu
+cargo build --target x86_64-pc-windows-gnu
+cp target/x86_64-pc-windows-gnu/debug/sequoia_octopus_librnp.dll "C:\Program Files\Mozilla Thunderbird\rnp.dll"
+
+```
+
+For a 32-bit build with Nettle, run:
+
+```sh
+rustup target add i686-pc-windows-gnu
+cargo build --target i686-pc-windows-gnu
+cp target/i686-pc-windows-gnu/debug/sequoia_octopus_librnp.dll "C:\Program Files (x86)\Mozilla Thunderbird\rnp.dll"
 ```
 
 ### Using Debian's Thunderbird
@@ -218,7 +270,7 @@ tests on Debian.
 
 To use the Octopus, replace the `rnp.dll` binary in your Thunderbird
 installation.  Thunderbird is usually installed to `C:\Program
-Files\Mozilla Thunderbird\rnp.dll`.
+Files\Mozilla Thunderbird`.
 
 Note: this will only work with a 64-bit build of Thunderbird.  If you
 are using a 32-bit build (you can tell as your Thunderbird would be
