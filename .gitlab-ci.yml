@@ -1,3 +1,10 @@
+# Only ever create pipelines for tags or branches.
+# Avoid creation of detached pipelines for merge requests.
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH
+
 stages:
   - pre-check
   - cargo_test
@@ -49,6 +56,23 @@ codespell:
       codespell --disable-colors
       -L "crate,ede,iff,mut,nd,te,uint,KeyServer,keyserver,Keyserver,keyservers,Keyservers,keypair,keypairs,KeyPair,fpr,dedup"
       -S "*.bin,*.gpg,*.pgp,./.git,data,highlight.js,*/target,Makefile"
+  after_script: []
+
+deny:
+  tags:
+    - linux
+  stage: pre-check
+  image: registry.gitlab.com/sequoia-pgp/build-docker-image/rust-stable:latest
+  rules:
+    - if: '$CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      allow_failure: false
+  before_script:
+    - cargo deny --version
+  script:
+    - cargo deny --color always check
   after_script: []
 
 windows-gnu:
@@ -121,8 +145,8 @@ windows-msvc-release:
   tags:
     - win
     - win2019
-  only:
-    - main
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
   needs: ["windows-msvc", "thunderbird-tests-esr78", "thunderbird-tests-beta", "thunderbird-tests-esr91"]
   stage: release
   image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
@@ -148,8 +172,8 @@ debug-windows-msvc-release:
   tags:
     - win
     - win2019
-  only:
-    - main
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
   needs: ["windows-msvc", "thunderbird-tests-esr78", "thunderbird-tests-beta", "thunderbird-tests-esr91"]
   stage: release
   image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
@@ -175,8 +199,8 @@ windows-msvc-release-32:
   tags:
     - win
     - win2019
-  only:
-    - main
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
   needs: ["windows-msvc-32", "thunderbird-tests-esr78", "thunderbird-tests-beta", "thunderbird-tests-esr91"]
   stage: release
   image:
