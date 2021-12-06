@@ -143,8 +143,7 @@ impl ParcimonieServer {
         thread::sleep(Duration::new(delay, 0));
 
         let mut rng = rand::thread_rng();
-        let mut rt = tokio::runtime::Builder::new()
-            .basic_scheduler()
+        let rt = tokio::runtime::Builder::new_current_thread()
             .enable_io()
             .enable_time()
             .build()?;
