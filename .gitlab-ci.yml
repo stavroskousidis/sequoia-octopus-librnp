@@ -16,11 +16,11 @@ after_script:
   - du -sh $CARGO_TARGET_DIR
   - du -sh $CARGO_HOME
 
-bullseye:
+bookworm:
   tags:
     - linux
   stage: cargo_test
-  image: registry.gitlab.com/sequoia-pgp/build-docker-image/bullseye:latest
+  image: registry.gitlab.com/sequoia-pgp/build-docker-image/bookworm:latest
   dependencies:
     - codespell
 
@@ -31,7 +31,7 @@ bullseye:
     - cp $CARGO_TARGET_DIR/debug/libsequoia_octopus_librnp.so libsequoia_octopus_librnp.so
 
   variables:
-    CARGO_TARGET_DIR: $CI_PROJECT_DIR/../target.$CI_CONCURRENT_ID.bullseye
+    CARGO_TARGET_DIR: $CI_PROJECT_DIR/../target.$CI_CONCURRENT_ID.bookworm
     RUSTFLAGS: -D warnings -A unused-parens
   artifacts:
     paths: [libsequoia_octopus_librnp.so]
@@ -40,7 +40,7 @@ codespell:
   tags:
     - linux
   stage: pre-check
-  image: registry.gitlab.com/sequoia-pgp/build-docker-image/bullseye:latest
+  image: registry.gitlab.com/sequoia-pgp/build-docker-image/bookworm:latest
 
   before_script:
     - codespell --version
@@ -203,7 +203,7 @@ windows-msvc-release-32:
 
 .thunderbird-tests:
   stage: tb_test
-  needs: ["bullseye"]
+  needs: ["bookworm"]
   before_script:
     - apt update
     - apt install -y -qq --no-install-recommends git rustc cargo clang libclang-dev make pkg-config nettle-dev libssl-dev capnproto libsqlite3-dev procps
@@ -222,7 +222,7 @@ windows-msvc-release-32:
   tags:
     - cookiejar
   variables:
-    CARGO_TARGET_DIR: $CI_PROJECT_DIR/../target.$CI_CONCURRENT_ID.bullseye
+    CARGO_TARGET_DIR: $CI_PROJECT_DIR/../target.$CI_CONCURRENT_ID.bookworm
     RUSTFLAGS: -D warnings -A unused-parens
     # We're pulling in the artifact from the build job, no need for the code.
     GIT_STRATEGY: none
