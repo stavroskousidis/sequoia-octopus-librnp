@@ -46,10 +46,12 @@ backup (of at least `pubring.gpg`, `secring.gpg`, and
 
 # Support
 
-The Octopus is actively developed by the [Sequoia PGP] team.  We are
-primarily financed by the [pep foundation].  Our mandate is
-specifically to improve the OpenPGP ecosystem, and more generally to
-improve internet freedom tools.
+The Octopus is actively maintained by the [Sequoia PGP] team.  We will respond
+to issues and support requests, but we are not actively developing new features
+(however, the Octopus should have feature parity with Thunderbird's default
+backend).  We are primarily financed by the [pep foundation].  Our mandate is
+specifically to improve the OpenPGP ecosystem, and more generally to improve
+internet freedom tools.
 
   [Sequoia PGP]: https://sequoia-pgp.org/
   [pep foundation]: https://pep.foundation/
