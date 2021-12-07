@@ -40,7 +40,6 @@ use openpgp::{
 use crate::{
     gpg,
     Keygrip,
-    keyring::parse_keyring,
     parcimonie::Parcimonie,
 };
 
@@ -584,7 +583,8 @@ impl KeystoreData {
         rnp_function!(KeystoreData::load_keyring, super::TRACE);
 
         // Parse the keyring without the lock.
-        let certs = match parse_keyring(std::io::Cursor::new(keyring)) {
+        use sequoia_openpgp_mt::keyring;
+        let certs = match keyring::parse(std::io::Cursor::new(keyring)) {
             Ok(certs) => certs,
             Err(err) => {
                 t!("Parsing keyring: {}", err);

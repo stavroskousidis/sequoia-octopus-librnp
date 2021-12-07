@@ -8,7 +8,6 @@ use crate::{
     RnpResult,
     RnpContext,
     RnpInput,
-    keyring::parse_keyring,
     str_to_rnp_buffer,
     flags::*,
     error::*,
@@ -125,7 +124,7 @@ fn rnp_import_keys(ctx: *mut RnpContext,
     let f = || -> openpgp::Result<()> {
         // First, load into an accumulator.  If any cert is bad, and
         // not keep_going, then the whole operation should fail.
-        let certs = parse_keyring(input)?;
+        let certs = sequoia_openpgp_mt::keyring::parse(input)?;
         let mut acc = Vec::new();
         for cert in certs {
             t!("Considering cert {:?}", cert.as_ref().map(|c| c.fingerprint()));

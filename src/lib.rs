@@ -106,7 +106,6 @@ mod userid;
 use userid::RnpUserID;
 #[allow(dead_code)]
 mod import;
-mod keyring;
 // The gpg module is copied from OpenPGP CA.  We don't want to modify
 // it.
 #[allow(dead_code)]
