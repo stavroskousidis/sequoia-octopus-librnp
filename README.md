@@ -60,11 +60,7 @@ Currently, the Octopus is developed outside of Thunderbird.  There are
 two main reasons for this.  First, the Thunderbird developers do not
 want to invest resources in supporting a new OpenPGP backend after
 having recently invested in RNP.  Second, Sequoia and the Octopus are
-licensed under the GPLv2+.  Although the GPLv2+ is [compatible with
-MPL 2.0], adding GPLv2+ code to Thunderbird is not currently aligned
-with their licensing strategy.
-
-  [compatible with MPL 2.0]: https://www.gnu.org/licenses/license-list.html#MPL-2.0
+licensed under the GPLv2+.
 
 In terms of testing, the Octopus includes a number of unit tests.  Our
 CI runs these checks against all commits on Debian and Windows.  It
