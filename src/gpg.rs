@@ -3,8 +3,8 @@
 // This file is part of OpenPGP CA
 // https://gitlab.com/openpgp-ca/openpgp-ca
 //
-// SPDX-FileCopyrightText: 2019-2020 Heiko Schaefer <heiko@schaefer.name>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2019-2020 Heiko Schaefer <heiko@schaefer.name>, 2019-2021 pep Foundation
+// SPDX-License-Identifier: LGPL-2.0-or-later
 
 use std::collections::BTreeMap;
 
