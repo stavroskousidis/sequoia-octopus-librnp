@@ -34,16 +34,27 @@ pub unsafe extern "C" fn rnp_version(
     )
 }
 
-
 #[no_mangle]
 pub unsafe extern "C" fn rnp_version_string_full() -> *const c_char {
     lazy_static::lazy_static! {
         static ref VERSION: Vec<u8> = {
-            let mut b = format!("{}-{}+sequoia-openpgp-{}",
-                                env!("CARGO_PKG_VERSION"),
-                                env!("VERGEN_GIT_SHA_SHORT"),
-                                sequoia_openpgp::VERSION)
-                .into_bytes();
+            let mut b = match option_env!("VERGEN_GIT_SHA_SHORT") {
+                Some(git_sha) => {
+                    format!(
+                        "{}-{}+sequoia-openpgp-{}",
+                        env!("CARGO_PKG_VERSION"),
+                        git_sha,
+                        sequoia_openpgp::VERSION
+                    ).into_bytes()
+                }
+                None => {
+                    format!(
+                        "{}+sequoia-openpgp-{}",
+                        env!("CARGO_PKG_VERSION"),
+                        sequoia_openpgp::VERSION
+                    ).into_bytes()
+                }
+            };
             b.push(0); // Sentinel.
             b
         };
