@@ -144,6 +144,8 @@ cargo build --release
 cp target/release/libsequoia_octopus_librnp.so path/to/thunderbird/obj-x86_64-pc-linux-gnu/dist/bin/librnp.so
 ```
 
+On debian bullseye it is not possible to build versions >= v1.2.1. You can follow these instructions: [Debian Bullseye](README-Debian.md)
+
 #### Building on Windows (MSVC)
 
 There still exist some 32-bit installations of Thunderbird, even on 64-bit Windows.
