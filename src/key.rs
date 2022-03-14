@@ -1480,6 +1480,119 @@ fn rnp_key_valid_till(key: *mut RnpKey,
     RNP_SUCCESS
 }
 
+#[no_mangle] pub unsafe extern "C"
+fn rnp_key_25519_bits_tweaked(key: *mut RnpKey, result_out: *mut bool)
+                              -> RnpResult {
+    rnp_function!(rnp_key_25519_bits_tweaked, crate::TRACE);
+    let key = assert_ptr_ref!(key);
+    assert_ptr!(result_out);
+
+    // First, check that we are a Curve25519 key.
+    use openpgp::crypto::mpi::PublicKey;
+    match key.key.mpis() {
+        | PublicKey::ECDH { curve, .. } => {
+            use openpgp::types::Curve::*;
+            // We want to return an error on unknown curves.
+            match curve {
+                Cv25519 => (),
+                _ => return RNP_ERROR_BAD_PARAMETERS,
+            };
+        },
+        // Not an ECC algorithm.
+        _ => return RNP_ERROR_BAD_PARAMETERS,
+    }
+
+    // Now check the secret.
+    use openpgp::packet::key;
+    match key.key.optional_secret() {
+        Some(key::SecretKeyMaterial::Unencrypted(k)) => k.map(|secret| {
+            use openpgp::crypto::mpi::SecretKeyMaterial;
+            match secret {
+                SecretKeyMaterial::ECDH { scalar } => {
+                    // OpenPGP stores the secret in reverse order.
+                    const CURVE25519_SIZE: usize = 32;
+                    const FIRST: usize = CURVE25519_SIZE - 1;
+                    const LAST: usize = 0;
+
+                    // Curve25519 Paper, Sec. 3: A user can, for
+                    // example, generate 32 uniform random bytes,
+                    // clear bits 0, 1, 2 of the first byte, clear bit
+                    // 7 of the last byte, and set bit 6 of the last
+                    // byte.
+                    let scalar = scalar.value_padded(CURVE25519_SIZE);
+                    *result_out =
+                        scalar[FIRST] & !0b1111_1000 == 0
+                        && scalar[LAST] & 0b1000_0000 == 0
+                        && scalar[LAST] & 0b0100_0000 == 0b0100_0000;
+                    RNP_SUCCESS
+
+                },
+                _ => RNP_ERROR_BAD_PARAMETERS,
+            }
+        }),
+        _ => RNP_ERROR_BAD_PARAMETERS,
+    }
+}
+
+#[no_mangle] pub unsafe extern "C"
+fn rnp_key_25519_bits_tweak(key: *mut RnpKey)
+                            -> RnpResult {
+    rnp_function!(rnp_key_25519_bits_tweak, crate::TRACE);
+    let key = assert_ptr_mut!(key);
+
+    // First, check that we are a Curve25519 key.
+    use openpgp::crypto::mpi::PublicKey;
+    match key.key.mpis() {
+        | PublicKey::ECDH { curve, .. } => {
+            use openpgp::types::Curve::*;
+            // We want to return an error on unknown curves.
+            match curve {
+                Cv25519 => (),
+                _ => return RNP_ERROR_BAD_PARAMETERS,
+            };
+        },
+        // Not an ECC algorithm.
+        _ => return RNP_ERROR_BAD_PARAMETERS,
+    }
+
+    // Now check and clone the secret.
+    const CURVE25519_SIZE: usize = 32;
+    use openpgp::packet::key;
+    use openpgp::crypto::mpi;
+    let mut secret =
+        match key.key.optional_secret() {
+            Some(key::SecretKeyMaterial::Unencrypted(k)) =>
+                rnp_try!(k.map(|secret| {
+                    match secret {
+                        mpi::SecretKeyMaterial::ECDH { scalar } =>
+                            Ok(scalar.value_padded(CURVE25519_SIZE)),
+                        _ => Err(RNP_ERROR_BAD_PARAMETERS),
+                    }
+                })),
+            _ => return RNP_ERROR_BAD_PARAMETERS,
+        };
+
+    // OpenPGP stores the secret in reverse order.
+    const FIRST: usize = CURVE25519_SIZE - 1;
+    const LAST: usize = 0;
+
+    // Curve25519 Paper, Sec. 3: A user can, for example, generate 32
+    // uniform random bytes, clear bits 0, 1, 2 of the first byte,
+    // clear bit 7 of the last byte, and set bit 6 of the last byte.
+    secret[FIRST] &= 0b1111_1000;
+    secret[LAST] &= !0b1000_0000;
+    secret[LAST] |= 0b0100_0000;
+
+    // Finally, replace the secret in the key.
+    key.key = key.key.clone().add_secret(
+        key::SecretKeyMaterial::Unencrypted(
+            mpi::SecretKeyMaterial::ECDH { scalar: secret.into(), }
+            .into()))
+        .0.parts_into_unspecified();
+
+    RNP_SUCCESS
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1703,5 +1816,138 @@ mod tests {
         assert_eq!(r, RNP_SUCCESS);
 
         Ok(())
+    }
+
+    #[test]
+    fn curve25519_secret_tweaking() {
+        fn test(buffer: &[u8]) {
+            let mut ctx: *mut RnpContext = std::ptr::null_mut();
+            let r = unsafe {
+                rnp_ffi_create(
+                    &mut ctx as *mut *mut _,
+                    b"GPG\x00".as_ptr() as *const c_char,
+                    b"GPG\x00".as_ptr() as *const c_char)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let mut input: *mut RnpInput = std::ptr::null_mut();
+            let r = unsafe {
+                rnp_input_from_memory(
+                    &mut input as *mut *mut _,
+                    buffer.as_ptr(), buffer.len(), false)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            // And load the certificate.
+            let r = unsafe {
+                rnp_import_keys(
+                    ctx, input,
+                    RNP_LOAD_SAVE_PUBLIC_KEYS
+                        | RNP_LOAD_SAVE_SECRET_KEYS,
+                    std::ptr::null_mut() as *mut *mut _)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let r = unsafe {
+                rnp_input_destroy(input)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            log!("ctx: keystore: {:?}", unsafe { &mut *ctx }.certs);
+
+            let mut key: *mut RnpKey = std::ptr::null_mut();
+            let r = unsafe {
+                rnp_locate_key(
+                    ctx,
+                    b"fingerprint\x00".as_ptr()
+                        as *const c_char,
+                    b"EA02B24FFD4C1B96616D3DF24766F6B9D5F21EB6\x00".as_ptr()
+                        as *const c_char,
+                    &mut key as *mut *mut _)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let mut result = false;
+            let r = unsafe {
+                rnp_key_25519_bits_tweaked(key, &mut result)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+            assert_eq!(result, false);
+
+            let r = unsafe {
+                rnp_key_25519_bits_tweak(key)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let mut result = false;
+            let r = unsafe {
+                rnp_key_25519_bits_tweaked(key, &mut result)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+            assert_eq!(result, true);
+
+            let r = unsafe {
+                rnp_key_handle_destroy(key)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let r = unsafe {
+                rnp_ffi_destroy(ctx)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+
+        // Secret with LSB set.
+        test(b"-----BEGIN PGP PRIVATE KEY BLOCK-----
+
+xVgEXEcE6RYJKwYBBAHaRw8BAQdArjWwk3FAqyiFbFBKT4TzXcVBqPTB3gmzlC/U
+b7O1u10AAP9XBeW6lzGOLx7zHH9AsUDUTb2pggYGMzd0P3ulJ2AfvQ4RzSZBbGlj
+ZSBMb3ZlbGFjZSA8YWxpY2VAb3BlbnBncC5leGFtcGxlPsKQBBMWCAA4AhsDBQsJ
+CAcCBhUKCQgLAgQWAgMBAh4BAheAFiEE64W7X6M6deFelE5j8jFVDE9H444FAl2l
+nzoACgkQ8jFVDE9H447pKwD6A5xwUqIDprBzrHfahrImaYEZzncqb25vkLV2arYf
+a78A/R3AwtLQvjxwLDuzk4dUtUwvUYibL2sAHwj2kGaHnfICx10EXEcE6RIKKwYB
+BAGXVQEFAQEHQEL/BiGtq0k84Km1wqQw2DIikVYrQrMttN8d7BPfnr4iAwEIBwAA
+/3/xFPG6U17rhTuq+07gmEvaFYKfxRB6sgAYiW6TMTpREK/CeAQYFggAIBYhBOuF
+u1+jOnXhXpROY/IxVQxPR+OOBQJcRwTpAhsMAAoJEPIxVQxPR+OOWdABAMUdSzpM
+hzGs1O0RkWNQWbUzQ8nUOeD9wNbjE3zR+yfRAQDbYqvtWQKN4AQLTxVJN5X5AWyb
+Pnn+We1aTBhaGa86AQ==
+=iQ01
+-----END PGP PRIVATE KEY BLOCK-----
+");
+        // Secret with MSB set.
+        test(b"-----BEGIN PGP PRIVATE KEY BLOCK-----
+
+xVgEXEcE6RYJKwYBBAHaRw8BAQdArjWwk3FAqyiFbFBKT4TzXcVBqPTB3gmzlC/U
+b7O1u10AAP9XBeW6lzGOLx7zHH9AsUDUTb2pggYGMzd0P3ulJ2AfvQ4RzSZBbGlj
+ZSBMb3ZlbGFjZSA8YWxpY2VAb3BlbnBncC5leGFtcGxlPsKQBBMWCAA4AhsDBQsJ
+CAcCBhUKCQgLAgQWAgMBAh4BAheAFiEE64W7X6M6deFelE5j8jFVDE9H444FAl2l
+nzoACgkQ8jFVDE9H447pKwD6A5xwUqIDprBzrHfahrImaYEZzncqb25vkLV2arYf
+a78A/R3AwtLQvjxwLDuzk4dUtUwvUYibL2sAHwj2kGaHnfICx10EXEcE6RIKKwYB
+BAGXVQEFAQEHQEL/BiGtq0k84Km1wqQw2DIikVYrQrMttN8d7BPfnr4iAwEIBwAB
+AP/xFPG6U17rhTuq+07gmEvaFYKfxRB6sgAYiW6TMTpQEDDCeAQYFggAIBYhBOuF
+u1+jOnXhXpROY/IxVQxPR+OOBQJcRwTpAhsMAAoJEPIxVQxPR+OOWdABAMUdSzpM
+hzGs1O0RkWNQWbUzQ8nUOeD9wNbjE3zR+yfRAQDbYqvtWQKN4AQLTxVJN5X5AWyb
+Pnn+We1aTBhaGa86AQ==
+=YOA6
+-----END PGP PRIVATE KEY BLOCK-----
+");
+
+        // Secret with 2^254 bit cleared.
+        test(b"-----BEGIN PGP PRIVATE KEY BLOCK-----
+
+xVgEXEcE6RYJKwYBBAHaRw8BAQdArjWwk3FAqyiFbFBKT4TzXcVBqPTB3gmzlC/U
+b7O1u10AAP9XBeW6lzGOLx7zHH9AsUDUTb2pggYGMzd0P3ulJ2AfvQ4RzSZBbGlj
+ZSBMb3ZlbGFjZSA8YWxpY2VAb3BlbnBncC5leGFtcGxlPsKQBBMWCAA4AhsDBQsJ
+CAcCBhUKCQgLAgQWAgMBAh4BAheAFiEE64W7X6M6deFelE5j8jFVDE9H444FAl2l
+nzoACgkQ8jFVDE9H447pKwD6A5xwUqIDprBzrHfahrImaYEZzncqb25vkLV2arYf
+a78A/R3AwtLQvjxwLDuzk4dUtUwvUYibL2sAHwj2kGaHnfICx10EXEcE6RIKKwYB
+BAGXVQEFAQEHQEL/BiGtq0k84Km1wqQw2DIikVYrQrMttN8d7BPfnr4iAwEIBwAA
+/j/xFPG6U17rhTuq+07gmEvaFYKfxRB6sgAYiW6TMTpQEG3CeAQYFggAIBYhBOuF
+u1+jOnXhXpROY/IxVQxPR+OOBQJcRwTpAhsMAAoJEPIxVQxPR+OOWdABAMUdSzpM
+hzGs1O0RkWNQWbUzQ8nUOeD9wNbjE3zR+yfRAQDbYqvtWQKN4AQLTxVJN5X5AWyb
+Pnn+We1aTBhaGa86AQ==
+=Txnk
+-----END PGP PRIVATE KEY BLOCK-----
+");
     }
 }
