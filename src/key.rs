@@ -310,6 +310,39 @@ fn rnp_key_get_alg(key: *const RnpKey,
     RNP_SUCCESS
 }
 
+#[no_mangle] pub unsafe extern "C"
+fn rnp_key_get_curve(key: *mut RnpKey, curve_out: *mut *mut c_char)
+                     -> RnpResult {
+    rnp_function!(rnp_key_get_curve, crate::TRACE);
+    let key = assert_ptr_ref!(key);
+    assert_ptr!(curve_out);
+
+    use openpgp::crypto::mpi::PublicKey;
+    match key.key.mpis() {
+        | PublicKey::EdDSA { curve, .. }
+        | PublicKey::ECDSA { curve, .. }
+        | PublicKey::ECDH { curve, .. } => {
+            use openpgp::types::Curve::*;
+            // We want to return an error on unknown curves.
+            match curve {
+                | NistP256
+                | NistP384
+                | NistP521
+                | BrainpoolP256
+                | BrainpoolP512
+                | Ed25519
+                | Cv25519 => (),
+                _ => return RNP_ERROR_BAD_PARAMETERS,
+            };
+
+            *curve_out = str_to_rnp_buffer(curve.to_rnp_id());
+            RNP_SUCCESS
+        },
+        // Not an ECC algorithm.
+        _ => RNP_ERROR_BAD_PARAMETERS
+    }
+}
+
 impl RnpKey {
     fn is_primary(&mut self) -> Result<bool> {
         let key_fpr = self.fingerprint();
