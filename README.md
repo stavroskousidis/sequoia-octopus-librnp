@@ -56,11 +56,10 @@ internet freedom tools.
   [Sequoia PGP]: https://sequoia-pgp.org/
   [pep foundation]: https://pep.foundation/
 
-Currently, the Octopus is developed outside of Thunderbird.  There are
-two main reasons for this.  First, the Thunderbird developers do not
+Currently, the Octopus is developed outside of Thunderbird.  The
+main reasons for this is that the Thunderbird developers do not
 want to invest resources in supporting a new OpenPGP backend after
-having recently invested in RNP.  Second, Sequoia and the Octopus are
-licensed under the LGPLv2+.
+having recently invested in RNP.
 
 In terms of testing, the Octopus includes a number of unit tests.  Our
 CI runs these checks against all commits on Debian and Windows.  It
