@@ -849,18 +849,7 @@ fn rnp_key_export(key: *mut RnpKey,
             (false, false) => cert.export(sink)?,
             (false,  true) => cert.as_tsk().export(sink)?,
             ( true, false) => cert.armored().export(sink)?,
-            ( true,  true) => {
-                // XXX: This is not available in sequoia-openpgp 1.0:
-                //
-                // cert.as_tsk().armored().export(sink)?
-                //
-                // Drop this workaround once we depend on >= 1.1, and
-                // use the above instead.
-                use openpgp::armor::{Writer, Kind};
-                let mut w = Writer::new(sink, Kind::SecretKey)?;
-                cert.as_tsk().serialize(&mut w)?;
-                w.finalize()?;
-            },
+            ( true,  true) => cert.as_tsk().armored().export(sink)?,
         }
         Ok(())
     }
