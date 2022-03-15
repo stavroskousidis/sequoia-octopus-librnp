@@ -1590,7 +1590,24 @@ fn rnp_key_25519_bits_tweak(key: *mut RnpKey)
             .into()))
         .0.parts_into_unspecified();
 
-    RNP_SUCCESS
+    // And update the cert.
+    let k = key.key.clone().parts_into_secret().unwrap();
+    if let Some(mut cert) = key.cert_mut() {
+        let key: openpgp::Packet =
+            if k.fingerprint() == cert.fingerprint() {
+                k.role_into_primary().into()
+            } else {
+                k.role_into_subordinate().into()
+            };
+
+        *cert = rnp_try_or!(cert.clone().insert_packets(Some(key)),
+                            RNP_ERROR_GENERIC);
+        RNP_SUCCESS
+    } else {
+        warn!("Key for {:X} not found in keyring", k.fingerprint());
+        RNP_ERROR_GENERIC
+    }
+
 }
 
 #[cfg(test)]
@@ -1878,6 +1895,36 @@ mod tests {
                 rnp_key_25519_bits_tweak(key)
             };
             assert_eq!(r, RNP_SUCCESS);
+
+            // Check modification against reference.
+            let reference = b"-----BEGIN PGP PRIVATE KEY BLOCK-----
+Comment: EB85 BB5F A33A 75E1 5E94  4E63 F231 550C 4F47 E38E
+Comment: Alice Lovelace <alice@openpgp.example>
+
+xVgEXEcE6RYJKwYBBAHaRw8BAQdArjWwk3FAqyiFbFBKT4TzXcVBqPTB3gmzlC/U
+b7O1u10AAP9XBeW6lzGOLx7zHH9AsUDUTb2pggYGMzd0P3ulJ2AfvQ4RzSZBbGlj
+ZSBMb3ZlbGFjZSA8YWxpY2VAb3BlbnBncC5leGFtcGxlPsKQBBMWCAA4AhsDBQsJ
+CAcCBhUKCQgLAgQWAgMBAh4BAheAFiEE64W7X6M6deFelE5j8jFVDE9H444FAl2l
+nzoACgkQ8jFVDE9H447pKwD6A5xwUqIDprBzrHfahrImaYEZzncqb25vkLV2arYf
+a78A/R3AwtLQvjxwLDuzk4dUtUwvUYibL2sAHwj2kGaHnfICx10EXEcE6RIKKwYB
+BAGXVQEFAQEHQEL/BiGtq0k84Km1wqQw2DIikVYrQrMttN8d7BPfnr4iAwEIBwAA
+/3/xFPG6U17rhTuq+07gmEvaFYKfxRB6sgAYiW6TMTpQEK7CeAQYFggAIBYhBOuF
+u1+jOnXhXpROY/IxVQxPR+OOBQJcRwTpAhsMAAoJEPIxVQxPR+OOWdABAMUdSzpM
+hzGs1O0RkWNQWbUzQ8nUOeD9wNbjE3zR+yfRAQDbYqvtWQKN4AQLTxVJN5X5AWyb
+Pnn+We1aTBhaGa86AQ==
+=3GfK
+-----END PGP PRIVATE KEY BLOCK-----
+";
+            use openpgp::parse::Parse;
+            let reference_cert =
+                openpgp::Cert::from_bytes(reference).unwrap();
+            unsafe {
+                use std::ops::Deref;
+                assert_eq!(
+                    (*key).cert.as_ref().unwrap().as_ref()
+                    .read().unwrap().deref(),
+                    &reference_cert);
+            }
 
             let mut result = false;
             let r = unsafe {
