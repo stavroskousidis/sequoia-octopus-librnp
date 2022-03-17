@@ -30,7 +30,7 @@ use openpgp::{
     },
     packet::{
         Key,
-        key::{SecretParts, UnspecifiedRole},
+        key::{SecretParts, UnspecifiedParts, UnspecifiedRole},
         UserID,
     },
     policy::{
@@ -503,6 +503,15 @@ impl RnpContext {
         assert!(key.has_unencrypted_secret());
         self.unlocked_keys.insert(key.fingerprint(), key);
         Ok(())
+    }
+
+    /// Returns a reference to the unlocked key in the cache, if it
+    /// exists.
+    pub fn key_unlocked_ref(&self,
+                            key: &Key<UnspecifiedParts, UnspecifiedRole>)
+                            -> Option<&Key<SecretParts, UnspecifiedRole>>
+    {
+        self.unlocked_keys.get(&key.fingerprint())
     }
 }
 

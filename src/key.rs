@@ -1474,6 +1474,7 @@ fn rnp_key_25519_bits_tweaked(key: *mut RnpKey, result_out: *mut bool)
                               -> RnpResult {
     rnp_function!(rnp_key_25519_bits_tweaked, crate::TRACE);
     let key = assert_ptr_ref!(key);
+    let ctx = &mut *key.ctx;
     assert_ptr!(result_out);
 
     // First, check that we are a Curve25519 key.
@@ -1491,9 +1492,15 @@ fn rnp_key_25519_bits_tweaked(key: *mut RnpKey, result_out: *mut bool)
         _ => return RNP_ERROR_BAD_PARAMETERS,
     }
 
+    // RNP's implementation also considers unlocked keys.  Do the
+    // same.
+    let maybe_unlocked_key = ctx.key_unlocked_ref(&key.key)
+        .map(|k| k.parts_as_unspecified())
+        .unwrap_or(&key.key);
+
     // Now check the secret.
     use openpgp::packet::key;
-    match key.key.optional_secret() {
+    match maybe_unlocked_key.optional_secret() {
         Some(key::SecretKeyMaterial::Unencrypted(k)) => k.map(|secret| {
             use openpgp::crypto::mpi::SecretKeyMaterial;
             match secret {
