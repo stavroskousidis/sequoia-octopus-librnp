@@ -713,22 +713,3 @@ fn rnp_get_secret_key_count(ctx: *mut RnpContext,
     t!("-> {}", *count);
     RNP_SUCCESS
 }
-
-// These are bound in RNPlib.jsm but not actually used.
-macro_rules! unused {
-    ($s: ident) => {
-        #[no_mangle] pub extern "C"
-        fn $s() -> RnpResult {
-            warn!("previously unused function is used: {}", stringify!($s));
-            RNP_ERROR_NOT_IMPLEMENTED
-        }
-    };
-}
-
-unused!(rnp_guess_contents);
-unused!(rnp_decrypt);
-unused!(rnp_symenc_get_aead_alg);
-unused!(rnp_symenc_get_cipher);
-unused!(rnp_symenc_get_hash_alg);
-unused!(rnp_symenc_get_s2k_iterations);
-unused!(rnp_symenc_get_s2k_type);
