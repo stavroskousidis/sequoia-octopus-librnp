@@ -56,67 +56,67 @@ macro_rules! stub {
 
 #[allow(dead_code)]
 #[macro_use]
-mod error;
+pub mod error;
 use error::*;
 
 #[allow(dead_code)]
-mod stubs;
+pub mod stubs;
 
 use sequoia_ipc::Keygrip;
 
-mod keystore;
+pub mod keystore;
 use keystore::Keystore;
 
-mod buffer;
+pub mod buffer;
 use buffer::*;
 
 #[allow(dead_code)]
-mod flags;
+pub mod flags;
 use flags::*;
 #[allow(dead_code)]
-mod io;
+pub mod io;
 use io::*;
 #[allow(dead_code)]
-mod utils;
+pub mod utils;
 use utils::*;
 #[allow(dead_code)]
-mod conversions;
+pub mod conversions;
 use conversions::*;
 
-mod version;
+pub mod version;
 #[allow(dead_code)]
-mod op_verify;
+pub mod op_verify;
 #[allow(dead_code)]
-mod op_encrypt;
+pub mod op_encrypt;
 #[allow(dead_code)]
-mod op_sign;
-mod recombine;
+pub mod op_sign;
+pub mod recombine;
 #[allow(dead_code)]
-mod op_generate;
+pub mod op_generate;
 #[allow(dead_code)]
-mod signature;
+pub mod signature;
 use signature::RnpSignature;
 #[allow(dead_code)]
-mod key;
+pub mod key;
 use key::RnpKey;
 #[allow(dead_code)]
-mod iter;
+pub mod iter;
 #[allow(dead_code)]
-mod userid;
+pub mod userid;
 use userid::RnpUserID;
 #[allow(dead_code)]
-mod import;
+pub mod import;
 // The gpg module is copied from OpenPGP CA.  We don't want to modify
 // it.
 #[allow(dead_code)]
-mod gpg;
+pub mod gpg;
 
-mod tbprofile;
-mod wot;
+pub mod tbprofile;
+pub mod wot;
 #[cfg(feature="net")]
-mod parcimonie;
+pub mod parcimonie;
 #[cfg(not(feature="net"))]
-mod parcimonie_stub;
+pub mod parcimonie_stub;
 #[cfg(not(feature="net"))]
 use parcimonie_stub as parcimonie;
 
