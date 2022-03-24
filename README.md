@@ -16,12 +16,20 @@ RNP API as used by Thunderbird using Sequoia.
 
   [unusual places]: https://www.nationalgeographic.com/animals/invertebrates/facts/octopus-facts
 
-# WARNING WARNING WARNING
+# A note of caution
 
-This is a young project.  Use it with caution with your production
-Thunderbird profile and production keys, and make sure you have a
-backup (of at least `pubring.gpg`, `secring.gpg`, and
-`openpgp.sqlite`) and know how to recover.
+The Thunderbird developers do not support replacing [RNP], and have
+made it difficult to integrate our solution.  We [regularly run]
+Thunderbird's tests using the Octopus, using the ESR78, ESR91, and
+beta versions of Thunderbird.  We are quite confident that the Octopus
+is safe to use, and offers at least the degree of security that you
+get with [RNP].
+
+  [regularly run]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/pipelines
+
+Nevertheless, it is a good idea to make regular backups of your
+Thunderbird profile and production keys (at least `pubring.gpg`,
+`secring.gpg`, and `openpgp.sqlite`) and know how to recover.
 
 ## Known limitations
 
