@@ -355,7 +355,7 @@ macro_rules! rnp_function {
         }
 
         #[allow(unused_macros)]
-        macro_rules! _assert_ptr {
+        macro_rules! assert_ptr {
             ( $param: expr ) => {
                 if $param.is_null() {
                     _warn!("parameter {:?} is null", stringify!($param));
@@ -367,7 +367,7 @@ macro_rules! rnp_function {
         #[allow(unused_macros)]
         macro_rules! assert_ptr_ref {
             ( $param: expr ) => {{
-                _assert_ptr!($param);
+                assert_ptr!($param);
                 &*$param
             }};
         }
@@ -375,7 +375,7 @@ macro_rules! rnp_function {
         #[allow(unused_macros)]
         macro_rules! assert_ptr_mut {
             ( $param: expr ) => {{
-                _assert_ptr!($param);
+                assert_ptr!($param);
                 &mut *$param
             }};
         }
@@ -405,16 +405,6 @@ macro_rules! warn {
     ( $fmt: expr $(, $a: expr )* ) => {
         log!(concat!("sequoia-octopus: ", $fmt)
              $(, $a )*);
-    };
-}
-
-macro_rules! assert_ptr {
-    ( $param: expr ) => {
-        if $param.is_null() {
-            warn!("{}:{}: parameter {:?} is null",
-                  file!(), line!(), stringify!($param));
-            return RNP_ERROR_NULL_POINTER;
-        }
     };
 }
 
