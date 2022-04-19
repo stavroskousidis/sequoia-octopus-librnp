@@ -66,6 +66,7 @@ fn rnp_signature_handle_destroy(sig: *mut RnpSignature) -> RnpResult {
 fn rnp_signature_get_keyid(sig: *const RnpSignature,
                            keyid: *mut *mut c_char)
                            -> RnpResult {
+    rnp_function!(rnp_signature_get_keyid, crate::TRACE);
     assert_ptr!(sig);
     assert_ptr!(keyid);
     *keyid =
@@ -81,6 +82,7 @@ fn rnp_signature_get_keyid(sig: *const RnpSignature,
 fn rnp_signature_get_creation(sig: *const RnpSignature,
                               creation: *mut u32)
                               -> RnpResult {
+    rnp_function!(rnp_signature_get_creation, crate::TRACE);
     assert_ptr!(sig);
     assert_ptr!(creation);
 
@@ -97,6 +99,7 @@ fn rnp_signature_get_creation(sig: *const RnpSignature,
 fn rnp_signature_get_signer(sig: *const RnpSignature,
                             key: *mut *mut RnpKey)
                             -> RnpResult {
+    rnp_function!(rnp_signature_get_signer, crate::TRACE);
     assert_ptr!(sig);
     assert_ptr!(key);
     let sig = &*sig;
@@ -119,6 +122,7 @@ fn rnp_signature_get_signer(sig: *const RnpSignature,
 fn rnp_signature_is_valid(sig: *const RnpSignature,
                           flags: u32)
                           -> RnpResult {
+    rnp_function!(rnp_signature_is_valid, crate::TRACE);
     assert_ptr!(sig);
     let sig = &*sig;
 

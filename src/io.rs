@@ -100,6 +100,7 @@ impl RnpInput {
 fn rnp_input_from_path(input: *mut *mut RnpInput,
                        path: *const c_char)
                        -> RnpResult {
+    rnp_function!(rnp_input_from_path, crate::TRACE);
     match cstr_to_pathbuf(path) {
         Ok(p) => {
             if let Ok(f) = File::open(&p) {
@@ -121,6 +122,7 @@ fn rnp_input_from_memory(input: *mut *mut RnpInput,
                          len: size_t,
                          do_copy: bool)
                          -> RnpResult {
+    rnp_function!(rnp_input_from_memory, crate::TRACE);
     let data = std::slice::from_raw_parts(buf, len);
     *input = Box::into_raw(Box::new(if do_copy {
         RnpInput::Buf(io::Cursor::new(data.to_vec()))
@@ -132,6 +134,7 @@ fn rnp_input_from_memory(input: *mut *mut RnpInput,
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_input_destroy(input: *mut RnpInput) -> RnpResult {
+    rnp_function!(rnp_input_destroy, crate::TRACE);
     if ! input.is_null() {
         drop(Box::from_raw(input));
     }
@@ -152,6 +155,7 @@ impl io::Read for RnpInput {
 fn rnp_output_to_path(output: *mut *mut RnpOutput,
                       path: *const c_char)
                       -> RnpResult {
+    rnp_function!(rnp_output_to_path, crate::TRACE);
     let path = match cstr_to_pathbuf(path) {
         Ok(p) => p,
         Err(e) => return e,
@@ -176,6 +180,7 @@ fn rnp_output_to_path(output: *mut *mut RnpOutput,
 fn rnp_output_to_memory(output: *mut *mut RnpOutput,
                         max_alloc: size_t)
                         -> RnpResult {
+    rnp_function!(rnp_output_to_memory, crate::TRACE);
     *output = Box::into_raw(Box::new(
         RnpOutput::Buf((Vec::new(),
                         if max_alloc == 0 { None } else { Some(max_alloc) }))
@@ -189,6 +194,7 @@ fn rnp_output_memory_get_buf(output: *const RnpOutput,
                              len: *mut size_t,
                              do_copy: bool)
                              -> RnpResult {
+    rnp_function!(rnp_output_memory_get_buf, crate::TRACE);
     if let RnpOutput::Buf((bytes, _)) = &*output {
         if do_copy {
             *buf = bytes_to_rnp_buffer(bytes);
@@ -209,6 +215,7 @@ fn rnp_output_to_armor<'a>(sink: *mut RnpOutput<'a>,
                            output: *mut *mut RnpOutput<'a>,
                            kind: *const c_char)
                            -> RnpResult {
+    rnp_function!(rnp_output_to_armor, crate::TRACE);
     assert_ptr!(sink);
     assert_ptr!(output);
     if kind.is_null() {
@@ -256,6 +263,7 @@ fn rnp_output_destroy(output: *mut RnpOutput) -> RnpResult {
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_output_finish(output: *mut RnpOutput) -> RnpResult {
+    rnp_function!(rnp_output_finish, crate::TRACE);
     assert_ptr!(output);
 
     match &mut *output {
@@ -319,6 +327,7 @@ fn rnp_enarmor(input: *mut RnpInput,
                output: *mut RnpOutput,
                kind: *const c_char)
                -> RnpResult {
+    rnp_function!(rnp_enarmor, crate::TRACE);
     assert_ptr!(input);
     assert_ptr!(output);
     if kind.is_null() {

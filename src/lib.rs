@@ -179,6 +179,7 @@ fn rnp_ffi_create(ctx: *mut *mut RnpContext,
                   sec_fmt: *const c_char)
                   -> RnpResult
 {
+    rnp_function!(rnp_ffi_create, crate::TRACE);
     assert_ptr!(ctx);
     assert_ptr!(pub_fmt);
     assert_ptr!(sec_fmt);
@@ -202,6 +203,7 @@ fn rnp_ffi_destroy(ctx: *mut RnpContext) -> RnpResult {
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_ffi_set_log_fd(ctx: *mut RnpContext, _fd: c_int) -> RnpResult {
+    rnp_function!(rnp_ffi_set_log_fd, crate::TRACE);
     assert_ptr!(ctx);
     RNP_SUCCESS
 }
@@ -211,6 +213,7 @@ fn rnp_ffi_set_pass_provider(ctx: *mut RnpContext,
                              cb: RnpPasswordCb,
                              cookie: *mut c_void)
                              -> RnpResult {
+    rnp_function!(rnp_ffi_set_pass_provider, crate::TRACE);
     assert_ptr!(ctx);
     (*ctx).password_cb = Some((cb, cookie));
     RNP_SUCCESS
@@ -668,6 +671,7 @@ fn rnp_save_keys(ctx: *mut RnpContext,
 fn rnp_get_public_key_count(ctx: *mut RnpContext,
                             count: *mut size_t)
                             -> RnpResult {
+    rnp_function!(rnp_get_public_key_count, crate::TRACE);
     assert_ptr!(ctx);
 
     // Make sure the agent listing is up to date.

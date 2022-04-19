@@ -49,6 +49,7 @@ fn rnp_op_encrypt_create<'a>(op: *mut *mut RnpOpEncrypt<'a>,
                              output: *mut RnpOutput<'a>)
                              -> RnpResult
 {
+    rnp_function!(rnp_op_encrypt_create, crate::TRACE);
     assert_ptr!(op);
     assert_ptr!(ctx);
     assert_ptr!(input);
@@ -175,6 +176,7 @@ fn rnp_op_encrypt_execute(op: *mut RnpOpEncrypt) -> RnpResult {
 fn rnp_op_encrypt_add_recipient(op: *mut RnpOpEncrypt,
                                 key: *const RnpKey)
                                 -> RnpResult {
+    rnp_function!(rnp_op_encrypt_add_recipient, crate::TRACE);
     use std::ops::Deref;
     assert_ptr!(op);
     assert_ptr!(key);
@@ -187,6 +189,7 @@ fn rnp_op_encrypt_add_signature(op: *mut RnpOpEncrypt,
                                 key: *const RnpKey,
                                 sig: *mut *mut c_void)
                                 -> RnpResult {
+    rnp_function!(rnp_op_encrypt_add_signature, crate::TRACE);
     use std::ops::Deref;
     assert_ptr!(op);
     assert_ptr!(key);
@@ -207,6 +210,7 @@ fn rnp_op_encrypt_add_signature(op: *mut RnpOpEncrypt,
 fn rnp_op_encrypt_set_armor(op: *mut RnpOpEncrypt,
                             armored: bool)
                             -> RnpResult {
+    rnp_function!(rnp_op_encrypt_set_armor, crate::TRACE);
     assert_ptr!(op);
     (*op).armor = armored;
     RNP_SUCCESS
@@ -216,6 +220,7 @@ fn rnp_op_encrypt_set_armor(op: *mut RnpOpEncrypt,
 fn rnp_op_encrypt_set_cipher(op: *mut RnpOpEncrypt,
                              cipher: *const c_char)
                              -> RnpResult {
+    rnp_function!(rnp_op_encrypt_set_cipher, crate::TRACE);
     assert_ptr!(op);
     assert_ptr!(cipher);
     (*op).cipher = Some(rnp_try!(SymmetricAlgorithm::from_rnp_id(cipher)));
@@ -226,6 +231,7 @@ fn rnp_op_encrypt_set_cipher(op: *mut RnpOpEncrypt,
 fn rnp_op_encrypt_set_hash(op: *mut RnpOpEncrypt,
                            hash: *const c_char)
                            -> RnpResult {
+    rnp_function!(rnp_op_encrypt_set_hash, crate::TRACE);
     assert_ptr!(op);
     assert_ptr!(hash);
     (*op).hash = Some(rnp_try!(HashAlgorithm::from_rnp_id(hash)));

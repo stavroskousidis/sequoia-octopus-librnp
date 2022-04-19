@@ -281,6 +281,7 @@ fn rnp_key_handle_destroy(key: *mut RnpKey)
 fn rnp_key_get_keyid(key: *const RnpKey,
                      keyid: *mut *mut c_char)
                      -> RnpResult {
+    rnp_function!(rnp_key_get_keyid, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(keyid);
 
@@ -292,6 +293,7 @@ fn rnp_key_get_keyid(key: *const RnpKey,
 fn rnp_key_get_fprint(key: *const RnpKey,
                      fprint: *mut *mut c_char)
                      -> RnpResult {
+    rnp_function!(rnp_key_get_fprint, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(fprint);
 
@@ -303,6 +305,7 @@ fn rnp_key_get_fprint(key: *const RnpKey,
 fn rnp_key_get_alg(key: *const RnpKey,
                    alg: *mut *mut c_char)
                    -> RnpResult {
+    rnp_function!(rnp_key_get_alg, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(alg);
 
@@ -361,6 +364,7 @@ impl RnpKey {
 fn rnp_key_is_primary(key: *mut RnpKey,
                       result: *mut bool)
                       -> RnpResult {
+    rnp_function!(rnp_key_is_primary, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(result);
     *result = rnp_try!((*key).is_primary());
@@ -374,6 +378,7 @@ fn rnp_key_is_primary(key: *mut RnpKey,
 fn rnp_key_is_sub(key: *mut RnpKey,
                   result: *mut bool)
                   -> RnpResult {
+    rnp_function!(rnp_key_is_sub, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(result);
     *result = ! rnp_try!((*key).is_primary());
@@ -384,6 +389,7 @@ fn rnp_key_is_sub(key: *mut RnpKey,
 fn rnp_key_get_grip(key: *const RnpKey,
                     grip: *mut *mut c_char)
                    -> RnpResult {
+    rnp_function!(rnp_key_get_grip, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(grip);
 
@@ -399,6 +405,7 @@ fn rnp_key_get_grip(key: *const RnpKey,
 fn rnp_key_get_primary_grip(key: *mut RnpKey,
                             grip: *mut *mut c_char)
                             -> RnpResult {
+    rnp_function!(rnp_key_get_primary_grip, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(grip);
 
@@ -420,6 +427,7 @@ fn rnp_key_get_primary_grip(key: *mut RnpKey,
 fn rnp_key_have_public(key: *const RnpKey,
                        result: *mut bool)
                        -> RnpResult {
+    rnp_function!(rnp_key_have_public, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(result);
 
@@ -431,6 +439,7 @@ fn rnp_key_have_public(key: *const RnpKey,
 fn rnp_key_have_secret(key: *const RnpKey,
                        result: *mut bool)
                        -> RnpResult {
+    rnp_function!(rnp_key_have_secret, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(result);
 
@@ -447,6 +456,7 @@ fn rnp_key_have_secret(key: *const RnpKey,
 fn rnp_key_get_bits(key: *const RnpKey,
                     bits: *mut u32)
                     -> RnpResult {
+    rnp_function!(rnp_key_get_bits, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(bits);
 
@@ -462,6 +472,7 @@ fn rnp_key_get_bits(key: *const RnpKey,
 fn rnp_key_get_creation(key: *const RnpKey,
                         creation: *mut u32)
                     -> RnpResult {
+    rnp_function!(rnp_key_get_creation, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(creation);
 
@@ -513,6 +524,7 @@ fn rnp_key_get_expiration(key: *mut RnpKey,
 fn rnp_key_get_primary_uid(key: *mut RnpKey,
                            uid: *mut *mut c_char)
                            -> RnpResult {
+    rnp_function!(rnp_key_get_primary_uid, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(uid);
 
@@ -544,6 +556,7 @@ fn rnp_key_get_uid_at(key: *mut RnpKey,
                       idx: size_t,
                       uid: *mut *mut c_char)
                       -> RnpResult {
+    rnp_function!(rnp_key_get_uid_at, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(uid);
 
@@ -569,6 +582,7 @@ fn rnp_key_get_uid_handle_at(key: *mut RnpKey,
                              idx: size_t,
                              uid: *mut *mut RnpUserID)
                              -> RnpResult {
+    rnp_function!(rnp_key_get_uid_handle_at, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(uid);
 
@@ -595,6 +609,7 @@ fn rnp_key_get_uid_handle_at(key: *mut RnpKey,
 fn rnp_key_get_uid_count(key: *mut RnpKey,
                          count: *mut size_t)
                          -> RnpResult {
+    rnp_function!(rnp_key_get_uid_count, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(count);
 
@@ -612,6 +627,7 @@ fn rnp_key_get_subkey_at(key: *mut RnpKey,
                          idx: size_t,
                          subkey: *mut *mut RnpKey)
                          -> RnpResult {
+    rnp_function!(rnp_key_get_subkey_at, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(subkey);
 
@@ -640,6 +656,7 @@ fn rnp_key_get_subkey_at(key: *mut RnpKey,
 fn rnp_key_get_subkey_count(key: *mut RnpKey,
                             count: *mut size_t)
                             -> RnpResult {
+    rnp_function!(rnp_key_get_subkey_count, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(count);
 
@@ -656,6 +673,7 @@ fn rnp_key_allows_usage(key: *mut RnpKey,
                         usage: *const c_char,
                         result: *mut bool)
                         -> RnpResult {
+    rnp_function!(rnp_key_allows_usage, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(usage);
     assert_ptr!(result);
@@ -687,6 +705,7 @@ fn rnp_key_allows_usage(key: *mut RnpKey,
 fn rnp_key_is_revoked(key: *mut RnpKey,
                       result: *mut bool)
                       -> RnpResult {
+    rnp_function!(rnp_key_is_revoked, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(result);
 
@@ -722,6 +741,7 @@ fn rnp_key_export_autocrypt(key: *mut RnpKey,
                             output: *mut RnpOutput,
                             _flags: u32)
                             -> RnpResult {
+    rnp_function!(rnp_key_export_autocrypt, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(uid);
     assert_ptr!(output);
@@ -762,6 +782,7 @@ fn rnp_key_export_autocrypt(key: *mut RnpKey,
 fn rnp_key_remove(key: *mut RnpKey,
                   flags: RnpKeyRemoveFlags)
                   -> RnpResult {
+    rnp_function!(rnp_key_remove, crate::TRACE);
     assert_ptr!(key);
     let key = &mut *key;
     let ctx = &mut *key.ctx;
@@ -808,6 +829,7 @@ fn rnp_key_export(key: *mut RnpKey,
                   output: *mut RnpOutput,
                   flags: RnpKeyExportFlags)
                   -> RnpResult {
+    rnp_function!(rnp_key_export, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(output);
     let key = &mut *key;
@@ -866,6 +888,7 @@ fn rnp_key_export(key: *mut RnpKey,
 fn rnp_key_is_locked(key: *mut RnpKey,
                      result: *mut bool)
                      -> RnpResult {
+    rnp_function!(rnp_key_is_locked, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(result);
     let key = &mut *key;
@@ -880,6 +903,7 @@ fn rnp_key_is_locked(key: *mut RnpKey,
 #[no_mangle] pub unsafe extern "C"
 fn rnp_key_lock(key: *mut RnpKey)
                 -> RnpResult {
+    rnp_function!(rnp_key_lock, crate::TRACE);
     assert_ptr!(key);
     let key = &mut *key;
     if let Some(k) = key.key.parts_as_secret().ok() {
@@ -894,6 +918,7 @@ fn rnp_key_lock(key: *mut RnpKey)
 fn rnp_key_unlock(key: *mut RnpKey,
                   password: *const c_char)
                   -> RnpResult {
+    rnp_function!(rnp_key_unlock, crate::TRACE);
     assert_ptr!(key);
     let password = if password.is_null() {
         None
@@ -1109,6 +1134,7 @@ fn rnp_key_export_revocation(key: *mut RnpKey,
                              code: *const c_char,
                              reason: *const c_char)
                              -> RnpResult {
+    rnp_function!(rnp_key_export_revocation, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(output);
     let key = &mut *key;

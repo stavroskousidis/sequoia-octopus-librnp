@@ -182,6 +182,7 @@ fn rnp_op_verify_create<'a>(op: *mut *mut RnpOpVerify<'a>,
                             output: *mut RnpOutput<'a>)
                             -> RnpResult
 {
+    rnp_function!(rnp_op_verify_create, crate::TRACE);
     assert_ptr!(op);
     assert_ptr!(ctx);
     assert_ptr!(input);
@@ -203,6 +204,7 @@ fn rnp_op_verify_detached_create<'a>(op: *mut *mut RnpOpVerify<'a>,
                                      signature: *mut RnpInput)
                                      -> RnpResult
 {
+    rnp_function!(rnp_op_verify_detached_create, crate::TRACE);
     assert_ptr!(op);
     assert_ptr!(ctx);
     assert_ptr!(input);
@@ -336,6 +338,7 @@ fn rnp_op_verify_get_signature_count(op: *mut RnpOpVerify,
 fn rnp_op_verify_signature_get_handle(sig: *mut RnpOpVerifySignature,
                                       handle: *mut *mut RnpSignature)
                                       -> RnpResult {
+    rnp_function!(rnp_op_verify_signature_get_handle, crate::TRACE);
     assert_ptr!(sig);
     assert_ptr!(handle);
     let sig = &*sig;
@@ -349,6 +352,7 @@ fn rnp_op_verify_signature_get_handle(sig: *mut RnpOpVerifySignature,
 #[no_mangle] pub unsafe extern "C"
 fn rnp_op_verify_signature_get_status(sig: *mut RnpOpVerifySignature)
                                       -> RnpResult {
+    rnp_function!(rnp_op_verify_signature_get_status, crate::TRACE);
     assert_ptr!(sig);
     (*sig).status
 }
@@ -359,6 +363,7 @@ fn rnp_op_verify_signature_get_key(sig: *mut RnpOpVerifySignature,
                                    // key here.
                                    key: *mut *mut RnpKey)
                                    -> RnpResult {
+    rnp_function!(rnp_op_verify_signature_get_key, crate::TRACE);
     assert_ptr!(sig);
     assert_ptr!(key);
     *key = if let Some(key) = (*sig).key.as_ref().cloned() {
@@ -374,6 +379,7 @@ fn rnp_op_verify_signature_get_times(sig: *mut RnpOpVerifySignature,
                                      created: *mut u32,
                                      expires: *mut u32)
                                      -> RnpResult {
+    rnp_function!(rnp_op_verify_signature_get_times, crate::TRACE);
     use std::time::UNIX_EPOCH;
     assert_ptr!(sig);
     if ! created.is_null() {
@@ -466,6 +472,7 @@ fn rnp_op_verify_get_recipient_count(op: *mut RnpOpVerify,
 fn rnp_recipient_get_keyid(recipient: *const PKESK,
                            keyid: *mut *mut c_char)
                            -> RnpResult {
+    rnp_function!(rnp_recipient_get_keyid, crate::TRACE);
     assert_ptr!(recipient);
     assert_ptr!(keyid);
     *keyid = str_to_rnp_buffer(format!("{:X}", (*recipient).recipient()));
@@ -476,6 +483,7 @@ fn rnp_recipient_get_keyid(recipient: *const PKESK,
 fn rnp_recipient_get_alg(recipient: *const PKESK,
                          alg: *mut *mut c_char)
                          -> RnpResult {
+    rnp_function!(rnp_recipient_get_alg, crate::TRACE);
     assert_ptr!(recipient);
     assert_ptr!(alg);
     *alg = str_to_rnp_buffer((*recipient).pk_algo().to_rnp_id());

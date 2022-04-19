@@ -52,6 +52,7 @@ fn rnp_op_sign_detached_create<'a>(op: *mut *mut RnpOpSign<'a>,
                                    output: *mut RnpOutput<'a>)
                                    -> RnpResult
 {
+    rnp_function!(rnp_op_sign_detached_create, crate::TRACE);
     assert_ptr!(op);
     assert_ptr!(ctx);
     assert_ptr!(input);
@@ -77,6 +78,7 @@ fn rnp_op_sign_cleartext_create<'a>(op: *mut *mut RnpOpSign<'a>,
                                     output: *mut RnpOutput<'a>)
                                     -> RnpResult
 {
+    rnp_function!(rnp_op_sign_cleartext_create, crate::TRACE);
     assert_ptr!(op);
     assert_ptr!(ctx);
     assert_ptr!(input);
@@ -248,6 +250,7 @@ fn rnp_op_sign_add_signature(op: *mut RnpOpSign,
                              key: *const RnpKey,
                              sig: *mut *mut c_void)
                              -> RnpResult {
+    rnp_function!(rnp_op_sign_add_signature, crate::TRACE);
     use std::ops::Deref;
     assert_ptr!(op);
     assert_ptr!(key);
@@ -273,6 +276,7 @@ fn rnp_op_sign_add_signature(op: *mut RnpOpSign,
 fn rnp_op_sign_set_armor(op: *mut RnpOpSign,
                          armored: bool)
                          -> RnpResult {
+    rnp_function!(rnp_op_sign_set_armor, crate::TRACE);
     assert_ptr!(op);
     (*op).armor = armored;
     RNP_SUCCESS
@@ -282,6 +286,7 @@ fn rnp_op_sign_set_armor(op: *mut RnpOpSign,
 fn rnp_op_sign_set_hash(op: *mut RnpOpSign,
                         hash: *const c_char)
                         -> RnpResult {
+    rnp_function!(rnp_op_sign_set_hash, crate::TRACE);
     assert_ptr!(op);
     assert_ptr!(hash);
     (*op).hash = Some(rnp_try!(HashAlgorithm::from_rnp_id(hash)));

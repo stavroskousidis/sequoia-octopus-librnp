@@ -75,6 +75,7 @@ fn rnp_op_generate_create(op: *mut *mut RnpOpGenerate,
                           alg: *const c_char)
                           -> RnpResult
 {
+    rnp_function!(rnp_op_generate_create, crate::TRACE);
     assert_ptr!(op);
     assert_ptr!(ctx);
     assert_ptr!(alg);
@@ -111,6 +112,7 @@ fn rnp_op_generate_subkey_create(op: *mut *mut RnpOpGenerate,
                                  alg: *const c_char)
                                  -> RnpResult
 {
+    rnp_function!(rnp_op_generate_subkey_create, crate::TRACE);
     assert_ptr!(op);
     assert_ptr!(ctx);
     assert_ptr!(primary);
@@ -141,6 +143,7 @@ fn rnp_op_generate_destroy(op: *mut RnpOpGenerate) -> RnpResult {
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_op_generate_execute(op: *mut RnpOpGenerate) -> RnpResult {
+    rnp_function!(rnp_op_generate_execute, crate::TRACE);
     assert_ptr!(op);
 
     fn f(op: &mut RnpOpGenerate) -> openpgp::Result<()> {
@@ -262,6 +265,7 @@ fn rnp_op_generate_execute(op: *mut RnpOpGenerate) -> RnpResult {
 fn rnp_op_generate_get_key(op: *mut RnpOpGenerate,
                            key: *mut *mut RnpKey)
                            -> RnpResult {
+    rnp_function!(rnp_op_generate_get_key, crate::TRACE);
     assert_ptr!(op);
     assert_ptr!(key);
     let op = &mut *op;
@@ -281,6 +285,7 @@ fn rnp_op_generate_get_key(op: *mut RnpOpGenerate,
 fn rnp_op_generate_set_protection_password(op: *mut RnpOpGenerate,
                                            password: *const c_char)
                                            -> RnpResult {
+    rnp_function!(rnp_op_generate_set_protection_password, crate::TRACE);
     assert_ptr!(op);
     assert_ptr!(password);
     (*op).password = Some(rnp_try!(cstr_to_str(password)).to_string().into());
@@ -291,6 +296,7 @@ fn rnp_op_generate_set_protection_password(op: *mut RnpOpGenerate,
 fn rnp_op_generate_set_userid(op: *mut RnpOpGenerate,
                               userid: *const c_char)
                               -> RnpResult {
+    rnp_function!(rnp_op_generate_set_userid, crate::TRACE);
     assert_ptr!(op);
     assert_ptr!(userid);
 
@@ -307,6 +313,7 @@ fn rnp_op_generate_set_userid(op: *mut RnpOpGenerate,
 fn rnp_op_generate_set_bits(op: *mut RnpOpGenerate,
                             bits: u32)
                             -> RnpResult {
+    rnp_function!(rnp_op_generate_set_bits, crate::TRACE);
     assert_ptr!(op);
     (*op).bits = Some(bits);
     RNP_SUCCESS
@@ -316,6 +323,7 @@ fn rnp_op_generate_set_bits(op: *mut RnpOpGenerate,
 fn rnp_op_generate_set_curve(op: *mut RnpOpGenerate,
                              curve: *const c_char)
                             -> RnpResult {
+    rnp_function!(rnp_op_generate_set_curve, crate::TRACE);
     assert_ptr!(op);
     assert_ptr!(curve);
     (*op).curve = Some(rnp_try!(Curve::from_rnp_id(curve)));
@@ -326,6 +334,7 @@ fn rnp_op_generate_set_curve(op: *mut RnpOpGenerate,
 fn rnp_op_generate_set_expiration(op: *mut RnpOpGenerate,
                                   expiration: u32)
                                   -> RnpResult {
+    rnp_function!(rnp_op_generate_set_expiration, crate::TRACE);
     assert_ptr!(op);
     (*op).expiration = Some(time::Duration::new(expiration as u64, 0));
     RNP_SUCCESS

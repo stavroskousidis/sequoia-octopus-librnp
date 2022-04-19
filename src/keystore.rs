@@ -321,6 +321,8 @@ impl Keystore {
                                       import_secret_keys: bool)
         -> openpgp::Result<()>
     {
+        rnp_function!(Keystore::load_keyring_in_background, super::TRACE);
+
         if let Err(err) = self.gpg_thread_start() {
             warn!("Failed to start gpg thread: {}", err);
             KeystoreData::load_keyring(
