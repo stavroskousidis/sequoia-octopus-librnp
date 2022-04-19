@@ -1004,9 +1004,24 @@ impl KeystoreData {
                     return;
                 }
 
-                // Merge.
+                // Merge.  We want to prefer secret keys in `cert`
+                // over the one in the store.  Cert::insert_packets
+                // replaces existing key material.  Hence, we insert
+                // only those packets that are either secret keys or
+                // public ones that are not in `cert_ref`.
+                let known_keys: HashSet<Fingerprint> =
+                    cert_ref.keys().map(|k| k.fingerprint()).collect();
                 let cert_update = cert_ref.clone()
-                    .insert_packets(cert.into_packets())
+                    .insert_packets(cert.into_packets().filter(|p| match p {
+                        // Insert only unknown public keys.
+                        Packet::PublicKey(k) =>
+                            ! known_keys.contains(&k.fingerprint()),
+                        Packet::PublicSubkey(k) =>
+                            ! known_keys.contains(&k.fingerprint()),
+
+                        // Insert everything else, including secret keys.
+                        _ => true,
+                    }))
                     .expect("does not fail if the primary keys are equal");
 
                 if cert_ref.as_tsk() == cert_update.as_tsk() {
@@ -2153,6 +2168,34 @@ mod tests {
 
         eprintln!("{:?}", ks);
 
+        Ok(())
+    }
+
+    // Inserting the public key must not remove secrets.
+    #[test]
+    fn key_cert_secrets_preserved() -> openpgp::Result<()> {
+        let (key, _) =
+            openpgp::cert::CertBuilder::general_purpose(None, Some("Hanna")).generate()?;
+        let fp = key.fingerprint();
+        let a = key.clone();
+        let b = key.strip_secret_key_material();
+
+        // Test both ways.
+        for (first, second) in vec![(&a, &b), (&b, &a)] {
+            eprintln!("First has {}secret, second has {}secret.",
+                      if first.is_tsk() { "" } else { "no " },
+                      if second.is_tsk() { "" } else { "no " });
+            let ks = Keystore::default();
+            let mut ks = ks.write();
+            ks.insert(first.clone());
+            ks.insert(second.clone());
+
+            let k = ks.by_primary_fp(&fp).unwrap();
+            assert!(k.is_tsk());
+            assert!(k.primary_key().has_unencrypted_secret());
+            assert_eq!(k.keys().unencrypted_secret().count(),
+                       k.keys().count());
+        }
         Ok(())
     }
 }
