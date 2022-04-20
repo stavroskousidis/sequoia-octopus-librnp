@@ -59,6 +59,11 @@ impl RnpUserID {
                  })
     }
 
+    /// Returns the User ID.
+    pub fn userid(&self) -> &UserID {
+        &self.uid
+    }
+
     /// Returns whether the User ID is safe to display.
     ///
     /// A User ID is safe to display if it is valid under the standard

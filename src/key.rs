@@ -1629,7 +1629,22 @@ fn rnp_key_25519_bits_tweak(key: *mut RnpKey)
         warn!("Key for {:X} not found in keyring", k.fingerprint());
         RNP_ERROR_GENERIC
     }
+}
 
+/// Removes the given UID from KEY.
+#[no_mangle] pub unsafe extern "C"
+fn rnp_uid_remove(key: *mut RnpKey, uid: *mut RnpUserID)
+                  -> RnpResult {
+    rnp_function!(rnp_uid_remove, crate::TRACE);
+    let key = assert_ptr_mut!(key);
+    let uid = assert_ptr_ref!(uid);
+
+    if let Some(mut cert) = key.cert_mut() {
+        *cert = cert.clone().retain_userids(|u| u.userid() != uid.userid());
+        RNP_SUCCESS
+    } else {
+        RNP_ERROR_GENERIC
+    }
 }
 
 #[cfg(test)]
