@@ -50,3 +50,13 @@ pub const RNP_OUTPUT_FILE_RANDOM:    RnpOutputFlags = 1 << 1;
 pub type RnpUserIDType = u32;
 pub const RNP_USER_ID:   RnpUserIDType = 1;
 pub const RNP_USER_ATTR: RnpUserIDType = 2;
+
+// Flags for rnp_key_remove_signatures.
+pub type RnpKeyRemoveSignatureFlags = u32;
+pub const RNP_KEY_SIGNATURE_INVALID:   RnpKeyRemoveSignatureFlags = 1;
+pub const RNP_KEY_SIGNATURE_UNKNOWN_KEY: RnpKeyRemoveSignatureFlags = 2;
+pub const RNP_KEY_SIGNATURE_NON_SELF_SIG: RnpKeyRemoveSignatureFlags = 4;
+
+pub type RnpKeyRemoveSignatureAction = u32;
+pub const RNP_KEY_SIGNATURE_KEEP:   RnpKeyRemoveSignatureAction = 0;
+pub const RNP_KEY_SIGNATURE_REMOVE: RnpKeyRemoveSignatureAction = 1;

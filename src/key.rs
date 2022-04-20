@@ -18,6 +18,7 @@ use std::{
 };
 use libc::{
     c_char,
+    c_void,
     size_t,
 };
 
@@ -52,6 +53,7 @@ use crate::{
     RnpContext,
     RnpOutput,
     Keygrip,
+    RnpSignature,
     RnpUserID,
     RnpPasswordFor,
     str_to_rnp_buffer,
@@ -1646,6 +1648,96 @@ fn rnp_uid_remove(key: *mut RnpKey, uid: *mut RnpUserID)
         RNP_ERROR_GENERIC
     }
 }
+
+type RnpKeySignaturesCB = fn(*mut RnpContext,
+                             *mut c_void,
+                             *mut RnpSignature,
+                             *mut RnpKeyRemoveSignatureAction);
+
+/// Removes signatures from KEY.
+#[no_mangle] pub unsafe extern "C"
+fn rnp_key_remove_signatures(key: *mut RnpKey,
+                             flags: RnpKeyRemoveSignatureFlags,
+                             pred: *mut RnpKeySignaturesCB,
+                             _cookie: *mut c_void)
+                             -> RnpResult {
+    rnp_function!(rnp_key_remove_signatures, crate::TRACE);
+    let key = assert_ptr_mut!(key);
+
+    let remove_invalid = flags & RNP_KEY_SIGNATURE_INVALID > 0;
+    if remove_invalid {
+        _warn!("Flag RNP_KEY_SIGNATURE_INVALID not implemented, ignoring.");
+    }
+    let remove_unknown_key = flags & RNP_KEY_SIGNATURE_UNKNOWN_KEY > 0;
+    if remove_unknown_key {
+        _warn!("Flag RNP_KEY_SIGNATURE_UNKNOWN_KEY not implemented, ignoring.");
+    }
+    let remove_non_selfsig = flags & RNP_KEY_SIGNATURE_NON_SELF_SIG > 0;
+
+    if ! pred.is_null() {
+        _warn!("Predicate parameter not implemented, ignoring.");
+    }
+
+    if let Some(mut cert) = key.cert_mut() {
+        let mut acc = Vec::new();
+
+        // The primary key and related signatures.
+        let pk_bundle = cert.primary_key().bundle();
+        acc.push(pk_bundle.key().clone().into());
+        for s in pk_bundle.self_signatures() { acc.push(s.clone().into()); }
+        for s in pk_bundle.self_revocations()  { acc.push(s.clone().into()); }
+        if ! remove_non_selfsig {
+            for s in pk_bundle.other_revocations() { acc.push(s.clone().into()); }
+            for s in pk_bundle.certifications() { acc.push(s.clone().into()); }
+        }
+
+        // The subkeys and related signatures.
+        for skb in cert.keys().subkeys() {
+            acc.push(skb.key().clone().into());
+            for s in skb.self_signatures()   { acc.push(s.clone().into()); }
+            for s in skb.self_revocations()  { acc.push(s.clone().into()); }
+            if ! remove_non_selfsig {
+                for s in skb.other_revocations() { acc.push(s.clone().into()); }
+                for s in skb.certifications() { acc.push(s.clone().into()); }
+            }
+        }
+
+        // The UserIDs.
+        for uidb in cert.userids() {
+            acc.push(uidb.userid().clone().into());
+            for s in uidb.self_signatures()   { acc.push(s.clone().into()); }
+            for s in uidb.self_revocations()  { acc.push(s.clone().into()); }
+            for s in uidb.attestations()      { acc.push(s.clone().into()); }
+            if ! remove_non_selfsig {
+                for s in uidb.other_revocations() { acc.push(s.clone().into()); }
+                for s in uidb.certifications() { acc.push(s.clone().into()); }
+            }
+        }
+
+        // The UserAttributes.
+        for uab in cert.user_attributes() {
+            acc.push(uab.user_attribute().clone().into());
+            for s in uab.self_signatures()   { acc.push(s.clone().into()); }
+            for s in uab.self_revocations()  { acc.push(s.clone().into()); }
+            for s in uab.attestations()      { acc.push(s.clone().into()); }
+            if ! remove_non_selfsig {
+                for s in uab.other_revocations() { acc.push(s.clone().into()); }
+                for s in uab.certifications() { acc.push(s.clone().into()); }
+            }
+        }
+
+        if ! remove_invalid {
+            for s in cert.bad_signatures() { acc.push(s.clone().into()); }
+        }
+
+        *cert = rnp_try_or!(Cert::from_packets(acc.into_iter()),
+                            RNP_ERROR_GENERIC);
+        RNP_SUCCESS
+    } else {
+        RNP_ERROR_GENERIC
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
