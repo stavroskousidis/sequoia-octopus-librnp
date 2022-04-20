@@ -1412,6 +1412,21 @@ fn rnp_key_valid_till(key: *mut RnpKey,
                       result: *mut u32)
                       -> RnpResult {
     rnp_function!(rnp_key_valid_till, crate::TRACE);
+    let result = assert_ptr_mut!(result);
+
+    // The key expiration time is a 33-bit number, but the
+    // RNP API only has place for a 32-bit number :/.
+    let mut till = 0;
+    let r = rnp_key_valid_till64(key, &mut till as *mut _);
+    *result = min(u32::MAX as u64, till) as u32;
+    r
+}
+
+#[no_mangle] pub unsafe extern "C"
+fn rnp_key_valid_till64(key: *mut RnpKey,
+                        result: *mut u64)
+                        -> RnpResult {
+    rnp_function!(rnp_key_valid_till64, crate::TRACE);
     let key = assert_ptr_mut!(key);
     assert_ptr!(result);
 
@@ -1480,13 +1495,11 @@ fn rnp_key_valid_till(key: *mut RnpKey,
         });
     };
 
-    // The key expiration time is a 33-bit number, but the
-    // RNP API only has place for a 32-bit number :/.
     if let Ok(unix) = t
         .unwrap_or(std::time::UNIX_EPOCH + Duration::new(u32::MAX as u64, 0))
         .duration_since(std::time::UNIX_EPOCH)
     {
-        *result = min(u32::MAX as u64, unix.as_secs()) as u32;
+        *result = unix.as_secs();
         t!("valid till: {}", *result);
     } else {
         // Ummm... this shouldn't happen, but if it does
