@@ -116,6 +116,7 @@ impl RnpKey {
     pub fn new(ctx: *mut RnpContext,
                key: Key<UnspecifiedParts, UnspecifiedRole>,
                cert: &Cert) -> Self {
+        rnp_function!(RnpKey::new, crate::TRACE);
         let ctx = unsafe { &mut *ctx };
 
         let cert_cell = if let Some(cert_cell)
@@ -148,6 +149,7 @@ impl RnpKey {
     }
 
     fn find_cert(&mut self) {
+        rnp_function!(RnpKey::find_cert, crate::TRACE);
         if self.cert.is_none() {
             // There may be multiple certificates with the same key.
             // Prefer an exact match (i.e., fingerprint *and* secret
@@ -1295,7 +1297,7 @@ fn rnp_key_revoke(key: *mut RnpKey,
     }
 
     if let Err(e) = f(ctx, cert, key, hash, code, reason) {
-        _warn!("{}", e);
+        warn!("{}", e);
         RNP_ERROR_GENERIC
     } else {
         RNP_SUCCESS
@@ -1344,7 +1346,7 @@ fn rnp_key_set_expiration(key: *mut RnpKey,
                     .into_keypair()?
             },
             Err(e) => {
-                _warn!("Cannot change expiration time without \
+                warn!("Cannot change expiration time without \
                         primary secret: {}", e);
                 return Err(e);
             },
@@ -1376,7 +1378,7 @@ fn rnp_key_set_expiration(key: *mut RnpKey,
                                  .into_keypair()?)
                         },
                         Err(e) => {
-                            _warn!("Cannot change expiration time without \
+                            warn!("Cannot change expiration time without \
                                     subkey secret: {}", e);
                             return Err(e);
                         },
@@ -1400,7 +1402,7 @@ fn rnp_key_set_expiration(key: *mut RnpKey,
     }
 
     if let Err(e) = f(ctx, cert, key, expiry) {
-        _warn!("{}", e);
+        warn!("{}", e);
         RNP_ERROR_GENERIC
     } else {
         RNP_SUCCESS
@@ -1679,16 +1681,16 @@ fn rnp_key_remove_signatures(key: *mut RnpKey,
 
     let remove_invalid = flags & RNP_KEY_SIGNATURE_INVALID > 0;
     if remove_invalid {
-        _warn!("Flag RNP_KEY_SIGNATURE_INVALID not implemented, ignoring.");
+        warn!("Flag RNP_KEY_SIGNATURE_INVALID not implemented, ignoring.");
     }
     let remove_unknown_key = flags & RNP_KEY_SIGNATURE_UNKNOWN_KEY > 0;
     if remove_unknown_key {
-        _warn!("Flag RNP_KEY_SIGNATURE_UNKNOWN_KEY not implemented, ignoring.");
+        warn!("Flag RNP_KEY_SIGNATURE_UNKNOWN_KEY not implemented, ignoring.");
     }
     let remove_non_selfsig = flags & RNP_KEY_SIGNATURE_NON_SELF_SIG > 0;
 
     if ! pred.is_null() {
-        _warn!("Predicate parameter not implemented, ignoring.");
+        warn!("Predicate parameter not implemented, ignoring.");
     }
 
     if let Some(mut cert) = key.cert_mut() {

@@ -481,7 +481,7 @@ fn list_keys_raw_parse(stdout: &[u8])
         match rec {
             Ok(rec) => Some(rec),
             Err(err) => {
-                warn!("Parsing gpg --list-keys --with-colons:\n  {}",
+                global_warn!("Parsing gpg --list-keys --with-colons:\n  {}",
                       err);
                 None
             }

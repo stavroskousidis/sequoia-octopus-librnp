@@ -84,7 +84,7 @@ impl FromRnpId for SymmetricAlgorithm {
             b"CAMELLIA256" => Ok(Camellia256),
             b"SM4" => Err(RNP_ERROR_NOT_SUPPORTED),
             _ => {
-                warn!("unknown symmetric algorithm: {:?}", id);
+                global_warn!("unknown symmetric algorithm: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)
             },
         }
@@ -127,7 +127,7 @@ impl FromRnpId for PublicKeyAlgorithm {
             b"EDDSA" =>   Ok(EdDSA),
             b"SM2" =>     Err(RNP_ERROR_NOT_SUPPORTED),
             _ => {
-                warn!("unknown public key algorithm: {:?}", id);
+                global_warn!("unknown public key algorithm: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)
             },
         }
@@ -169,7 +169,7 @@ impl FromRnpId for Curve {
             b"SECP256K1" => Err(RNP_ERROR_NOT_SUPPORTED),
             b"SM2 P-256" => Err(RNP_ERROR_NOT_SUPPORTED),
             _ => {
-                warn!("unknown curve: {:?}", id);
+                global_warn!("unknown curve: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)
             },
         }
@@ -210,7 +210,7 @@ impl FromRnpId for HashAlgorithm {
             b"SHA224" => Ok(SHA224),
             b"SM3" => Err(RNP_ERROR_NOT_SUPPORTED),
            _ => {
-                warn!("unknown hash algorithm: {:?}", id);
+                global_warn!("unknown hash algorithm: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)
             },
         }
@@ -244,7 +244,7 @@ impl FromRnpId for armor::Kind {
             b"SECRET KEY" => Ok(SecretKey),
             b"SIGNATURE" => Ok(Signature),
             _ => {
-                warn!("unknown symmetric algorithm: {:?}", id);
+                global_warn!("unknown symmetric algorithm: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)
             },
         }
@@ -279,7 +279,7 @@ impl FromRnpId for ReasonForRevocation {
             b"COMPROMISED" => Ok(KeyCompromised),
             b"RETIRED" => Ok(KeyRetired),
             _ => {
-                warn!("unknown reason for revocation: {:?}", id);
+                global_warn!("unknown reason for revocation: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)
             },
         }
@@ -305,7 +305,7 @@ impl FromRnpId for RnpIdentifierType {
             b"fingerprint" => Ok(RnpIdentifierType::Fingerprint),
             b"grip" =>        Ok(RnpIdentifierType::Keygrip),
             _ => {
-                warn!("unknown iterator typ: {:?}", id);
+                global_warn!("unknown iterator typ: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)
             },
         }
@@ -320,7 +320,7 @@ impl RnpIdentifierType {
         let id = match id.to_str() {
             Ok(v) => v,
             Err(e) => {
-                warn!("conversion to string failed: {}", e);
+                global_warn!("conversion to string failed: {}", e);
                 return Err(RNP_ERROR_BAD_PARAMETERS);
             },
         };
@@ -386,7 +386,7 @@ impl FromRnpId for RnpKeyUsage {
             b"encrypt" =>      Ok(RnpKeyUsage::Encrypt),
             b"authenticate" => Ok(RnpKeyUsage::Authenticate),
             _ => {
-                warn!("unknown usage: {:?}", id);
+                global_warn!("unknown usage: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)
             },
         }

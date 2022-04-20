@@ -287,13 +287,13 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
         if op.result.encrypted_message()
             && ! op.result.decrypted_successfully()
         {
-            _warn!("failed to decrypt: {}", e);
+            warn!("failed to decrypt: {}", e);
             RNP_ERROR_DECRYPT_FAILED
         } else if let Some(status) = op.result.verification_error() {
-            _warn!("failed to verify sig: {}", e);
+            warn!("failed to verify sig: {}", e);
             status
         } else {
-            _warn!("{}", e);
+            warn!("{}", e);
             // We need to return an error that Thunderbird
             // understands.  It does not understand RNP_ERROR_GENERIC
             // in this context.  See:

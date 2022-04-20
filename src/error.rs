@@ -324,7 +324,7 @@ macro_rules! rnp_function {
         }
 
         #[allow(unused_macros)]
-        macro_rules! _warn {
+        macro_rules! warn {
             // Currently, Rust doesn't support $( ... ) in a nested
             // macro's definition.  See:
             // https://users.rust-lang.org/t/nested-macros-issue/8348/2
@@ -352,13 +352,19 @@ macro_rules! rnp_function {
                              ": ", $fmt),
                      $a, $b);
             };
+            ( $fmt: expr, $a: expr, $b: expr, $c: expr ) => {
+                log!(concat!("sequoia-octopus: ",
+                             stringify!($fn_name),
+                             ": ", $fmt),
+                     $a, $b, $c);
+            };
         }
 
         #[allow(unused_macros)]
         macro_rules! assert_ptr {
             ( $param: expr ) => {
                 if $param.is_null() {
-                    _warn!("parameter {:?} is null", stringify!($param));
+                    warn!("parameter {:?} is null", stringify!($param));
                     return RNP_ERROR_NULL_POINTER;
                 }
             };
@@ -384,7 +390,7 @@ macro_rules! rnp_function {
         macro_rules! rnp_return {
             ( $expr: expr ) => {
                 if let Err(e) = $expr {
-                    _warn!("{}", e);
+                    warn!("{}", e);
                     if let Ok(e) = e.downcast::<crate::error::Error>() {
                         e.into()
                     } else {
@@ -401,7 +407,7 @@ macro_rules! rnp_function {
     };
 }
 
-macro_rules! warn {
+macro_rules! global_warn {
     ( $fmt: expr $(, $a: expr )* ) => {
         log!(concat!("sequoia-octopus: ", $fmt)
              $(, $a )*);
@@ -422,7 +428,7 @@ macro_rules! rnp_try_or {
         match $result {
             Ok(v) => v,
             Err(e) => {
-                warn!("{}", e);
+                global_warn!("{}", e);
                 return $fail_with;
             },
         }

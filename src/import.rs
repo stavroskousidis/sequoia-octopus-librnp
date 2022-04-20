@@ -131,7 +131,7 @@ fn rnp_import_keys(ctx: *mut RnpContext,
             match cert {
                 Err(_) if keep_going => continue,
                 Err(e) => {
-                    _warn!("bad key and !keep_going, aborting: {}", e);
+                    warn!("bad key and !keep_going, aborting: {}", e);
                     return Err(e);
                 },
                 Ok(v) => acc.push(v),
@@ -198,7 +198,7 @@ fn rnp_import_keys(ctx: *mut RnpContext,
     };
 
     if let Err(e) = f() {
-        _warn!("rnp_import_keys: {}", e);
+        warn!("rnp_import_keys: {}", e);
         RNP_ERROR_GENERIC
     } else {
         RNP_SUCCESS
@@ -387,7 +387,7 @@ pub unsafe extern "C" fn rnp_import_signatures(
 
 
     if let Err(e) = f() {
-        _warn!("rnp_import_signatures: {}", e);
+        warn!("rnp_import_signatures: {}", e);
         RNP_ERROR_GENERIC
     } else {
         RNP_SUCCESS

@@ -79,7 +79,7 @@ impl WoT {
                 let err = err.context(
                     "openpgp.sqlite: \
                      Unexpected schema (querying acceptance_email)");
-                warn!("openpgp.sqlite: {}", err);
+                global_warn!("openpgp.sqlite: {}", err);
                 err
             })?;
         conn.query_row("SELECT fpr, decision FROM acceptance_decision LIMIT 1",
@@ -90,7 +90,7 @@ impl WoT {
                 let err = err.context(
                     "openpgp.sqlite:\
                      Unexpected schema (querying acceptance_decision)");
-                warn!("openpgp.sqlite: {}", err);
+                global_warn!("openpgp.sqlite: {}", err);
                 err
             })?;
 

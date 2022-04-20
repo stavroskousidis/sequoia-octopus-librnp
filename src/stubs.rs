@@ -11,6 +11,7 @@ macro_rules! unused {
         /// This function is bound in RNPlib.jsm but is not actually used.
         #[no_mangle] pub extern "C"
         fn $s() -> crate::RnpResult {
+            rnp_function!($s, crate::TRACE);
             warn!("previously unused function is used: {}", stringify!($s));
             crate::error::RNP_ERROR_NOT_IMPLEMENTED
         }
