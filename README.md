@@ -20,7 +20,7 @@ RNP API as used by Thunderbird using Sequoia.
 
 The Thunderbird developers do not support replacing [RNP], and have
 made it difficult to integrate our solution.  We [regularly run]
-Thunderbird's tests using the Octopus, using the ESR78, ESR91, and
+Thunderbird's tests using the Octopus, using the ESR91 and
 beta versions of Thunderbird.  We are quite confident that the Octopus
 is safe to use, and offers at least the degree of security that you
 get with [RNP].
@@ -85,7 +85,7 @@ Fedora 34. The official Thunderbird package has also been adapted to allow
 users to choose which of the available PGP backends is used.
 
 If the `thunderbird` package is already installed (and at least at version
-78.11.0), then swapping the RNP backend with the Octopus can be done by
+91), then swapping the RNP backend with the Octopus can be done by
 running the following command:
 
 ```sh

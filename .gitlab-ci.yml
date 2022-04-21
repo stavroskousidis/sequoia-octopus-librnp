@@ -147,7 +147,7 @@ windows-msvc-release:
     - win2019
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-  needs: ["windows-msvc", "thunderbird-tests-esr78", "thunderbird-tests-beta", "thunderbird-tests-esr91"]
+  needs: ["windows-msvc", "thunderbird-tests-beta", "thunderbird-tests-esr91"]
   stage: release
   image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
   before_script:
@@ -174,7 +174,7 @@ debug-windows-msvc-release:
     - win2019
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-  needs: ["windows-msvc", "thunderbird-tests-esr78", "thunderbird-tests-beta", "thunderbird-tests-esr91"]
+  needs: ["windows-msvc", "thunderbird-tests-beta", "thunderbird-tests-esr91"]
   stage: release
   image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
   before_script:
@@ -201,7 +201,7 @@ windows-msvc-release-32:
     - win2019
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-  needs: ["windows-msvc-32", "thunderbird-tests-esr78", "thunderbird-tests-beta", "thunderbird-tests-esr91"]
+  needs: ["windows-msvc-32", "thunderbird-tests-beta", "thunderbird-tests-esr91"]
   stage: release
   image:
     name: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
@@ -250,10 +250,6 @@ windows-msvc-release-32:
     RUSTFLAGS: -D warnings -A unused-parens
     # We're pulling in the artifact from the build job, no need for the code.
     GIT_STRATEGY: none
-
-thunderbird-tests-esr78:
-  extends: .thunderbird-tests
-  image: registry.gitlab.com/sequoia-pgp/build-thunderbird/tbbuild_esr78:for_ci
 
 thunderbird-tests-beta:
   extends: .thunderbird-tests
