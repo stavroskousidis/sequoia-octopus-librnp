@@ -133,7 +133,8 @@ fn rnp_op_encrypt_execute(op: *mut RnpOpEncrypt) -> RnpResult {
             .symmetric_algo(op.cipher.unwrap_or_default())
             .build()?;
 
-        // XXX: Once implementations are more robust, pad the message.
+        // XXX: Pad the message if we implemented SEIPDv2 and the
+        // padding packet.
 
         // Maybe sign the message.
         if let Some(key) = op.signers.pop() {
