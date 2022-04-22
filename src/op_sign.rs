@@ -123,9 +123,6 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
         }
 
         // Maybe sign the message.
-
-        // This is a bit ugly, because lifetimes.
-        let agent_keys: Vec<&Key<_, _>> = op.agent_keys.iter().collect();
         if let Some(key) = op.secret_keys.pop() {
             let s =
                 op.ctx.decrypt_key_for(None, key, RnpPasswordFor::Sign)?
@@ -141,9 +138,9 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
                 signer = signer.add_signer(s);
             }
 
-            if agent_keys.len() > 0 {
+            if op.agent_keys.len() > 0 {
                 let agent = ipc::gnupg::Context::new()?;
-                for key in agent_keys {
+                for key in &op.agent_keys {
                     let s = ipc::gnupg::KeyPair::new(&agent, key)?;
                     signer = signer.add_signer(s);
                 }
@@ -158,12 +155,9 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
                 .hash_algo(op.hash.unwrap_or_default())?
                 .detached();
 
-            let keys: Vec<&Key<_, _>> = op.agent_keys.iter().collect();
-            if keys.len() > 1 {
-                for key in &keys[1..] {
-                    let s = ipc::gnupg::KeyPair::new(&agent, key)?;
-                    signer = signer.add_signer(s);
-                }
+            for key in &op.agent_keys[1..] {
+                let s = ipc::gnupg::KeyPair::new(&agent, key)?;
+                signer = signer.add_signer(s);
             }
 
             message = signer.build()?;
@@ -186,9 +180,6 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
         let mut message = Message::new(&mut op.output);
 
         // Maybe sign the message.
-
-        // This is a bit ugly, because lifetimes.
-        let agent_keys: Vec<&Key<_, _>> = op.agent_keys.iter().collect();
         if let Some(key) = op.secret_keys.pop() {
             let s =
                 op.ctx.decrypt_key_for(None, key, RnpPasswordFor::Sign)?
@@ -204,9 +195,9 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
                 signer = signer.add_signer(s);
             }
 
-            if agent_keys.len() > 0 {
+            if op.agent_keys.len() > 0 {
                 let agent = ipc::gnupg::Context::new()?;
-                for key in agent_keys {
+                for key in &op.agent_keys {
                     let s = ipc::gnupg::KeyPair::new(&agent, key)?;
                     signer = signer.add_signer(s);
                 }
@@ -221,12 +212,9 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
                 .hash_algo(op.hash.unwrap_or_default())?
                 .cleartext();
 
-            let keys: Vec<&Key<_, _>> = op.agent_keys.iter().collect();
-            if keys.len() > 1 {
-                for key in &keys[1..] {
-                    let s = ipc::gnupg::KeyPair::new(&agent, key)?;
-                    signer = signer.add_signer(s);
-                }
+            for key in &op.agent_keys[1..] {
+                let s = ipc::gnupg::KeyPair::new(&agent, key)?;
+                signer = signer.add_signer(s);
             }
 
             message = signer.build()?;
