@@ -197,11 +197,17 @@ impl RnpKey {
 
     fn cert(&mut self) -> Option<RwLockReadGuard<Cert>> {
         self.find_cert();
+        self.try_cert()
+    }
+    pub(crate) fn try_cert(&self) -> Option<RwLockReadGuard<Cert>> {
         self.cert.as_ref().map(|c| c.read().unwrap())
     }
 
     fn cert_mut(&mut self) -> Option<RwLockWriteGuard<Cert>> {
         self.find_cert();
+        self.try_cert_mut()
+    }
+    fn try_cert_mut(&self) -> Option<RwLockWriteGuard<Cert>> {
         self.cert.as_ref().map(|c| c.write().unwrap())
     }
 }

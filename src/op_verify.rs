@@ -696,7 +696,7 @@ impl<'a> Helper<'a> {
 
     /// Returns the decryption key with the given keyid.
     fn get_public_key(&self, id: &KeyID)
-        -> Option<(Fingerprint, Key<PublicParts, UnspecifiedRole>)>
+        -> Option<(Cert, Key<PublicParts, UnspecifiedRole>)>
     {
         let ks = self.ctx.certs.read();
 
@@ -706,7 +706,7 @@ impl<'a> Helper<'a> {
                 cert.with_policy(P, None).ok()
                     .and_then(|vcert| vcert.keys()
                               .key_handle(id).nth(0))
-                    .map(|vka| (cert.fingerprint(), vka.key().clone()))
+                    .map(|vka| (cert.clone(), vka.key().clone()))
             })
             .nth(0);
         r
@@ -854,15 +854,18 @@ impl<'a> DecryptionHelper for Helper<'a> {
         }
 
         for pkesk in pkesks {
-            if let Some((fp, key)) = self.get_public_key(pkesk.recipient()) {
+            if let Some((cert, key)) = self.get_public_key(pkesk.recipient()) {
                 let mut pair = ipc::gnupg::KeyPair::new(
                     &ipc::gnupg::Context::new()?, key.parts_as_public())?;
+                if let Ok(vcert) = cert.with_policy(P, None) {
+                    pair = pair.with_cert(&vcert);
+                }
                 if pkesk.decrypt(&mut pair, algo)
                     .map(|(algo, session_key)| decrypt(algo, &session_key))
                     .unwrap_or(false)
                 {
                     self.result.pkesk_used = Some(pkesk.clone());
-                    return Ok(Some(fp));
+                    return Ok(Some(cert.fingerprint()));
                 }
             }
         }

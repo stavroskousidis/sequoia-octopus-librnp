@@ -7,6 +7,7 @@ use libc::{
 
 use sequoia_openpgp as openpgp;
 use openpgp::{
+    Cert,
     packet::{
         Key,
         key::{
@@ -39,7 +40,7 @@ pub struct RnpOpSign<'a> {
     input: &'a mut RnpInput,
     output: &'a mut RnpOutput<'a>,
     secret_keys: Vec<Key<SecretParts, UnspecifiedRole>>,
-    agent_keys: Vec<Key<PublicParts, UnspecifiedRole>>,
+    agent_keys: Vec<(Option<Cert>, Key<PublicParts, UnspecifiedRole>)>,
     hash: Option<HashAlgorithm>,
     armor: bool,
     csf: bool,
@@ -111,6 +112,22 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
     rnp_function!(rnp_op_sign_execute, crate::TRACE);
     let op = assert_ptr_mut!(op);
 
+    /// Creates a KeyPair and makes it prompt for a password using the
+    /// context provided by the given cert.
+    fn gpgagent_keypair(cert: &Option<Cert>,
+                        key: &Key<PublicParts, UnspecifiedRole>)
+                        -> openpgp::Result<ipc::gnupg::KeyPair>
+    {
+        let agent = ipc::gnupg::Context::new()?;
+        let mut s = ipc::gnupg::KeyPair::new(&agent, key)?;
+        if let Some(cert) = cert.as_ref() {
+            if let Ok(vcert) = cert.with_policy(crate::P, None) {
+                s = s.with_cert(&vcert);
+            }
+        }
+        Ok(s)
+    }
+
     fn sign(op: &mut RnpOpSign) -> openpgp::Result<()> {
         assert!(! op.csf);
 
@@ -139,24 +156,21 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
             }
 
             if op.agent_keys.len() > 0 {
-                let agent = ipc::gnupg::Context::new()?;
-                for key in &op.agent_keys {
-                    let s = ipc::gnupg::KeyPair::new(&agent, key)?;
+                for (cert, key) in &op.agent_keys {
+                    let s = gpgagent_keypair(&cert, &key)?;
                     signer = signer.add_signer(s);
                 }
             }
 
             message = signer.build()?;
-        } else if let Some(key) = op.agent_keys.get(0) {
-            let agent = ipc::gnupg::Context::new()?;
-            let s = ipc::gnupg::KeyPair::new(&agent, &key)?;
-
+        } else if let Some((cert, key)) = op.agent_keys.get(0) {
+            let s = gpgagent_keypair(&cert, &key)?;
             let mut signer = Signer::new(message, s)
                 .hash_algo(op.hash.unwrap_or_default())?
                 .detached();
 
-            for key in &op.agent_keys[1..] {
-                let s = ipc::gnupg::KeyPair::new(&agent, key)?;
+            for (cert, key) in &op.agent_keys[1..] {
+                let s = gpgagent_keypair(&cert, &key)?;
                 signer = signer.add_signer(s);
             }
 
@@ -196,24 +210,21 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
             }
 
             if op.agent_keys.len() > 0 {
-                let agent = ipc::gnupg::Context::new()?;
-                for key in &op.agent_keys {
-                    let s = ipc::gnupg::KeyPair::new(&agent, key)?;
+                for (cert, key) in &op.agent_keys {
+                    let s = gpgagent_keypair(&cert, &key)?;
                     signer = signer.add_signer(s);
                 }
             }
 
             message = signer.build()?;
-        } else if let Some(key) = op.agent_keys.get(0) {
-            let agent = ipc::gnupg::Context::new()?;
-            let s = ipc::gnupg::KeyPair::new(&agent, &key)?;
-
+        } else if let Some((cert, key)) = op.agent_keys.get(0) {
+            let s = gpgagent_keypair(&cert, &key)?;
             let mut signer = Signer::new(message, s)
                 .hash_algo(op.hash.unwrap_or_default())?
                 .cleartext();
 
-            for key in &op.agent_keys[1..] {
-                let s = ipc::gnupg::KeyPair::new(&agent, key)?;
+            for (cert, key) in &op.agent_keys[1..] {
+                let s = gpgagent_keypair(&cert, &key)?;
                 signer = signer.add_signer(s);
             }
 
@@ -240,20 +251,20 @@ fn rnp_op_sign_add_signature(op: *mut RnpOpSign,
                              -> RnpResult {
     rnp_function!(rnp_op_sign_add_signature, crate::TRACE);
     use std::ops::Deref;
-    assert_ptr!(op);
-    assert_ptr!(key);
+    let op = assert_ptr_mut!(op);
+    let key = assert_ptr_ref!(key);
     if ! sig.is_null() {
         warn!("changing signature parameters not implemented");
         return RNP_ERROR_NOT_IMPLEMENTED;
     }
 
-    let key: &RnpKey = &*key;
-
     if let Ok(k) = key.deref().clone().parts_into_secret() {
-        (*op).secret_keys.push(k);
+        op.secret_keys.push(k);
         RNP_SUCCESS
     } else if (*key.ctx).certs.key_on_agent(&key.fingerprint()) {
-        (*op).agent_keys.push(key.deref().clone().parts_into_public());
+        let cert = key.try_cert().map(|c| c.deref().clone());
+        let key = key.deref().clone().parts_into_public();
+        op.agent_keys.push((cert, key));
         RNP_SUCCESS
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
