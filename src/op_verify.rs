@@ -359,8 +359,6 @@ fn rnp_op_verify_signature_get_status(sig: *mut RnpOpVerifySignature)
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_op_verify_signature_get_key(sig: *mut RnpOpVerifySignature,
-                                   // XXX: I think we want the signing
-                                   // key here.
                                    key: *mut *mut RnpKey)
                                    -> RnpResult {
     rnp_function!(rnp_op_verify_signature_get_key, crate::TRACE);
