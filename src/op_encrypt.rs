@@ -29,6 +29,7 @@ use crate::{
     conversions::FromRnpId,
     key::RnpKey,
     error::*,
+    flags::*,
 };
 
 pub struct RnpOpEncrypt<'a> {
@@ -40,6 +41,8 @@ pub struct RnpOpEncrypt<'a> {
     cipher: Option<SymmetricAlgorithm>,
     hash: Option<HashAlgorithm>,
     armor: bool,
+    /// Disables wrapping data in a Literal Data Packet.
+    no_wrap: bool,
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -64,6 +67,7 @@ fn rnp_op_encrypt_create<'a>(op: *mut *mut RnpOpEncrypt<'a>,
         cipher: None,
         hash: None,
         armor: false,
+        no_wrap: false,
     }));
     RNP_SUCCESS
 }
@@ -157,13 +161,22 @@ fn rnp_op_encrypt_execute(op: *mut RnpOpEncrypt) -> RnpResult {
             message = signer.build()?;
         }
 
-        // Literal wrapping.
-        let mut message = LiteralWriter::new(message).build()?;
-        if let Some(mut plaintext) = cached_plaintext {
-            // Create a combined message over the original plaintext.
-            std::io::copy(&mut plaintext, &mut message)?;
-        } else {
+        if op.no_wrap {
+            // This implicitly disables our recombination workaround
+            // because this is RNP's native way to support the
+            // combined method when GnuPG is used to literal wrap and
+            // sign the data.
+            t!("Literal data wrapping disabled, encrypting as-is.");
             std::io::copy(op.input, &mut message)?;
+        } else {
+            // Literal wrapping.
+            message = LiteralWriter::new(message).build()?;
+            if let Some(mut plaintext) = cached_plaintext {
+                // Create a combined message over the original plaintext.
+                std::io::copy(&mut plaintext, &mut message)?;
+            } else {
+                std::io::copy(op.input, &mut message)?;
+            }
         }
         message.finalize()?;
 
@@ -262,3 +275,173 @@ fn rnp_op_encrypt_set_hash(op: *mut RnpOpEncrypt,
     RNP_SUCCESS
 }
 
+#[no_mangle] pub unsafe extern "C"
+fn rnp_op_encrypt_set_flags(op: *mut RnpOpEncrypt,
+                            flags: RnpEncryptFlags)
+                            -> RnpResult {
+    rnp_function!(rnp_op_encrypt_set_flags, crate::TRACE);
+    let op = assert_ptr_mut!(op);
+
+    if flags & RNP_ENCRYPT_NOWRAP > 0 {
+        t!("Disabling literal data wrapping.");
+        op.no_wrap = true;
+    } else {
+        t!("Enabling literal data wrapping (the default).");
+        op.no_wrap = false;
+    }
+
+    RNP_SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Read, Write};
+    use std::ffi::CString;
+    use std::ptr::null_mut;
+
+    use super::*;
+    use libc::c_char;
+
+    use crate::rnp_ffi_create;
+    use crate::io::RnpInput;
+    use crate::import::rnp_import_keys;
+    use crate::key::*;
+    use crate::rnp_output_to_memory;
+    use crate::rnp_output_memory_get_buf;
+    use crate::rnp_input_from_memory;
+    use crate::rnp_input_destroy;
+    use crate::rnp_output_destroy;
+    use crate::rnp_ffi_destroy;
+
+    use openpgp::{
+        Cert,
+        crypto::SessionKey,
+        packet::prelude::*,
+        parse::{
+            Parse,
+            stream::*,
+        },
+        serialize::SerializeInto,
+    };
+
+    macro_rules! rnp_try {
+        ($e: expr) => {{
+            let r = unsafe { $e };
+            assert_eq!(r, RNP_SUCCESS);
+        }}
+    }
+
+    #[test]
+    fn encrypt_no_wrap() -> openpgp::Result<()> {
+        let (key, _) =
+            openpgp::cert::CertBuilder::general_purpose(None, Some("uid"))
+            .generate()?;
+
+        let cert = key.to_vec()?;
+
+        let mut ctx: *mut RnpContext = std::ptr::null_mut();
+        rnp_try!(rnp_ffi_create(
+            &mut ctx as *mut *mut _,
+            b"GPG\x00".as_ptr() as *const c_char,
+            b"GPG\x00".as_ptr() as *const c_char));
+
+        let mut input: *mut RnpInput = std::ptr::null_mut();
+        rnp_try!(rnp_input_from_memory(
+            &mut input as *mut *mut _,
+            cert.as_ptr(), cert.len(), false));
+
+        // And load the certificate.
+        rnp_try!(rnp_import_keys(
+            ctx, input,
+            RNP_LOAD_SAVE_PUBLIC_KEYS
+                | RNP_LOAD_SAVE_SECRET_KEYS,
+            std::ptr::null_mut() as *mut *mut _));
+
+        rnp_try!(rnp_input_destroy(input));
+
+        // Manually wrap a message.
+        const MESSAGE: &[u8] = b"Hello World :)";
+        let mut wrapped = Vec::new();
+        let mut message =
+            LiteralWriter::new(Message::new(&mut wrapped)).build()?;
+        message.write_all(&MESSAGE)?;
+        message.finalize()?;
+
+        // Now encrypt it.
+        let mut input: *mut RnpInput = std::ptr::null_mut();
+        rnp_try!(rnp_input_from_memory(
+            &mut input as *mut *mut _,
+            wrapped.as_ptr(), wrapped.len(), false));
+
+        let mut output: *mut RnpOutput = std::ptr::null_mut();
+        rnp_try!(rnp_output_to_memory(&mut output as *mut *mut _, 0));
+
+        let mut op = null_mut();
+        rnp_try!(rnp_op_encrypt_create(&mut op as *mut _, ctx, input, output));
+        rnp_try!(rnp_op_encrypt_set_flags(op, RNP_ENCRYPT_NOWRAP));
+
+        let fp = CString::new(key.fingerprint().to_string())?;
+        let mut recipient = null_mut();
+        rnp_try!(rnp_locate_key(ctx, b"fingerprint\0".as_ptr() as *const _,
+                                fp.as_ptr(), &mut recipient as *mut _));
+
+        rnp_try!(rnp_op_encrypt_add_recipient(op, recipient));
+
+        rnp_try!(rnp_op_encrypt_execute(op));
+
+        let mut buf: *mut u8 = std::ptr::null_mut();
+        let mut len: libc::size_t = 0;
+        rnp_try!(rnp_output_memory_get_buf(
+            output,
+            &mut buf as *mut *mut _,
+            &mut len as *mut _,
+            false));
+        let ciphertext = unsafe {
+            std::slice::from_raw_parts(buf, len)
+        };
+
+        // Decrypt it.
+        struct Helper {
+            key: openpgp::Cert,
+        }
+        impl VerificationHelper for Helper {
+            fn get_certs(&mut self, _ids: &[openpgp::KeyHandle]) -> openpgp::Result<Vec<Cert>> {
+                Ok(Vec::new())
+            }
+            fn check(&mut self, _structure: MessageStructure) -> openpgp::Result<()> {
+                Ok(())
+            }
+        }
+        impl DecryptionHelper for Helper {
+            fn decrypt<D>(&mut self, pkesks: &[PKESK], skesks: &[SKESK],
+                          _sym_algo: Option<SymmetricAlgorithm>,
+                          mut decrypt: D) -> openpgp::Result<Option<openpgp::Fingerprint>>
+            where D: FnMut(SymmetricAlgorithm, &SessionKey) -> bool
+            {
+                assert_eq!(pkesks.len(), 1);
+                assert_eq!(skesks.len(), 0);
+                let mut key =
+                    self.key.keys().secret().key_handle(pkesks[0].recipient())
+                    .next().unwrap().key().clone().into_keypair()?;
+                pkesks[0].decrypt(&mut key, None)
+                    .map(|(algo, session_key)| decrypt(algo, &session_key));
+                Ok(None)
+            }
+        }
+
+        let h = Helper { key, };
+        let mut v = DecryptorBuilder::from_bytes(ciphertext)?
+            .with_policy(crate::P, None, h)?;
+
+        let mut content = Vec::new();
+        v.read_to_end(&mut content)?;
+        assert_eq!(&content, MESSAGE);
+
+        rnp_try!(rnp_key_handle_destroy(recipient));
+        rnp_try!(rnp_input_destroy(input));
+        rnp_try!(rnp_output_destroy(output));
+        rnp_try!(rnp_ffi_destroy(ctx));
+
+        Ok(())
+    }
+}

@@ -60,3 +60,7 @@ pub const RNP_KEY_SIGNATURE_NON_SELF_SIG: RnpKeyRemoveSignatureFlags = 4;
 pub type RnpKeyRemoveSignatureAction = u32;
 pub const RNP_KEY_SIGNATURE_KEEP:   RnpKeyRemoveSignatureAction = 0;
 pub const RNP_KEY_SIGNATURE_REMOVE: RnpKeyRemoveSignatureAction = 1;
+
+// Flags for rnp_op_encrypt_set_flags.
+pub type RnpEncryptFlags = u32;
+pub const RNP_ENCRYPT_NOWRAP: RnpEncryptFlags = 1 << 0;
