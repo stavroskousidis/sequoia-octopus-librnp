@@ -179,9 +179,32 @@ fn rnp_op_encrypt_add_recipient(op: *mut RnpOpEncrypt,
                                 -> RnpResult {
     rnp_function!(rnp_op_encrypt_add_recipient, crate::TRACE);
     use std::ops::Deref;
-    assert_ptr!(op);
-    assert_ptr!(key);
-    (*op).recipients.push((*key).deref().clone());
+    let op = assert_ptr_mut!(op);
+    let key = assert_ptr_ref!(key);
+    t!("Adding encryption-capable (sub)keys from {:X}", key.fingerprint());
+
+    // Try to locate encryption-capable subkeys.
+    let mut found_some = false;
+    if let Some(cert) = key.try_cert() {
+        for ka in cert.keys().with_policy(crate::P, None)
+            .for_transport_encryption()
+            .for_storage_encryption()
+            .alive()
+        {
+            t!("Adding (sub)key {:X}", ka.fingerprint());
+            op.recipients.push(ka.key().clone().parts_into_unspecified());
+            found_some = true;
+        }
+    }
+
+    // Fall back to pushing key to the recipients and hoping for the
+    // best.  This is what RNP does.
+    if ! found_some {
+        t!("Found no encryption-capable (sub)keys, adding primary key {:X}",
+           key.fingerprint());
+        op.recipients.push(key.deref().clone());
+    }
+
     RNP_SUCCESS
 }
 
