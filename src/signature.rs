@@ -163,7 +163,7 @@ fn rnp_signature_is_valid(sig: *const RnpSignature,
 /// self-signatures as valid, a functionality that is not available in
 /// the stock version of the function.
 use openpgp::cert::amalgamation::ComponentAmalgamation;
-pub fn ca_signatures<'a, T>(ca: ComponentAmalgamation<'a, T>)
+pub fn ca_signatures<'a, T>(ca: &ComponentAmalgamation<'a, T>)
                             -> impl Iterator<Item = (&'a Signature, Option<bool>)>
 {
     use openpgp::packet::signature::subpacket::SubpacketTag;

@@ -114,7 +114,7 @@ fn rnp_uid_get_signature_at(uid: *const RnpUserID,
     let sig = assert_ptr_mut!(sig);
 
     if let Some((s, valid)) = ca_signatures(
-        uid.cert.userids().nth(uid.nth_uid)
+        &uid.cert.userids().nth(uid.nth_uid)
             .expect("we know it's there")
     ).nth(idx)
     {
@@ -136,7 +136,7 @@ fn rnp_uid_get_signature_count(uid: *const RnpUserID,
     let count = assert_ptr_mut!(count);
 
     *count = ca_signatures(
-        uid.cert.userids().nth(uid.nth_uid)
+        &uid.cert.userids().nth(uid.nth_uid)
             .expect("we know it's there")
     ).count();
     RNP_SUCCESS
