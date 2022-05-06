@@ -21,6 +21,7 @@ use crate::{
     RnpContext,
     RnpKey,
     str_to_rnp_buffer,
+    conversions::ToRnpId,
     error::*,
 };
 
@@ -59,6 +60,19 @@ fn rnp_signature_handle_destroy(sig: *mut RnpSignature) -> RnpResult {
     }
     RNP_SUCCESS
 }
+
+#[no_mangle] pub unsafe extern "C"
+fn rnp_signature_get_hash_alg(sig: *const RnpSignature,
+                              hash_alg: *mut *mut c_char)
+                           -> RnpResult {
+    rnp_function!(rnp_signature_get_keyid, crate::TRACE);
+    let sig = assert_ptr_ref!(sig);
+    assert_ptr!(hash_alg);
+
+    *hash_alg = str_to_rnp_buffer(sig.hash_algo().to_rnp_id());
+    RNP_SUCCESS
+}
+
 
 // XXX: This interface is terrible.  It retrieves issuer information
 // from the signature in an unsafe way.
