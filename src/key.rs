@@ -63,6 +63,7 @@ use crate::{
     flags::*,
     conversions::*,
     error::*,
+    signature::ca_signatures,
     wot,
 };
 
@@ -673,6 +674,54 @@ fn rnp_key_get_subkey_count(key: *mut RnpKey,
     if let Some(cert) = (*key).cert() {
         *count = cert.keys().subkeys().count();
         RNP_SUCCESS
+    } else {
+        RNP_ERROR_NO_SUITABLE_KEY
+    }
+}
+
+#[no_mangle] pub unsafe extern "C"
+fn rnp_key_get_signature_at(key: *mut RnpKey,
+                            idx: size_t,
+                            sig: *mut *mut RnpSignature)
+                            -> RnpResult {
+    rnp_function!(rnp_key_get_signature_at, crate::TRACE);
+    let key = assert_ptr_ref!(key);
+    assert_ptr!(sig);
+
+    if let Some(cert) = key.try_cert() {
+        if let Some(subkey) = cert.keys().key_handle(key.fingerprint()).next() {
+            if let Some((s, valid)) =
+                ca_signatures(subkey.component_amalgamation()).nth(idx)
+            {
+                *sig = Box::into_raw(Box::new(
+                    RnpSignature::new(key.ctx, s.clone(), valid)));
+                RNP_SUCCESS
+            } else {
+                RNP_ERROR_BAD_PARAMETERS
+            }
+        } else {
+            RNP_ERROR_NO_SUITABLE_KEY
+        }
+    } else {
+        RNP_ERROR_NO_SUITABLE_KEY
+    }
+}
+
+#[no_mangle] pub unsafe extern "C"
+fn rnp_key_get_signature_count(key: *mut RnpKey,
+                               count: *mut size_t)
+                               -> RnpResult {
+    rnp_function!(rnp_key_get_signature_count, crate::TRACE);
+    let key = assert_ptr_ref!(key);
+    assert_ptr!(count);
+
+    if let Some(cert) = key.try_cert() {
+        if let Some(subkey) = cert.keys().key_handle(key.fingerprint()).next() {
+            *count = ca_signatures(subkey.component_amalgamation()).count();
+            RNP_SUCCESS
+        } else {
+            RNP_ERROR_NO_SUITABLE_KEY
+        }
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
     }
