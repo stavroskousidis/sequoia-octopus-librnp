@@ -64,3 +64,13 @@ pub const RNP_KEY_SIGNATURE_REMOVE: RnpKeyRemoveSignatureAction = 1;
 // Flags for rnp_op_encrypt_set_flags.
 pub type RnpEncryptFlags = u32;
 pub const RNP_ENCRYPT_NOWRAP: RnpEncryptFlags = 1 << 0;
+
+// Flags for rnp_*_security_rule
+pub type RnpSecurityFlags = u32;
+pub const RNP_SECURITY_OVERRIDE: RnpSecurityFlags = 1 << 0;
+pub const RNP_SECURITY_REMOVE_ALL: RnpSecurityFlags = 1 << 16;
+
+pub type RnpSecurityLevel = u32;
+pub const RNP_SECURITY_PROHIBITED: RnpSecurityLevel = 0;
+pub const RNP_SECURITY_INSECURE: RnpSecurityLevel = 1;
+pub const RNP_SECURITY_DEFAULT: RnpSecurityLevel = 2;

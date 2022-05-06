@@ -108,6 +108,8 @@ pub mod userid;
 use userid::RnpUserID;
 #[allow(dead_code)]
 pub mod import;
+pub mod security_rules;
+
 // The gpg module is copied from OpenPGP CA.  We don't want to modify
 // it.
 #[allow(dead_code)]
