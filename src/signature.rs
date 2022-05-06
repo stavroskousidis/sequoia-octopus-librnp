@@ -155,3 +155,27 @@ fn rnp_signature_is_valid(sig: *const RnpSignature,
     // these signatures, don't complicate the implementation... yet.
     RNP_ERROR_SIGNATURE_INVALID
 }
+
+/// Replacement for ComponentAmalgamation::signatures.
+///
+/// This started out as a replacement for a function that was not
+/// available in sequoia-openpgp 1.0.  However, we now mark
+/// self-signatures as valid, a functionality that is not available in
+/// the stock version of the function.
+use openpgp::cert::amalgamation::ComponentAmalgamation;
+pub fn ca_signatures<'a, T>(ca: ComponentAmalgamation<'a, T>)
+                            -> impl Iterator<Item = (&'a Signature, Option<bool>)>
+{
+    use openpgp::packet::signature::subpacket::SubpacketTag;
+    ca.signatures().map(|sig| {
+        // If Sequoia verified a signature, it will set the
+        // authenticated flag of subpackets to true.  Thus, we know a
+        // signature is "valid" iff the signature creation time has
+        // been authenticated.
+        let valid = sig.subpacket(SubpacketTag::SignatureCreationTime)
+            .map(|sct| if sct.authenticated() { Some(true) } else { None })
+            .unwrap_or(None);
+
+        (sig, valid)
+    })
+}
