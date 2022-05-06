@@ -110,8 +110,8 @@ fn rnp_uid_handle_destroy(uid: *mut RnpUserID)
 /// the stock version of the function.
 use openpgp::cert::amalgamation::ComponentAmalgamation;
 use openpgp::packet::Signature;
-fn signatures<'a>(ca: ComponentAmalgamation<'a, UserID>)
-                  -> impl Iterator<Item = (&'a Signature, Option<bool>)> {
+fn ca_signatures<'a, T>(ca: ComponentAmalgamation<'a, T>)
+                        -> impl Iterator<Item = (&'a Signature, Option<bool>)> {
     ca.self_revocations().map(|sig| (sig, Some(true)))
         .chain(ca.self_signatures().map(|sig| (sig, Some(true))))
         .chain(ca.certifications().map(|sig| (sig, None)))
@@ -128,7 +128,7 @@ fn rnp_uid_get_signature_at(uid: *const RnpUserID,
     let uid = assert_ptr_ref!(uid);
     let sig = assert_ptr_mut!(sig);
 
-    if let Some((s, valid)) = signatures(
+    if let Some((s, valid)) = ca_signatures(
         uid.cert.userids().nth(uid.nth_uid)
             .expect("we know it's there")
     ).nth(idx)
@@ -150,7 +150,7 @@ fn rnp_uid_get_signature_count(uid: *const RnpUserID,
     let uid = assert_ptr_ref!(uid);
     let count = assert_ptr_mut!(count);
 
-    *count = signatures(
+    *count = ca_signatures(
         uid.cert.userids().nth(uid.nth_uid)
             .expect("we know it's there")
     ).count();
