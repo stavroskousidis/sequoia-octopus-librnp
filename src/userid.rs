@@ -104,8 +104,10 @@ fn rnp_uid_handle_destroy(uid: *mut RnpUserID)
 
 /// Replacement for ComponentAmalgamation::signatures.
 ///
-/// XXX: This is not available in sequoia-openpgp 1.0.  Drop this
-/// workaround once we depend on >= 1.1.
+/// This started out as a replacement for a function that was not
+/// available in sequoia-openpgp 1.0.  However, we now mark
+/// self-signatures as valid, a functionality that is not available in
+/// the stock version of the function.
 use openpgp::cert::amalgamation::ComponentAmalgamation;
 use openpgp::packet::Signature;
 fn signatures<'a>(ca: ComponentAmalgamation<'a, UserID>)
