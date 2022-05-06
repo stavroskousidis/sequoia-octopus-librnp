@@ -112,10 +112,18 @@ use openpgp::cert::amalgamation::ComponentAmalgamation;
 use openpgp::packet::Signature;
 fn ca_signatures<'a, T>(ca: ComponentAmalgamation<'a, T>)
                         -> impl Iterator<Item = (&'a Signature, Option<bool>)> {
-    ca.self_revocations().map(|sig| (sig, Some(true)))
-        .chain(ca.self_signatures().map(|sig| (sig, Some(true))))
-        .chain(ca.certifications().map(|sig| (sig, None)))
-        .chain(ca.other_revocations().map(|sig| (sig, None)))
+    use openpgp::packet::signature::subpacket::SubpacketTag;
+    ca.signatures().map(|sig| {
+        // If Sequoia verified a signature, it will set the
+        // authenticated flag of subpackets to true.  Thus, we know a
+        // signature is "valid" iff the signature creation time has
+        // been authenticated.
+        let valid = sig.subpacket(SubpacketTag::SignatureCreationTime)
+            .map(|sct| if sct.authenticated() { Some(true) } else { None })
+            .unwrap_or(None);
+
+        (sig, valid)
+    })
 }
 
 // XXX: what signatures to consider?  all of them?
