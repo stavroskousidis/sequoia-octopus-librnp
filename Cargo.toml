@@ -16,6 +16,7 @@ categories = ["cryptography", "authentication", "email"]
 license = "LGPL-2.0-or-later"
 edition = "2018"
 build = "build.rs"
+rust-version = "1.59.0"
 
 [badges]
 gitlab = { repository = "sequoia-pgp/sequoia-octopus-librnp" }

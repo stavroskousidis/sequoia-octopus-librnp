@@ -83,7 +83,6 @@ windows-gnu:
   image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-gnu
   before_script:
     - clang -v
-    - rm rust-toolchain
     - rustup default stable
     - rustup show
     - rustc --version --verbose
@@ -102,7 +101,6 @@ windows-msvc:
   stage: cargo_test
   image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
   before_script:
-    - rm rust-toolchain
     - rustup default stable-x86_64-pc-windows-msvc
     - rustup show
     - rustc --version --verbose
@@ -128,7 +126,6 @@ windows-msvc-32:
     # see https://docs.microsoft.com/en-us/cpp/build/building-on-the-command-line?view=msvc-160
     entrypoint: ["C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat", "-arch=x86", "-host_arch=amd64", "&&", "type", "README", "&&", "powershell.exe", "-NoLogo", "-ExecutionPolicy", "Bypass"]
   before_script:
-    - rm rust-toolchain
     - rustup default stable-i686-pc-windows-msvc
     - rustup target add i686-pc-windows-msvc
     - rustup show
@@ -151,7 +148,6 @@ windows-msvc-release:
   stage: release
   image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
   before_script:
-    - rm rust-toolchain
     - rustup default stable-x86_64-pc-windows-msvc
     - rustup show
     - rustc --version --verbose
@@ -178,7 +174,6 @@ debug-windows-msvc-release:
   stage: release
   image: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
   before_script:
-    - rm rust-toolchain
     - rustup default stable-x86_64-pc-windows-msvc
     - rustup show
     - rustc --version --verbose
@@ -207,7 +202,6 @@ windows-msvc-release-32:
     name: registry.gitlab.com/sequoia-pgp/build-docker-image/windows-msvc
     entrypoint: ["C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat", "-arch=x86", "-host_arch=amd64", "&&", "type", "README", "&&", "powershell.exe", "-NoLogo", "-ExecutionPolicy", "Bypass"]
   before_script:
-    - rm rust-toolchain
     - rustup default stable-i686-pc-windows-msvc
     - rustup target add i686-pc-windows-msvc
     - rustup show
