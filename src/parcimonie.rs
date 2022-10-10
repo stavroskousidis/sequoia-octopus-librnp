@@ -41,7 +41,7 @@
 //! attacker who can observe the network and attribute requests to a
 //! single client can still determine N after observing many requests.
 //!
-//! Poisson is a memory-less distribution.  Its parameter lamda is the
+//! Poisson is a memory-less distribution.  Its parameter lambda is the
 //! mean time between events.  In our case, an event is an update.
 //! Since we want to update every certificate once a week, and we have
 //! N certificates, we set lambda to 1 week / N.
