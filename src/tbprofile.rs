@@ -169,7 +169,11 @@ impl TBProfile {
             let mut f = match File::open(&profiles_ini) {
                 Ok(f) => f,
                 Err(err) => {
-                    warn!("Opening {:?}: {}", profiles_ini, err);
+                    if err.kind() != std::io::ErrorKind::NotFound {
+                        warn!("Opening {:?}: {}", profiles_ini, err);
+                    } else {
+                        t!("Opening {:?}: {}", profiles_ini, err);
+                    }
                     return vec![];
                 }
             };
