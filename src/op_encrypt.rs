@@ -199,7 +199,7 @@ fn rnp_op_encrypt_add_recipient(op: *mut RnpOpEncrypt,
     // Try to locate encryption-capable subkeys.
     let mut found_some = false;
     if let Some(cert) = key.try_cert() {
-        for ka in cert.keys().with_policy(crate::P, None)
+        for ka in cert.keys().with_policy(&op.ctx.policy, None)
             .for_transport_encryption()
             .for_storage_encryption()
             .alive()
@@ -429,9 +429,10 @@ mod tests {
             }
         }
 
+        let p = openpgp::policy::StandardPolicy::new();
         let h = Helper { key, };
         let mut v = DecryptorBuilder::from_bytes(ciphertext)?
-            .with_policy(crate::P, None, h)?;
+            .with_policy(&p, None, h)?;
 
         let mut content = Vec::new();
         v.read_to_end(&mut content)?;

@@ -16,6 +16,7 @@ use openpgp::{
             UnspecifiedRole,
         },
     },
+    policy::Policy,
     serialize::stream::*,
     types::{
         HashAlgorithm,
@@ -114,14 +115,15 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
 
     /// Creates a KeyPair and makes it prompt for a password using the
     /// context provided by the given cert.
-    fn gpgagent_keypair(cert: &Option<Cert>,
+    fn gpgagent_keypair(policy: &dyn Policy,
+                        cert: &Option<Cert>,
                         key: &Key<PublicParts, UnspecifiedRole>)
                         -> openpgp::Result<ipc::gnupg::KeyPair>
     {
         let agent = ipc::gnupg::Context::new()?;
         let mut s = ipc::gnupg::KeyPair::new(&agent, key)?;
         if let Some(cert) = cert.as_ref() {
-            if let Ok(vcert) = cert.with_policy(crate::P, None) {
+            if let Ok(vcert) = cert.with_policy(policy, None) {
                 s = s.with_cert(&vcert);
             }
         }
@@ -157,20 +159,20 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
 
             if op.agent_keys.len() > 0 {
                 for (cert, key) in &op.agent_keys {
-                    let s = gpgagent_keypair(&cert, &key)?;
+                    let s = gpgagent_keypair(&op.ctx.policy, &cert, &key)?;
                     signer = signer.add_signer(s);
                 }
             }
 
             message = signer.build()?;
         } else if let Some((cert, key)) = op.agent_keys.get(0) {
-            let s = gpgagent_keypair(&cert, &key)?;
+            let s = gpgagent_keypair(&op.ctx.policy, &cert, &key)?;
             let mut signer = Signer::new(message, s)
                 .hash_algo(op.hash.unwrap_or_default())?
                 .detached();
 
             for (cert, key) in &op.agent_keys[1..] {
-                let s = gpgagent_keypair(&cert, &key)?;
+                let s = gpgagent_keypair(&op.ctx.policy, &cert, &key)?;
                 signer = signer.add_signer(s);
             }
 
@@ -211,20 +213,20 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
 
             if op.agent_keys.len() > 0 {
                 for (cert, key) in &op.agent_keys {
-                    let s = gpgagent_keypair(&cert, &key)?;
+                    let s = gpgagent_keypair(&op.ctx.policy, &cert, &key)?;
                     signer = signer.add_signer(s);
                 }
             }
 
             message = signer.build()?;
         } else if let Some((cert, key)) = op.agent_keys.get(0) {
-            let s = gpgagent_keypair(&cert, &key)?;
+            let s = gpgagent_keypair(&op.ctx.policy, &cert, &key)?;
             let mut signer = Signer::new(message, s)
                 .hash_algo(op.hash.unwrap_or_default())?
                 .cleartext();
 
             for (cert, key) in &op.agent_keys[1..] {
-                let s = gpgagent_keypair(&cert, &key)?;
+                let s = gpgagent_keypair(&op.ctx.policy, &cert, &key)?;
                 signer = signer.add_signer(s);
             }
 

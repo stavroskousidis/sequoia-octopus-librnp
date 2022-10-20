@@ -4,7 +4,6 @@ use libc::{
 
 use crate::{
     NP,
-    P,
     RnpContext,
     RnpResult,
     str_to_rnp_buffer,
@@ -65,7 +64,7 @@ fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
             let mut userids: Vec<String>
                 = Vec::with_capacity(2 * ks.count());
             for cert in ks.iter() {
-                if let Ok(vcert) = cert.with_policy(P, None) {
+                if let Ok(vcert) = cert.with_policy(&ctx.policy, None) {
                     userids.extend(vcert.userids()
                                    .filter_map(|u| {
                                        String::from_utf8(

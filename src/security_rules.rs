@@ -41,7 +41,7 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
                          level_out: *mut RnpSecurityLevel)
                          -> RnpResult {
     rnp_function!(rnp_get_security_rule, crate::TRACE);
-    assert_ptr!(ctx);
+    let ctx = assert_ptr_ref!(ctx);
     assert_ptr!(typ);
     assert_ptr!(name);
     let _ = /* optional */ flags_out;
@@ -64,7 +64,7 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
         RNP_FEATURE_HASH_ALG => {
             match HashAlgorithm::from_rnp_id(name) {
                 Ok(hash) => if let Some(cutoff) =
-                    crate::P.hash_cutoff(
+                    ctx.policy.hash_cutoff(
                         hash,
                         // Somewhat arbitrarily pick the weaker
                         // property.  RNP doesn't differentiate.

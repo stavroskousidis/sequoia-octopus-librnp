@@ -34,6 +34,7 @@ use openpgp::{
     KeyID,
     Cert,
     packet::prelude::*,
+    policy::StandardPolicy,
     serialize::Serialize,
 };
 
@@ -200,9 +201,9 @@ impl Keystore {
     //
     // If there is already parcimonie instance running, this does
     // nothing.
-    pub fn start_parcimonie(&mut self) {
+    pub fn start_parcimonie(&mut self, policy: StandardPolicy<'static>) {
         if self.parcimonie.is_none() {
-            self.parcimonie = Some(Parcimonie::new(crate::P, self));
+            self.parcimonie = Some(Parcimonie::new(policy, self));
         }
     }
 

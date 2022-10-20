@@ -39,6 +39,7 @@ use openpgp::{
             UnspecifiedRole,
         },
     },
+    policy::Policy,
     serialize::Serialize,
     types::{
         HashAlgorithm,
@@ -48,7 +49,6 @@ use openpgp::{
 };
 
 use crate::{
-    P,
     RnpResult,
     RnpContext,
     RnpOutput,
@@ -502,9 +502,10 @@ fn rnp_key_get_expiration(key: *mut RnpKey,
     let key = assert_ptr_mut!(key);
     assert_ptr!(expiration);
     let fp = key.fingerprint();
+    let policy = (*(key.ctx)).policy.clone();
 
     if let Some(cert) = key.cert().as_ref()
-        .and_then(|c| c.with_policy(P, None).ok())
+        .and_then(|c| c.with_policy(&policy, None).ok())
     {
         if let Some(vka) = cert.keys().key_handle(fp.clone()).nth(0) {
             *expiration =
@@ -536,19 +537,17 @@ fn rnp_key_get_primary_uid(key: *mut RnpKey,
                            uid: *mut *mut c_char)
                            -> RnpResult {
     rnp_function!(rnp_key_get_primary_uid, crate::TRACE);
-    assert_ptr!(key);
+    let key = assert_ptr_mut!(key);
     assert_ptr!(uid);
+    let policy = (*(key.ctx)).policy.clone();
 
     // If we fail to find a primary userid using the standard policy,
     // we fall back to using a null policy.  This value is only used
     // for displaying purposes, and falling back seems reasonable to
     // me.
-    use openpgp::policy::{Policy, NullPolicy};
-    const NP: &dyn Policy = &NullPolicy::new();
-
     if let Some(cert) = (*key).cert().as_ref()
-        .and_then(|c| c.with_policy(P, None).ok()
-                  .or_else(|| c.with_policy(NP, None).ok()))
+        .and_then(|c| c.with_policy(&policy, None).ok()
+                  .or_else(|| c.with_policy(crate::NP, None).ok()))
     {
         if let Ok(u) = cert.primary_userid() {
             *uid = c_str_to_rnp_buffer_lossy(u.value());
@@ -736,11 +735,12 @@ fn rnp_key_allows_usage(key: *mut RnpKey,
     assert_ptr!(key);
     assert_ptr!(usage);
     assert_ptr!(result);
+    let policy = (*((*key).ctx)).policy.clone();
 
     let usage = rnp_try!(RnpKeyUsage::from_rnp_id(usage));
 
     if let Some(cert) = (*key).cert().as_ref()
-        .and_then(|c| c.with_policy(P, None).ok())
+        .and_then(|c| c.with_policy(&policy, None).ok())
     {
         if let Some(vka) = cert
             .keys().key_handle((*key).fingerprint())
@@ -767,9 +767,10 @@ fn rnp_key_is_revoked(key: *mut RnpKey,
     rnp_function!(rnp_key_is_revoked, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(result);
+    let policy = (*((*key).ctx)).policy.clone();
 
     if let Some(cert) = (*key).cert().as_ref()
-        .and_then(|c| c.with_policy(P, None).ok())
+        .and_then(|c| c.with_policy(&policy, None).ok())
     {
         if let Some(vka) = cert
             .keys().key_handle((*key).fingerprint())
@@ -801,12 +802,14 @@ fn rnp_key_export_autocrypt(key: *mut RnpKey,
                             _flags: u32)
                             -> RnpResult {
     rnp_function!(rnp_key_export_autocrypt, crate::TRACE);
-    assert_ptr!(key);
+    let key = assert_ptr_mut!(key);
     assert_ptr!(uid);
     assert_ptr!(output);
     let uid = rnp_try!(cstr_to_str(uid));
+    let policy = (*((*key).ctx)).policy.clone();
 
-    fn f(cert: RwLockReadGuard<Cert>, uid: &str, output: &mut dyn io::Write)
+    fn f(policy: &dyn Policy, cert: RwLockReadGuard<Cert>, uid: &str,
+         output: &mut dyn io::Write)
          -> openpgp::Result<()>
     {
         // Attempt to parse the given user id into only the email.
@@ -818,14 +821,14 @@ fn rnp_key_export_autocrypt(key: *mut RnpKey,
         // Instead of implementing what RNP does, we use
         // sequoia-autocrypt for the normalization, and ignore subkey.
         use sequoia_autocrypt::AutocryptHeader;
-        let header = AutocryptHeader::new_sender(P, &cert, &addr, None)?;
+        let header = AutocryptHeader::new_sender(policy, &cert, &addr, None)?;
         let cert = header.key.expect("on success, the cleaned cert is there");
         cert.serialize(output)?;
         Ok(())
     }
 
     if let Some(cert) = (*key).cert() {
-        if let Err(e) = f(cert, uid, &mut *output) {
+        if let Err(e) = f(&policy, cert, uid, &mut *output) {
             log!("sequoia-octopus: failed to export for autocrypt: {}", e);
             RNP_ERROR_GENERIC
         } else {
@@ -1407,7 +1410,8 @@ fn rnp_key_set_expiration(key: *mut RnpKey,
             },
         };
 
-        let vcert = cert.with_policy(P, None)?;
+        let policy = ctx.policy.clone();
+        let vcert = cert.with_policy(&policy, None)?;
         let sigs = if is_primary {
             vcert.primary_key()
                 .set_expiration_time(

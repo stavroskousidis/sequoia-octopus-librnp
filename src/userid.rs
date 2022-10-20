@@ -20,7 +20,6 @@ use openpgp::{
 };
 
 use crate::{
-    P,
     RnpResult,
     RnpContext,
     RnpSignature,
@@ -74,7 +73,8 @@ impl RnpUserID {
     /// This function does not return whether a User ID is safe to use
     /// if
     fn safe_to_display<'a>(&'a self) -> Option<ValidUserIDAmalgamation<'a>> {
-        if let Ok(vc) = self.cert.with_policy(P, None) {
+        let ctx = unsafe { &*self.ctx };
+        if let Ok(vc) = self.cert.with_policy(&ctx.policy, None) {
             // The certificate is valid under the standard policy.  Is
             // the User ID?
             vc.userids().filter(|u| u.userid() == &self.uid).nth(0)
@@ -202,9 +202,10 @@ fn rnp_uid_is_primary(uid: *const RnpUserID,
                       -> RnpResult {
     rnp_function!(rnp_uid_is_primary, crate::TRACE);
     let uid = assert_ptr_ref!(uid);
+    let ctx = &*uid.ctx;
     let result = assert_ptr_mut!(result);
 
-    if let Ok(vc) = uid.cert.with_policy(P, None) {
+    if let Ok(vc) = uid.cert.with_policy(&ctx.policy, None) {
         if let Ok(ua) = vc.primary_userid() {
             *result = ua.userid() == &uid.uid
         } else {

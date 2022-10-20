@@ -40,7 +40,6 @@ use openpgp::packet::{PKESK, SKESK};
 use sequoia_ipc as ipc;
 
 use crate::{
-    P,
     RnpContext,
     RnpResult,
     RnpInput,
@@ -233,6 +232,7 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
     let op = assert_ptr_mut!(op);
 
     fn f(op: &mut RnpOpVerify) -> openpgp::Result<()> {
+        let policy = op.ctx.policy.clone();
         match &mut op.mode {
             SignatureMode::Inline(output) => {
                 t!("Inline signature verification or decryption");
@@ -247,7 +247,7 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
                     result: &mut op.result,
                 };
                 if VerifierBuilder::from_reader(&mut input)
-                    .and_then(|b| b.with_policy(P, None, h))
+                    .and_then(|b| b.with_policy(&policy, None, h))
                     .and_then(|mut v|
                               io::copy(&mut v, output).map_err(Into::into))
                     .is_ok()
@@ -263,7 +263,7 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
                 };
 
                 let mut v = DecryptorBuilder::from_reader(&mut op.input)?
-                    .with_policy(P, None, h)?;
+                    .with_policy(&policy, None, h)?;
                 io::copy(&mut v, output)?;
                 t!("Decryption successful: {:#?}", op.result);
             },
@@ -274,7 +274,7 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
                     result: &mut op.result,
                 };
                 let mut v = DetachedVerifierBuilder::from_reader(signature)?
-                    .with_policy(P, None, h)?;
+                    .with_policy(&policy, None, h)?;
                 v.verify_reader(&mut op.input)?;
                 t!("Verification without decryption successful: {:#?}",
                    op.result);
@@ -682,7 +682,7 @@ impl<'a> Helper<'a> {
         let r = ks.by_subkey_id(id)
             .chain(ks.by_primary_id(id))
             .filter_map(|cert| {
-                cert.with_policy(P, None).ok()
+                cert.with_policy(&self.ctx.policy, None).ok()
                     .and_then(|vcert| vcert.keys()
                               .secret()
                               .for_storage_encryption()
@@ -703,7 +703,7 @@ impl<'a> Helper<'a> {
         let r = ks.by_subkey_id(id)
             .chain(ks.by_primary_id(id))
             .filter_map(|cert| {
-                cert.with_policy(P, None).ok()
+                cert.with_policy(&self.ctx.policy, None).ok()
                     .and_then(|vcert| vcert.keys()
                               .key_handle(id).nth(0))
                     .map(|vka| (cert.clone(), vka.key().clone()))
@@ -794,7 +794,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
         for pkesk in pkesks.iter().filter(|p| p.recipient().is_wildcard()) {
             // Get all possible decryption keys from the context.
             for cert in ks.iter().filter(|cert| cert.is_tsk()) {
-                for key in cert.with_policy(P, None).ok()
+                for key in cert.with_policy(&self.ctx.policy, None).ok()
                     .iter()
                     .flat_map(|vcert| vcert.keys()
                               .secret()
@@ -857,7 +857,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
             if let Some((cert, key)) = self.get_public_key(pkesk.recipient()) {
                 let mut pair = ipc::gnupg::KeyPair::new(
                     &ipc::gnupg::Context::new()?, key.parts_as_public())?;
-                if let Ok(vcert) = cert.with_policy(P, None) {
+                if let Ok(vcert) = cert.with_policy(&self.ctx.policy, None) {
                     pair = pair.with_cert(&vcert);
                 }
                 if pkesk.decrypt(&mut pair, algo)

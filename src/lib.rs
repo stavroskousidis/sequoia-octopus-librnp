@@ -124,7 +124,6 @@ pub mod parcimonie_stub;
 #[cfg(not(feature="net"))]
 use parcimonie_stub as parcimonie;
 
-pub const P: &StandardPolicy = &StandardPolicy::new();
 pub const NP: &NullPolicy = &NullPolicy::new();
 
 #[allow(dead_code)]
@@ -162,6 +161,7 @@ fn cert_dump(cert: &Cert) {
 
 #[derive(Default)]
 pub struct RnpContext {
+    policy: StandardPolicy<'static>,
     certs: Keystore,
     unlocked_keys: HashMap<Fingerprint, Key<SecretParts, UnspecifiedRole>>,
     password_cb: Option<(RnpPasswordCb, *mut c_void)>,
@@ -592,7 +592,7 @@ fn rnp_load_keys(ctx: *mut RnpContext,
                 t!("Instantiating WoT updater: {}", err);
             }
 
-            (*ctx).certs.start_parcimonie();
+            (*ctx).certs.start_parcimonie((*ctx).policy.clone());
         }
         RNP_LOAD_SAVE_SECRET_KEYS => (),
         f => {

@@ -8,7 +8,7 @@ pub struct Parcimonie {
 }
 
 impl Parcimonie {
-    pub fn new<P>(_policy: &'static P, ks: &Keystore) -> Self
+    pub fn new<P>(_policy: P, ks: &Keystore) -> Self
         where P: Policy
     {
         // The real parcimonie uses this.  Use it here to avoid an

@@ -94,8 +94,8 @@ impl Parcimonie {
     ///
     /// You can poll for updates using `Parcimonie::updates`.  To
     /// watch additional certificates, use `Parcimonie::monitor`.
-    pub fn new<P>(policy: &'static P, ks: &Keystore) -> Self
-        where P: Policy
+    pub fn new<P>(policy: P, ks: &Keystore) -> Self
+    where P: Policy + 'static
     {
         ParcimonieServer::new(policy, ks.create_ref());
         Parcimonie {
@@ -103,16 +103,15 @@ impl Parcimonie {
     }
 }
 
-pub struct ParcimonieServer {
-    policy: &'static dyn Policy,
+pub struct ParcimonieServer<P: Policy + 'static> {
+    policy: P,
     ks: Arc<RwLock<KeystoreData>>,
 }
 
-impl ParcimonieServer {
+impl<P: Policy + 'static> ParcimonieServer<P> {
     // Instantiates a new parcimonie server, which keeps the key store
     // up to date.
-    fn new<P>(policy: &'static P, ks: Arc<RwLock<KeystoreData>>)
-        where P: Policy
+    fn new(policy: P, ks: Arc<RwLock<KeystoreData>>)
     {
         let pdata = ParcimonieServer {
             ks: ks,
@@ -204,7 +203,7 @@ impl ParcimonieServer {
                     let i = rng.gen_range(0..n);
                     let c = ks.iter().nth(i).unwrap();
 
-                    match c.with_policy(self.policy, None) {
+                    match c.with_policy(&self.policy, None) {
                         Ok(vc) => {
                             if let RevocationStatus::Revoked(_)
                                 = vc.revocation_status()
@@ -245,7 +244,7 @@ impl ParcimonieServer {
 
                 // Get all of the valid, non-revoked email addresses.
                 let emails: Vec<String>
-                    = match cert.with_policy(self.policy, None) {
+                    = match cert.with_policy(&self.policy, None) {
                         Ok(vcert) => {
                             let mut emails: Vec<String> = vcert.userids()
                                 .filter_map(|ua| {
@@ -422,7 +421,7 @@ impl ParcimonieServer {
 
         // Iterate over all of the Cert components, pushing
         // packets we want to keep into the accumulator.
-        let vc = match cert.with_policy(self.policy, None) {
+        let vc = match cert.with_policy(&self.policy, None) {
             Ok(vc) => vc,
             Err(err) => {
                 t!("Cert is not valid under the policy, ignoring: {}", err);
