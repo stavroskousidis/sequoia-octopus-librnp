@@ -44,8 +44,6 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
     let ctx = assert_ptr_ref!(ctx);
     assert_ptr!(typ);
     assert_ptr!(name);
-    let _ = /* optional */ flags_out;
-    let _ = /* optional */ from_out;
     assert_ptr!(level_out);
 
     // "If there is no matching rule, return defaults."
