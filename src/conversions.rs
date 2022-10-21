@@ -17,6 +17,7 @@ use openpgp::{
     packet::{
         UserID,
     },
+    policy::AsymmetricAlgorithm,
     types::{
         Curve,
         HashAlgorithm,
@@ -214,6 +215,45 @@ impl FromRnpId for HashAlgorithm {
                 Err(RNP_ERROR_BAD_PARAMETERS)
             },
         }
+    }
+}
+
+/// Extensions for AsymmetricAlgorihm.
+pub trait AsymmetricAlgorithmExt {
+    /// Returns all AsymmetricAlgorithms matching the given RNP name.
+    ///
+    /// AsymmetricAlgorithm is more fine-grained as it includes the
+    /// key length.  To compensate, we return all RSA values here,
+    /// with the most appropriate representative as the first value.
+    fn all_from_rnp_id(id: *const c_char) -> Result<Vec<AsymmetricAlgorithm>> {
+        use AsymmetricAlgorithm::*;
+        let id = unsafe {
+            CStr::from_ptr(id)
+        };
+        match &id.to_bytes().iter().map(u8::to_ascii_uppercase)
+            .collect::<Vec<_>>()[..]
+        {
+            b"RSA" => Ok(vec![RSA2048, RSA1024, RSA3072, RSA4096]),
+            b"ELGAMAL" =>
+                Ok(vec![ElGamal2048, ElGamal1024, ElGamal3072, ElGamal4096]),
+            b"DSA" => Ok(vec![DSA2048, DSA1024, DSA3072, DSA4096]),
+            b"SM2" => Ok(vec![]),
+            // XXX: Add more algorithms as more RNP_ALGNAME_* symbols
+            // are added.
+            _ => {
+                global_warn!("unknown symmetric algorithm: {:?}", id);
+                Err(RNP_ERROR_BAD_PARAMETERS)
+            },
+        }
+    }
+}
+
+impl AsymmetricAlgorithmExt for AsymmetricAlgorithm {}
+
+impl FromRnpId for AsymmetricAlgorithm {
+    fn from_rnp_id(id: *const c_char) -> Result<Self> {
+        Self::all_from_rnp_id(id)?.get(0).cloned()
+            .ok_or(RNP_ERROR_NOT_SUPPORTED)
     }
 }
 

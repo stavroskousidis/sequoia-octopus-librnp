@@ -11,8 +11,11 @@ use libc::{
 
 use sequoia_openpgp as openpgp;
 use openpgp::{
-    policy::HashAlgoSecurity,
-    types::HashAlgorithm,
+    policy::{AsymmetricAlgorithm, HashAlgoSecurity},
+    types::{
+        HashAlgorithm,
+        SymmetricAlgorithm,
+    },
 };
 
 use crate::{
@@ -59,6 +62,46 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
        typ, CStr::from_ptr(name).to_str().unwrap_or("invalid str"), time);
 
     match typ {
+        RNP_FEATURE_PK_ALG => {
+            match AsymmetricAlgorithm::from_rnp_id(name) {
+                Ok(algo) => if let Some(cutoff) =
+                    ctx.policy.asymmetric_algo_cutoff(algo)
+                {
+                    // RNP only returns rules that apply to `time`.
+                    if time > cutoff {
+                        from = cutoff.duration_since(UNIX_EPOCH)
+                            .expect("cutoff time is representable as epoch")
+                            .as_secs();
+                        level = RNP_SECURITY_INSECURE;
+                    }
+                },
+                Err(_) => {
+                    // We didn't recognize the algorithm.
+                    // Conservatively consider it prohibited.
+                    level = RNP_SECURITY_PROHIBITED;
+                },
+            }
+        },
+        RNP_FEATURE_SYMM_ALG => {
+            match SymmetricAlgorithm::from_rnp_id(name) {
+                Ok(algo) => if let Some(cutoff) =
+                    ctx.policy.symmetric_algo_cutoff(algo)
+                {
+                    // RNP only returns rules that apply to `time`.
+                    if time > cutoff {
+                        from = cutoff.duration_since(UNIX_EPOCH)
+                            .expect("cutoff time is representable as epoch")
+                            .as_secs();
+                        level = RNP_SECURITY_INSECURE;
+                    }
+                },
+                Err(_) => {
+                    // We didn't recognize the algorithm.
+                    // Conservatively consider it prohibited.
+                    level = RNP_SECURITY_PROHIBITED;
+                },
+            }
+        },
         RNP_FEATURE_HASH_ALG => {
             match HashAlgorithm::from_rnp_id(name) {
                 Ok(hash) => if let Some(cutoff) =
@@ -83,7 +126,7 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
                 },
             }
         },
-        // "Only RNP_FEATURE_HASH_ALG is supported right now."
+        // XXX: Implement more features if RNP does.
         _ => (),
     }
 
