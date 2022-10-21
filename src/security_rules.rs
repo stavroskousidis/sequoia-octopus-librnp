@@ -7,6 +7,7 @@
 //! and obey RNP_SECURITY_OVERRIDE.
 
 use std::{
+    convert::TryFrom,
     ffi::CStr,
     time::{Duration, UNIX_EPOCH},
 };
@@ -45,7 +46,7 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
                          typ: *const c_char,
                          name: *const c_char,
                          time: u64,
-                         flags_out: *mut RnpSecurityFlags,
+                         flags_inout: *mut RnpSecurityFlags,
                          from_out: *mut u64,
                          level_out: *mut RnpSecurityLevel)
                          -> RnpResult {
@@ -55,8 +56,14 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
     assert_ptr!(name);
     assert_ptr!(level_out);
 
+    let query_flags = if flags_inout.is_null() {
+        None
+    } else {
+        Some(*flags_inout)
+    };
+
     // "If there is no matching rule, return defaults."
-    let flags = 0;
+    let mut flags = 0;
     let mut from = 0;
     let mut level = RNP_SECURITY_DEFAULT;
 
@@ -64,8 +71,9 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
     let typ =
         rnp_try_or!(CStr::from_ptr(typ).to_str(), RNP_ERROR_BAD_PARAMETERS);
     let time = UNIX_EPOCH + Duration::new(time, 0);
-    t!("typ: {}, name: {}, time: {:?}",
-       typ, CStr::from_ptr(name).to_str().unwrap_or("invalid str"), time);
+    t!("typ: {}, name: {}, time: {:?}, query flags: {:?}",
+       typ, CStr::from_ptr(name).to_str().unwrap_or("invalid str"), time,
+       query_flags);
 
     match typ {
         RNP_FEATURE_PK_ALG => {
@@ -109,13 +117,24 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
             }
         },
         RNP_FEATURE_HASH_ALG => {
+            let verify_data = query_flags.map(|f| {
+                f & RNP_SECURITY_VERIFY_KEY == 0
+                    && f & RNP_SECURITY_VERIFY_DATA > 0
+            }).unwrap_or(false);
+            let verify_key = query_flags.map(|f| {
+                f & RNP_SECURITY_VERIFY_KEY > 0
+                    && f & RNP_SECURITY_VERIFY_DATA == 0
+            }).unwrap_or(false);
+
+            let hash_security = if verify_key {
+                HashAlgoSecurity::SecondPreImageResistance
+            } else {
+                HashAlgoSecurity::CollisionResistance
+            };
+
             match HashAlgorithm::from_rnp_id(name) {
                 Ok(hash) => if let Some(cutoff) =
-                    ctx.policy.hash_cutoff(
-                        hash,
-                        // Somewhat arbitrarily pick the weaker
-                        // property.  RNP doesn't differentiate.
-                        HashAlgoSecurity::CollisionResistance)
+                    ctx.policy.hash_cutoff(hash, hash_security)
                 {
                     // RNP only returns rules that apply to `time`.
                     if time > cutoff {
@@ -124,6 +143,9 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
                             .as_secs();
                         level = RNP_SECURITY_INSECURE;
                     }
+                    flags |=
+                        if verify_data { RNP_SECURITY_VERIFY_DATA } else { 0 }
+                        | if verify_key { RNP_SECURITY_VERIFY_KEY } else { 0 };
                 },
                 Err(_) => {
                     // We didn't recognize the algorithm.
@@ -137,8 +159,8 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
     }
 
     t!("=> flags: {}, from: {}, level: {}", flags, from, level);
-    if ! flags_out.is_null() {
-        *flags_out = flags;
+    if ! flags_inout.is_null() {
+        *flags_inout = flags;
     }
     if ! from_out.is_null() {
         *from_out = from;
@@ -211,18 +233,44 @@ fn rnp_add_security_rule(ctx: *mut RnpContext,
             }
         },
         RNP_FEATURE_HASH_ALG => {
+            // If the rule should *only* apply to keys, use the weaker
+            // property.
+            let hash_security =
+                if flags & RNP_SECURITY_VERIFY_KEY > 0
+                && flags & RNP_SECURITY_VERIFY_DATA == 0
+            {
+                HashAlgoSecurity::SecondPreImageResistance
+            } else {
+                HashAlgoSecurity::CollisionResistance
+            };
+
             match HashAlgorithm::from_rnp_id(name) {
                 Ok(algo) => {
                     if level == RNP_SECURITY_DEFAULT {
                         // XXX: We don't model the time from when the
                         // algorithm should be allowed, unlike RNP.
-                        ctx.policy.accept_hash(algo);
+
+                        // XXX: We don't have a accept_hash_property,
+                        // so we (ab)use reject_hash_property_at with
+                        // a time later than what is representable in
+                        // OpenPGP, which the StandardPolicy will
+                        // interpret as being goodlisted.
+                        //
+                        // See https://gitlab.com/sequoia-pgp/sequoia/-/issues/938.
+                        let the_future = UNIX_EPOCH.checked_add(Duration::new(
+                            (2161 - 1970) * 365 * 24 * 60 * 60, 0))
+                            .expect("the year 2161 is representable");
+                        assert!(openpgp::types::Timestamp::try_from(the_future)
+                                .is_err());
+                        ctx.policy.reject_hash_property_at(algo, hash_security,
+                                                           the_future);
                     } else {
                         // XXX: We lose the distinction between
                         // RNP_SECURITY_INSECURE and
                         // RNP_SECURITY_PROHIBITED here, but currently
                         // RNP treats them the same.
-                        ctx.policy.reject_hash_at(algo, time);
+                        ctx.policy.reject_hash_property_at(algo, hash_security,
+                                                           time);
                     }
                 },
                 Err(_) => {

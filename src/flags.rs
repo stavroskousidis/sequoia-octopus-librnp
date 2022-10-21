@@ -68,6 +68,8 @@ pub const RNP_ENCRYPT_NOWRAP: RnpEncryptFlags = 1 << 0;
 // Flags for rnp_*_security_rule
 pub type RnpSecurityFlags = u32;
 pub const RNP_SECURITY_OVERRIDE: RnpSecurityFlags = 1 << 0;
+pub const RNP_SECURITY_VERIFY_KEY: RnpSecurityFlags = 1 << 1;
+pub const RNP_SECURITY_VERIFY_DATA: RnpSecurityFlags = 1 << 2;
 pub const RNP_SECURITY_REMOVE_ALL: RnpSecurityFlags = 1 << 16;
 
 pub type RnpSecurityLevel = u32;
