@@ -77,9 +77,9 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
                     }
                 },
                 Err(_) => {
-                    // We didn't recognize the hash algorithm.
-                    // Conservatively consider it insecure.
-                    level = RNP_SECURITY_INSECURE;
+                    // We didn't recognize the algorithm.
+                    // Conservatively consider it prohibited.
+                    level = RNP_SECURITY_PROHIBITED;
                 },
             }
         },
