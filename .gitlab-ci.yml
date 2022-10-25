@@ -36,6 +36,9 @@ bookworm:
     - cargo test
     - if ! git diff --quiet Cargo.lock ; then echo "Cargo.lock changed.  Please add the change to the corresponding commit." ; false ; fi
     - cp $CARGO_TARGET_DIR/debug/libsequoia_octopus_librnp.so libsequoia_octopus_librnp.so
+    - NEEDLESSLY_EXPORTED_SYMBOLS="$(readelf --dyn-syms libsequoia_octopus_librnp.so | grep -v UND | grep -v rnp_ | grep DEFAULT)"
+    - echo "$NEEDLESSLY_EXPORTED_SYMBOLS"
+    - if [ "$(echo "$NEEDLESSLY_EXPORTED_SYMBOLS" | wc --lines)" -gt 2 ]; then echo "Regression in the number of needlessly exported symbols." >&2 ; false ; fi
 
   variables:
     CARGO_TARGET_DIR: $CI_PROJECT_DIR/../target.$CI_CONCURRENT_ID.bookworm
