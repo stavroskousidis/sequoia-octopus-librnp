@@ -676,6 +676,10 @@ fn rnp_get_public_key_count(ctx: *mut RnpContext,
     rnp_function!(rnp_get_public_key_count, crate::TRACE);
     let ctx = assert_ptr_mut!(ctx);
 
+    // We load the keyrings in the background.  But, once TB tries to
+    // get the number of certs, we have to wait on that process.
+    let _ = ctx.certs.block_on_load();
+
     // Make sure the agent listing is up to date.
     let mut ks = ctx.certs.write();
     ks.key_on_agent_hard(
@@ -702,6 +706,10 @@ fn rnp_get_secret_key_count(ctx: *mut RnpContext,
                             -> RnpResult {
     rnp_function!(rnp_get_secret_key_count, TRACE);
     let ctx = assert_ptr_mut!(ctx);
+
+    // We load the keyrings in the background.  But, once TB tries to
+    // get the number of certs, we have to wait on that process.
+    let _ = ctx.certs.block_on_load();
 
     // Make sure the agent listing is up to date.
     let mut ks = ctx.certs.write();
