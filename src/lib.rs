@@ -692,6 +692,7 @@ fn rnp_get_public_key_count(ctx: *mut RnpContext,
             true
         }
     }).count();
+    t!("-> {}", *count);
     RNP_SUCCESS
 }
 
