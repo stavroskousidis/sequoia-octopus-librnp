@@ -46,9 +46,9 @@ pub enum Error {
 
 #[derive(Debug, Clone)]
 pub struct CacheTag {
-    /// Best effort modification time of the keyrings and trust
-    /// databases.
-    mtime: Option<SystemTime>,
+    /// Best effort size and modification time of the keyrings and
+    /// trust databases.
+    metadata: Vec<(&'static str, u64, SystemTime)>,
     /// Hash digest of the gpg output.
     hash: Vec<u8>,
 }
@@ -67,19 +67,23 @@ impl CacheTag {
     /// Creates a new CacheTag for the given data.
     fn new(ctx: &Ctx) -> Result<Self> {
         let homedir: PathBuf = ctx.directory("homedir")?.into();
-        let mtime = [
+        let metadata = [
             "pubring.gpg",
             "pubring.kbx",
             "private-keys-v1.d",
             "trustdb.gpg",
             "tofu.db",
         ].iter()
-            .filter_map(|name| std::fs::metadata(homedir.join(name)).ok())
-            .filter_map(|m| m.modified().ok())
-            .max();
+            .filter_map(|name| {
+                std::fs::metadata(homedir.join(name)).ok().map(|m| (name, m))
+            })
+            .filter_map(|(name, m)| {
+                m.modified().ok().map(|mtime| (*name, m.len(), mtime))
+            })
+            .collect();
 
         Ok(CacheTag {
-            mtime,
+            metadata,
             hash: vec![],
         })
     }
@@ -101,14 +105,13 @@ impl CacheTag {
         self
     }
 
-    /// Compares the two modification timestamps.
+    /// Compares the two sets of file metadata.
     ///
-    /// If either mtime is not available, this returns false.
-    fn mtime_eq(&self, other: &CacheTag) -> bool {
-        match (self.mtime, other.mtime) {
-            (Some(a), Some(b)) => a == b,
-            _ => false,
-        }
+    /// If either metadata is not available, this returns false.
+    fn metadata_eq(&self, other: &CacheTag) -> bool {
+        self.metadata.len() > 0
+            && other.metadata.len() > 0
+            && self.metadata == other.metadata
     }
 
     /// Compares the two hashes.
@@ -435,7 +438,7 @@ pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&CacheTag>)
     let doit = || -> Result<(String, CacheTag)> {
         let tag = CacheTag::new(ctx)?;
         if let Some(if_changed) = if_changed {
-            if tag.mtime_eq(if_changed) {
+            if tag.metadata_eq(if_changed) {
                 // Result is unchanged.
                 return
                     Err(Error::Unchanged(tag.hash_steal(if_changed)).into());
@@ -505,7 +508,7 @@ fn list_keys_raw(ctx: &Ctx, secret: bool, filter: Option<String>,
     let doit = || -> Result<_> {
         let tag = CacheTag::new(ctx)?;
         if let Some(if_changed) = if_changed {
-            if tag.mtime_eq(if_changed) {
+            if tag.metadata_eq(if_changed) {
                 // Result is unchanged.
                 return
                     Err(Error::Unchanged(tag.hash_steal(if_changed)).into());
