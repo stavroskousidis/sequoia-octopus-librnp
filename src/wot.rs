@@ -31,7 +31,7 @@ pub struct WoT {
 struct WoTData {
     gpg_ctx: gpg::Ctx,
     conn: rusqlite::Connection,
-    output_hash: Option<gpg::OutputHash>,
+    output_tag: Option<gpg::CacheTag>,
     last_update: SystemTime,
 }
 
@@ -143,7 +143,7 @@ impl WoT {
         *data = Some(WoTData {
             gpg_ctx,
             conn,
-            output_hash: None,
+            output_tag: None,
             last_update: std::time::UNIX_EPOCH,
         });
 
@@ -272,9 +272,9 @@ impl WoTData {
 
         let data = data.as_mut().expect("init succeeded");
 
-        let (validity, output_hash)
+        let (validity, output_tag)
             = match gpg::list_validity(&data.gpg_ctx, None,
-                                       data.output_hash.as_ref())
+                                       data.output_tag.as_ref())
         {
             Ok(validity) => validity,
             Err(err) => {
@@ -318,7 +318,7 @@ impl WoTData {
 
         tx.commit()?;
 
-        data.output_hash = Some(output_hash);
+        data.output_tag = Some(output_tag);
 
         Ok(())
     }

@@ -117,7 +117,7 @@ pub struct KeystoreData {
     // Keys that are managed by the agent.
     keys_on_agent: HashSet<Fingerprint>,
     keys_on_agent_last_refresh: SystemTime,
-    keys_on_agent_hash: Option<gpg::OutputHash>,
+    keys_on_agent_tag: Option<gpg::CacheTag>,
 
     // The last time that the keystore was *possibly* modified.  Each
     // write attempt is a tick.  Unfortunately, this can also result
@@ -149,7 +149,7 @@ impl Default for KeystoreData {
 
             keys_on_agent: Default::default(),
             keys_on_agent_last_refresh: std::time::UNIX_EPOCH,
-            keys_on_agent_hash: None,
+            keys_on_agent_tag: None,
 
             last_update: Arc::new(AtomicUsize::new(0)),
 
@@ -634,7 +634,7 @@ impl KeystoreData {
                   in_init: Arc<(Mutex<usize>, Condvar)>) {
         rnp_function!(KeystoreData::gpg_thread, super::TRACE);
 
-        let mut keyring_hash: Option<gpg::OutputHash> = None;
+        let mut keyring_tag: Option<gpg::CacheTag> = None;
         let mut gpg_ctx: Option<gpg::Ctx> = None;
 
         let mut last_check = std::time::UNIX_EPOCH;
@@ -729,11 +729,11 @@ impl KeystoreData {
 
                 // Import the gpg keyring.
                 match gpg::export(
-                    gpg_ctx, None, keyring_hash.as_ref())
+                    gpg_ctx, None, keyring_tag.as_ref())
                 {
-                    Ok((keyring, keyring_hash_tmp)) => {
+                    Ok((keyring, keyring_tag_tmp)) => {
                         t!("Got {} bytes", keyring.len());
-                        keyring_hash = Some(keyring_hash_tmp);
+                        keyring_tag = Some(keyring_tag_tmp);
 
 
                         if let Err(err) = KeystoreData::load_keyring(
@@ -786,7 +786,7 @@ impl KeystoreData {
 
         self.gpg_ctx();
         if let Some(ctx) = self.gpg_ctx.as_ref() {
-            match gpg::list_secret_keys(ctx, None, self.keys_on_agent_hash.as_ref())
+            match gpg::list_secret_keys(ctx, None, self.keys_on_agent_tag.as_ref())
             {
                 Err(err) => {
                     match err.downcast_ref::<gpg::Error>() {
@@ -796,7 +796,7 @@ impl KeystoreData {
                     }
                 }
                 Ok((secret_keys, hash)) => {
-                    self.keys_on_agent_hash = Some(hash);
+                    self.keys_on_agent_tag = Some(hash);
                     self.keys_on_agent = HashSet::from_iter(
                         secret_keys.into_iter().map(|(_primary, key)| key));
                 }

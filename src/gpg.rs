@@ -40,7 +40,7 @@ pub enum Error {
 }
 
 #[derive(Debug, Clone)]
-pub struct OutputHash {
+pub struct CacheTag {
     hash: Vec<u8>,
 }
 
@@ -54,18 +54,18 @@ const OUTPUT_HASH_ALGO: HashAlgorithm = HashAlgorithm::SHA512;
 #[cfg(target_pointer_width = "32")]
 const OUTPUT_HASH_ALGO: HashAlgorithm = HashAlgorithm::SHA256;
 
-impl OutputHash {
-    /// Creates a new OutputHash for the given data.
+impl CacheTag {
+    /// Creates a new CacheTag for the given data.
     fn new(output: &[u8]) -> Result<Self> {
         let mut output_hasher = OUTPUT_HASH_ALGO.context()?;
         output_hasher.update(&output);
-        Ok(OutputHash {
+        Ok(CacheTag {
             hash: output_hasher.into_digest()?,
         })
     }
 
     /// Compares the two hashes.
-    fn hash_eq(&self, other: &OutputHash) -> bool {
+    fn hash_eq(&self, other: &CacheTag) -> bool {
         self.hash == other.hash
     }
 }
@@ -378,10 +378,10 @@ pub fn import(ctx: &Ctx, what: &[u8]) -> Result<()> {
     Ok(())
 }
 
-pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&OutputHash>)
-    -> Result<(String, OutputHash)>
+pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&CacheTag>)
+    -> Result<(String, CacheTag)>
 {
-    let doit = || -> Result<(String, OutputHash)> {
+    let doit = || -> Result<(String, CacheTag)> {
         let mut gpg = new_background_command("gpg");
         gpg
             .stdin(Stdio::null())
@@ -397,15 +397,15 @@ pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&OutputHash>)
 
         let gpg = gpg.output()?;
 
-        let output_hash = OutputHash::new(&gpg.stdout)?;
+        let tag = CacheTag::new(&gpg.stdout)?;
         if let Some(if_changed) = if_changed {
-            if output_hash.hash_eq(if_changed) {
+            if tag.hash_eq(if_changed) {
                 // Result is unchanged.
                 return Err(Error::Unchanged.into());
             }
         }
 
-        Ok((String::from_utf8_lossy(&gpg.stdout).into_owned(), output_hash))
+        Ok((String::from_utf8_lossy(&gpg.stdout).into_owned(), tag))
     };
 
     Ok(doit()?)
@@ -435,8 +435,8 @@ where
 // If the output's hash (as returned by a previous call to this
 // function) matches if_changed, this function returns an error.
 fn list_keys_raw(ctx: &Ctx, secret: bool, filter: Option<String>,
-                 if_changed: Option<&OutputHash>)
-    -> Result<(Vec<StringRecord>, OutputHash)>
+                 if_changed: Option<&CacheTag>)
+    -> Result<(Vec<StringRecord>, CacheTag)>
 {
     rnp_function!(list_keys_raw, false);
     t!("filter: {:?}", filter);
@@ -464,9 +464,9 @@ fn list_keys_raw(ctx: &Ctx, secret: bool, filter: Option<String>,
 
         let gpg = gpg.output()?;
 
-        let output_hash = OutputHash::new(&gpg.stdout)?;
+        let tag = CacheTag::new(&gpg.stdout)?;
         if let Some(if_changed) = if_changed {
-            if output_hash.hash_eq(if_changed) {
+            if tag.hash_eq(if_changed) {
                 // Result is unchanged.
                 return Err(Error::Unchanged.into());
             }
@@ -474,7 +474,7 @@ fn list_keys_raw(ctx: &Ctx, secret: bool, filter: Option<String>,
 
         let r = list_keys_raw_parse(&gpg.stdout)?;
 
-        Ok((r, output_hash))
+        Ok((r, tag))
     };
 
     Ok(doit().with_context(
@@ -521,12 +521,12 @@ pub enum Validity {
 }
 
 pub fn list_validity(ctx: &Ctx, filter: Option<String>,
-                     if_changed: Option<&OutputHash>)
-    -> Result<(Vec<(Fingerprint, Vec<(String, Validity)>)>, OutputHash)>
+                     if_changed: Option<&CacheTag>)
+    -> Result<(Vec<(Fingerprint, Vec<(String, Validity)>)>, CacheTag)>
 {
     rnp_function!(list_validity, super::TRACE);
 
-    let (res, output_hash) = list_keys_raw(&ctx, false, filter, if_changed)?;
+    let (res, tag) = list_keys_raw(&ctx, false, filter, if_changed)?;
 
     let mut validity: Vec<(Fingerprint, Vec<(String, Validity)>)>
         = Vec::new();
@@ -598,19 +598,19 @@ pub fn list_validity(ctx: &Ctx, filter: Option<String>,
                        key_validity));
     }
 
-    Ok((validity, output_hash))
+    Ok((validity, tag))
 }
 
 pub fn list_secret_keys(ctx: &Ctx, filter: Option<String>,
-                        if_changed: Option<&OutputHash>)
-    -> Result<(Vec<(Fingerprint, Fingerprint)>, OutputHash)>
+                        if_changed: Option<&CacheTag>)
+    -> Result<(Vec<(Fingerprint, Fingerprint)>, CacheTag)>
 {
     rnp_function!(list_secret_keys, super::TRACE);
 
-    let (res, output_hash) = list_keys_raw(&ctx, true, filter, if_changed)?;
+    let (res, tag) = list_keys_raw(&ctx, true, filter, if_changed)?;
     let secret_keys = list_secret_keys_parse(res)?;
 
-    Ok((secret_keys, output_hash))
+    Ok((secret_keys, tag))
 }
 
 pub fn list_secret_keys_parse(res: Vec<csv::StringRecord>)
