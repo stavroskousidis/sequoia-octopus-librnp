@@ -466,7 +466,10 @@ fn list_keys_raw(ctx: &Ctx, secret: bool, filter: Option<String>,
         Ok((r, output_hash))
     };
 
-    Ok(doit().context("Running gpg --list-keys --with-colons")?)
+    Ok(doit().with_context(
+        || format!(
+            "Running gpg {} --with-colons",
+            if secret { "--list-secret-keys" } else { "--list-keys" }))?)
 }
 
 fn list_keys_raw_parse(stdout: &[u8])
