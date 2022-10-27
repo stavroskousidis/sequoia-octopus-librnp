@@ -38,9 +38,25 @@ pub enum Error {
     Unchanged,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct OutputHash {
     hash: Vec<u8>,
+}
+
+impl OutputHash {
+    /// Creates a new OutputHash for the given data.
+    fn new(output: &[u8]) -> Result<Self> {
+        let mut output_hasher = Sha256::new();
+        output_hasher.update(&output);
+        Ok(OutputHash {
+            hash: output_hasher.finalize()[..].to_vec(),
+        })
+    }
+
+    /// Compares the two hashes.
+    fn hash_eq(&self, other: &OutputHash) -> bool {
+        self.hash == other.hash
+    }
 }
 
 pub fn make_context() -> Result<Ctx> {
@@ -370,13 +386,9 @@ pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&OutputHash>)
 
         let gpg = gpg.output()?;
 
-        let mut output_hasher = Sha256::new();
-        output_hasher.update(&gpg.stdout);
-        let output_hash = OutputHash {
-            hash: output_hasher.finalize()[..].to_vec()
-        };
+        let output_hash = OutputHash::new(&gpg.stdout)?;
         if let Some(if_changed) = if_changed {
-            if &output_hash == if_changed {
+            if output_hash.hash_eq(if_changed) {
                 // Result is unchanged.
                 return Err(Error::Unchanged.into());
             }
@@ -441,13 +453,9 @@ fn list_keys_raw(ctx: &Ctx, secret: bool, filter: Option<String>,
 
         let gpg = gpg.output()?;
 
-        let mut output_hasher = Sha256::new();
-        output_hasher.update(&gpg.stdout);
-        let output_hash = OutputHash {
-            hash: output_hasher.finalize()[..].to_vec()
-        };
+        let output_hash = OutputHash::new(&gpg.stdout)?;
         if let Some(if_changed) = if_changed {
-            if &output_hash == if_changed {
+            if output_hash.hash_eq(if_changed) {
                 // Result is unchanged.
                 return Err(Error::Unchanged.into());
             }
