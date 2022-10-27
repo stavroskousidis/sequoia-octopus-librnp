@@ -14,14 +14,15 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::process::Stdio;
 
-use sha2::Sha256;
-use sha2::Digest;
-
 use anyhow::{Context, Result};
 use csv::StringRecord;
 
 use sequoia_openpgp as openpgp;
-use openpgp::Fingerprint;
+use openpgp::{
+    crypto::hash::Digest,
+    Fingerprint,
+    types::HashAlgorithm,
+};
 
 // Setting this to false will cause the creation of a context to fail.
 const ENABLE_GPG: bool = true;
@@ -43,13 +44,15 @@ pub struct OutputHash {
     hash: Vec<u8>,
 }
 
+const OUTPUT_HASH_ALGO: HashAlgorithm = HashAlgorithm::SHA256;
+
 impl OutputHash {
     /// Creates a new OutputHash for the given data.
     fn new(output: &[u8]) -> Result<Self> {
-        let mut output_hasher = Sha256::new();
+        let mut output_hasher = OUTPUT_HASH_ALGO.context()?;
         output_hasher.update(&output);
         Ok(OutputHash {
-            hash: output_hasher.finalize()[..].to_vec(),
+            hash: output_hasher.into_digest()?,
         })
     }
 
