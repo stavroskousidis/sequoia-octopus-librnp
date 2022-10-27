@@ -13,6 +13,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::process::Stdio;
+use std::time::SystemTime;
 
 use anyhow::{Context, Result};
 use csv::StringRecord;
@@ -41,6 +42,10 @@ pub enum Error {
 
 #[derive(Debug, Clone)]
 pub struct CacheTag {
+    /// Best effort modification time of the keyrings and trust
+    /// databases.
+    mtime: Option<SystemTime>,
+    /// Hash digest of the gpg output.
     hash: Vec<u8>,
 }
 
@@ -56,17 +61,50 @@ const OUTPUT_HASH_ALGO: HashAlgorithm = HashAlgorithm::SHA256;
 
 impl CacheTag {
     /// Creates a new CacheTag for the given data.
-    fn new(output: &[u8]) -> Result<Self> {
-        let mut output_hasher = OUTPUT_HASH_ALGO.context()?;
-        output_hasher.update(&output);
+    fn new(ctx: &Ctx) -> Result<Self> {
+        let homedir: PathBuf = ctx.directory("homedir")?.into();
+        let mtime = [
+            "pubring.gpg",
+            "pubring.kbx",
+            "private-keys-v1.d",
+            "trustdb.gpg",
+            "tofu.db",
+        ].iter()
+            .filter_map(|name| std::fs::metadata(homedir.join(name)).ok())
+            .filter_map(|m| m.modified().ok())
+            .max();
+
         Ok(CacheTag {
-            hash: output_hasher.into_digest()?,
+            mtime,
+            hash: vec![],
         })
     }
 
+    /// Hashes the output.
+    fn hash_output(mut self, output: &[u8]) -> Result<Self> {
+        let mut output_hasher = OUTPUT_HASH_ALGO.context()?;
+        output_hasher.update(&output);
+        self.hash = output_hasher.into_digest()?;
+        Ok(self)
+    }
+
+    /// Compares the two modification timestamps.
+    ///
+    /// If either mtime is not available, this returns false.
+    fn mtime_eq(&self, other: &CacheTag) -> bool {
+        match (self.mtime, other.mtime) {
+            (Some(a), Some(b)) => a == b,
+            _ => false,
+        }
+    }
+
     /// Compares the two hashes.
+    ///
+    /// If either digest is not available, this returns false.
     fn hash_eq(&self, other: &CacheTag) -> bool {
-        self.hash == other.hash
+        self.hash.len() > 0
+            && other.hash.len() > 0
+            && self.hash == other.hash
     }
 }
 
@@ -382,6 +420,14 @@ pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&CacheTag>)
     -> Result<(String, CacheTag)>
 {
     let doit = || -> Result<(String, CacheTag)> {
+        let tag = CacheTag::new(ctx)?;
+        if let Some(if_changed) = if_changed {
+            if tag.mtime_eq(if_changed) {
+                // Result is unchanged.
+                return Err(Error::Unchanged.into());
+            }
+        }
+
         let mut gpg = new_background_command("gpg");
         gpg
             .stdin(Stdio::null())
@@ -397,7 +443,7 @@ pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&CacheTag>)
 
         let gpg = gpg.output()?;
 
-        let tag = CacheTag::new(&gpg.stdout)?;
+        let tag = tag.hash_output(&gpg.stdout)?;
         if let Some(if_changed) = if_changed {
             if tag.hash_eq(if_changed) {
                 // Result is unchanged.
@@ -443,6 +489,14 @@ fn list_keys_raw(ctx: &Ctx, secret: bool, filter: Option<String>,
     t!("if_chnaged: {:?}", if_changed);
 
     let doit = || -> Result<_> {
+        let tag = CacheTag::new(ctx)?;
+        if let Some(if_changed) = if_changed {
+            if tag.mtime_eq(if_changed) {
+                // Result is unchanged.
+                return Err(Error::Unchanged.into());
+            }
+        }
+
         let mut gpg = new_background_command("gpg");
         gpg
             .stdin(Stdio::null())
@@ -464,7 +518,7 @@ fn list_keys_raw(ctx: &Ctx, secret: bool, filter: Option<String>,
 
         let gpg = gpg.output()?;
 
-        let tag = CacheTag::new(&gpg.stdout)?;
+        let tag = tag.hash_output(&gpg.stdout)?;
         if let Some(if_changed) = if_changed {
             if tag.hash_eq(if_changed) {
                 // Result is unchanged.
