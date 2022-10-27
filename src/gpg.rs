@@ -44,6 +44,14 @@ pub struct OutputHash {
     hash: Vec<u8>,
 }
 
+/// SHA512 is almost twice as fast as SHA256 on 64-bit architectures
+/// because it operates on 64-bit words.
+#[cfg(target_pointer_width = "64")]
+const OUTPUT_HASH_ALGO: HashAlgorithm = HashAlgorithm::SHA512;
+
+/// But, on 32-bit architectures, pick the hash that fits the word
+/// size as it will be slightly more efficient.
+#[cfg(target_pointer_width = "32")]
 const OUTPUT_HASH_ALGO: HashAlgorithm = HashAlgorithm::SHA256;
 
 impl OutputHash {
