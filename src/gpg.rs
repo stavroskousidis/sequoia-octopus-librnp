@@ -33,11 +33,15 @@ const ENABLE_GPG: bool = true;
 /// Note: This enum cannot be exhaustively matched to allow future
 /// extensions.
 #[non_exhaustive]
-#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
+#[derive(thiserror::Error, Debug, Clone)]
 pub enum Error {
     /// The output is unchanged.
+    ///
+    /// Returns the new cache tag.  Use it to update the stored tag.
+    /// This way, if a file is modified but the output is the same,
+    /// you will store the new modification time.
     #[error("Output unchanged")]
-    Unchanged,
+    Unchanged(CacheTag),
 }
 
 #[derive(Debug, Clone)]
@@ -86,6 +90,15 @@ impl CacheTag {
         output_hasher.update(&output);
         self.hash = output_hasher.into_digest()?;
         Ok(self)
+    }
+
+    /// Steals the output hash from `other`.
+    ///
+    /// Use this to copy the hash digest from the stored tag when
+    /// short-circuiting on the modification time.
+    fn hash_steal(mut self, other: &Self) -> Self {
+        self.hash = other.hash.clone();
+        self
     }
 
     /// Compares the two modification timestamps.
@@ -424,7 +437,8 @@ pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&CacheTag>)
         if let Some(if_changed) = if_changed {
             if tag.mtime_eq(if_changed) {
                 // Result is unchanged.
-                return Err(Error::Unchanged.into());
+                return
+                    Err(Error::Unchanged(tag.hash_steal(if_changed)).into());
             }
         }
 
@@ -447,7 +461,7 @@ pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&CacheTag>)
         if let Some(if_changed) = if_changed {
             if tag.hash_eq(if_changed) {
                 // Result is unchanged.
-                return Err(Error::Unchanged.into());
+                return Err(Error::Unchanged(tag).into());
             }
         }
 
@@ -493,7 +507,8 @@ fn list_keys_raw(ctx: &Ctx, secret: bool, filter: Option<String>,
         if let Some(if_changed) = if_changed {
             if tag.mtime_eq(if_changed) {
                 // Result is unchanged.
-                return Err(Error::Unchanged.into());
+                return
+                    Err(Error::Unchanged(tag.hash_steal(if_changed)).into());
             }
         }
 
@@ -522,7 +537,7 @@ fn list_keys_raw(ctx: &Ctx, secret: bool, filter: Option<String>,
         if let Some(if_changed) = if_changed {
             if tag.hash_eq(if_changed) {
                 // Result is unchanged.
-                return Err(Error::Unchanged.into());
+                return Err(Error::Unchanged(tag).into());
             }
         }
 

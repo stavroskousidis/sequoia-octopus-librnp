@@ -278,12 +278,14 @@ impl WoTData {
         {
             Ok(validity) => validity,
             Err(err) => {
-                match err.downcast_ref::<gpg::Error>() {
-                    Some(gpg::Error::Unchanged) =>
+                let err = match err.downcast::<gpg::Error>() {
+                    Ok(gpg::Error::Unchanged(tag)) => {
                         // Unchanged.  Short-circuit.
-                        return Ok(()),
-                    _ => (),
-                }
+                        data.output_tag = Some(tag);
+                        return Ok(());
+                    },
+                    Err(e) => e,
+                };
 
                 let err = err.context("openpgp.sqlite: \
                                        Running  gpg --list-keys");

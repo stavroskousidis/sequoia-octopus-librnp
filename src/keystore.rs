@@ -789,10 +789,12 @@ impl KeystoreData {
             match gpg::list_secret_keys(ctx, None, self.keys_on_agent_tag.as_ref())
             {
                 Err(err) => {
-                    match err.downcast_ref::<gpg::Error>() {
+                    match err.downcast::<gpg::Error>() {
                         // Unchanged.  Short-circuit.
-                        Some(gpg::Error::Unchanged) => (),
-                        _ => t!("List gpg secret keys: {}", err),
+                        Ok(gpg::Error::Unchanged(tag)) => {
+                            self.keys_on_agent_tag = Some(tag);
+                        },
+                        Err(e) => t!("List gpg secret keys: {}", e),
                     }
                 }
                 Ok((secret_keys, hash)) => {
