@@ -401,9 +401,9 @@ impl Keystore {
 
         assert!(self.gpg_sender.is_some());
 
-        let _ = self.in_init.1
-            .wait_while(in_init, |in_init| *in_init > 0)
-            .unwrap();
+        drop(self.in_init.1
+             .wait_while(in_init, |in_init| *in_init > 0)
+             .unwrap());
 
         if let Some(mut child) = child {
             if let Err(err) = child.kill() {
