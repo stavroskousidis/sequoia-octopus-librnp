@@ -225,6 +225,33 @@ fn rnp_ffi_create(ctx: *mut *mut RnpContext,
         }
     }
 
+    // Thunderbird 102.4.1 will complain if we present a secret key
+    // from GnuPG to it, without there having been a trace of having
+    // protected the key using the master password.  See Thunderbird's
+    // OpenPGPMasterpass.ensurePasswordIsCached().
+    //
+    // If the file "encrypted-openpgp-passphrase.txt" is missing even
+    // though there are secret keys, Thunderbird will complain and
+    // disable the OpenPGP support.
+    //
+    // If the file is malformed, then Thunderbird considers that a
+    // corruption of the passphrase file, but will gracefully recover
+    // from it by creating a new passphrase file.
+    //
+    // Try to create an empty file if the file does not exist to
+    // appease Thunderbird.  This is a best-effort mechanism.
+    if let Some(profile) = tbprofile::TBProfile::path() {
+        let passphrase_store = profile.join("encrypted-openpgp-passphrase.txt");
+
+        // Create an empty file if it does not exist.
+        if let Ok(_) = std::fs::OpenOptions::new().write(true).create_new(true)
+            .open(&passphrase_store)
+        {
+            t!("Created dummy {} to appease Thunderbird.",
+               passphrase_store.display());
+        }
+    }
+
     *ctx = Box::into_raw(Box::new(RnpContext::default()));
     RNP_SUCCESS
 }
