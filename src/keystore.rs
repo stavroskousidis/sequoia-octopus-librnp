@@ -555,10 +555,12 @@ impl KeystoreData {
                         t!("Failed to flush {:?}: {}", pubring_tmp, err);
                         continue;
                     }
+                    drop(pubring_fd);
                     if let Err(err) = secring_fd.flush() {
                         t!("Failed to flush {:?}: {}", secring_tmp, err);
                         continue;
                     }
+                    drop(secring_fd);
 
                     let pubring = dir.join("pubring.gpg");
                     if let Err(err) = fs::rename(&pubring_tmp, &pubring) {
