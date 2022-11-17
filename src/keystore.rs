@@ -534,10 +534,14 @@ impl KeystoreData {
                 };
 
                 let mut ok = true;
+                let mut pub_count = 0;
+                let mut sec_count = 0;
                 for cert in ks.to_save() {
                     let r = if cert.is_tsk() {
+                        sec_count += 1;
                         cert.as_tsk().serialize(&mut secring_fd)
                     } else {
+                        pub_count += 1;
                         cert.serialize(&mut pubring_fd)
                     };
 
@@ -547,6 +551,30 @@ impl KeystoreData {
                            cert.fingerprint(), err);
                         ok = false;
                         break;
+                    }
+                }
+
+                if ok && pub_count == 0 {
+                    // We didn't write any bytes.  Currently,
+                    // Thunderbird will not invoke rnp_load_keys if a
+                    // keyring is a zero-sized file.  To avoid that,
+                    // i.e. make sure that rnp_load_keys is invoked,
+                    // we write a placeholder there.  See the comments
+                    // in rnp_ffi_create for details.
+                    if let Err(_) =
+                        openpgp::Packet::Marker(Default::default())
+                        .serialize(&mut pubring_fd)
+                    {
+                        ok = false;
+                    }
+                }
+                if ok && sec_count == 0 {
+                    // Likewise.
+                    if let Err(_) =
+                        openpgp::Packet::Marker(Default::default())
+                        .serialize(&mut secring_fd)
+                    {
+                        ok = false;
                     }
                 }
 

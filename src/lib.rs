@@ -697,6 +697,7 @@ fn rnp_save_keys(ctx: *mut RnpContext,
 
     let output = &mut *output;
     let mut r = Ok(());
+    let mut count = 0;
     match flags {
         RNP_LOAD_SAVE_PUBLIC_KEYS => {
             let _ = (*ctx).certs.block_on_load();
@@ -704,6 +705,8 @@ fn rnp_save_keys(ctx: *mut RnpContext,
                 if let Err(err) = cert.serialize(output) {
                     r = Err(err);
                     break;
+                } else {
+                    count += 1;
                 }
             }
         },
@@ -713,6 +716,8 @@ fn rnp_save_keys(ctx: *mut RnpContext,
                 if let Err(err) = cert.as_tsk().serialize(output) {
                     r = Err(err);
                     break;
+                } else {
+                    count += 1;
                 }
             }
         }
@@ -721,6 +726,21 @@ fn rnp_save_keys(ctx: *mut RnpContext,
             return RNP_ERROR_BAD_PARAMETERS;
         },
     };
+
+    if count == 0 {
+        // We didn't write any bytes.  Currently, Thunderbird will not
+        // invoke rnp_load_keys if a keyring is a zero-sized file.  To
+        // avoid that, i.e. make sure that rnp_load_keys is invoked,
+        // we write a placeholder there.  See the comments in
+        // rnp_ffi_create for details.
+        if let Err(err) = openpgp::Packet::Marker(Default::default())
+            .serialize(output)
+        {
+            if r.is_ok() {
+                r = Err(err);
+            }
+        }
+    }
 
     if let Err(err) = r {
         warn!("failed saving keys: {}", err);
