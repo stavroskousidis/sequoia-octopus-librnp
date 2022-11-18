@@ -221,6 +221,27 @@ fn rnp_ffi_create(ctx: *mut *mut RnpContext,
                         t!("Creating new empty keyring in {} failed: {}",
                            path.display(), e),
                 }
+            } else if let Ok(mut sink) =
+                std::fs::OpenOptions::new().write(true).create(false)
+                .open(&path)
+            {
+                // See if the existing file is empty.
+                if let Ok(0) = sink.metadata().map(|m| m.len()) {
+                    // It is.  This will prevent rnp_load_keys from
+                    // being invoked, see above.  Modify it in place.
+                    // No one else is updating these files in place,
+                    // so we don't risk clobbering the keyring here.
+                    match openpgp::Packet::Marker(Default::default())
+                        .serialize(&mut sink)
+                    {
+                        Ok(_) =>
+                            t!("Wrote marker to empty keyring in {}",
+                               path.display()),
+                        Err(e) =>
+                            t!("Writing marker to empty keyring in {} \
+                                failed: {}", path.display(), e),
+                    }
+                }
             }
         };
 
