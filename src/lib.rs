@@ -198,31 +198,34 @@ fn rnp_ffi_create(ctx: *mut *mut RnpContext,
     //
     // This is a best-effort mechanism.
     if let Some(profile) = tbprofile::TBProfile::path() {
-        let pubring = profile.join("pubring.gpg");
-
-        // Create an empty keyring if the file does not exist.
-        if let Ok(mut sink) =
-            std::fs::OpenOptions::new().write(true).create_new(true)
-            .open(&pubring)
-        {
-            // The empty keyring must not be zero-sized, because
-            // Thunderbird equates that with no file or any other io
-            // error reading the file.  So, let's write a marker
-            // packet.
-            //
-            // A marker packet is safe, it will be ignored by both RNP
-            // and Sequoia.  Thunderbird with both RNP and the Octopus
-            // will happily import certs into such a keyring.
-            match openpgp::Packet::Marker(Default::default())
-                .serialize(&mut sink)
+        let maybe_create_keyring = |path: std::path::PathBuf| {
+            // Create an empty keyring if the file does not exist.
+            if let Ok(mut sink) =
+                std::fs::OpenOptions::new().write(true).create_new(true)
+                .open(&path)
             {
-                Ok(_) =>
-                    t!("Created new empty keyring in {}", pubring.display()),
-                Err(e) =>
-                    t!("Creating new empty keyring in {} failed: {}",
-                       pubring.display(), e),
+                // The empty keyring must not be zero-sized, because
+                // Thunderbird equates that with no file or any other io
+                // error reading the file.  So, let's write a marker
+                // packet.
+                //
+                // A marker packet is safe, it will be ignored by both RNP
+                // and Sequoia.  Thunderbird with both RNP and the Octopus
+                // will happily import certs into such a keyring.
+                match openpgp::Packet::Marker(Default::default())
+                    .serialize(&mut sink)
+                {
+                    Ok(_) =>
+                        t!("Created new empty keyring in {}", path.display()),
+                    Err(e) =>
+                        t!("Creating new empty keyring in {} failed: {}",
+                           path.display(), e),
+                }
             }
-        }
+        };
+
+        maybe_create_keyring(profile.join("pubring.gpg"));
+        maybe_create_keyring(profile.join("secring.gpg"));
     }
 
     // Thunderbird 102.4.1 will complain if we present a secret key
