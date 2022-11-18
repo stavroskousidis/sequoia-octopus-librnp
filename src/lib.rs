@@ -725,7 +725,7 @@ fn rnp_save_keys(ctx: *mut RnpContext,
             }
         }
         f => {
-            warn!("unexpected flags to rnp_load_keys: {:x}", f);
+            warn!("unexpected flags to rnp_save_keys: {:x}", f);
             return RNP_ERROR_BAD_PARAMETERS;
         },
     };
