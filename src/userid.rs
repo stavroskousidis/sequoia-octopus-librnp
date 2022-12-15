@@ -11,7 +11,6 @@ use openpgp::{
         amalgamation::{
             ValidAmalgamation,
             ValidateAmalgamation,
-            ValidUserIDAmalgamation,
         },
     },
     packet::{
@@ -64,32 +63,35 @@ impl RnpUserID {
         &self.uid
     }
 
-    /// Returns whether the User ID is safe to display.
+    /// Returns whether the User ID is considered revoked.
     ///
-    /// A User ID is safe to display if it is valid under the standard
-    /// policy or the certificate is NOT valid under the standard
-    /// policy.
-    ///
-    /// This function does not return whether a User ID is safe to use
-    /// if
-    fn safe_to_display<'a>(&'a self) -> Option<ValidUserIDAmalgamation<'a>> {
+    /// A User ID is considered revoked:
+    /// - if it is valid under the standard policy and is revoked
+    /// - it is not valid under the standard policy, but is valid under the
+    ///   null policy, and is revoked
+    /// - is not valid under either the standard or null policy.
+    fn revoked<'a>(&'a self) -> bool {
         let ctx = unsafe { &*self.ctx };
-        if let Ok(vc) = self.cert.with_policy(&ctx.policy, None) {
-            // The certificate is valid under the standard policy.  Is
-            // the User ID?
-            vc.userids().filter(|u| u.userid() == &self.uid).nth(0)
-        } else if let Ok(vua) = self.cert.userids().nth(self.nth_uid)
-            .expect("we know it's there")
-            .with_policy(crate::NP, None)
-        {
-            // The certificate is not valid under the standard policy.
-            // It is safe to treat the User ID as if it wre valid
-            // under the NULL policy.
-            Some(vua)
+
+        let userid = self.cert.userids().nth(self.nth_uid)
+            .expect("we know it's there");
+
+        if let Ok(vu) = userid.clone()
+            .with_policy(&ctx.policy, None)
+            .or_else(|_| userid.with_policy(crate::NP, None)) {
+            // The certificate is valid under a policy
+
+            use openpgp::types::RevocationStatus::*;
+
+            match vu.revocation_status() {
+                Revoked(_) => true,
+                CouldBe(_) => false, // XXX
+                NotAsFarAsWeKnow => false,
+            }
         } else {
             // The certificate is not even valid under the null
             // policy.  Treat it as invalid.
-            None
+            true
         }
     }
 }
@@ -152,19 +154,7 @@ fn rnp_uid_is_revoked(uid: *const RnpUserID,
     let uid = assert_ptr_ref!(uid);
     let result = assert_ptr_mut!(result);
 
-    if let Some(vua) = uid.safe_to_display() {
-        use openpgp::types::RevocationStatus::*;
-        *result =
-            match vua.revocation_status() {
-                Revoked(_) => true,
-                CouldBe(_) => false, // XXX
-                NotAsFarAsWeKnow => false,
-            };
-    } else {
-        // The User ID is not safe to display (it may or may not
-        // actually be revoked).  Treat it as revoked.
-        *result = true;
-    }
+    *result = uid.revoked();
 
     t!("{}:{:?}: is{} revoked",
        uid.cert.fingerprint(), String::from_utf8_lossy(uid.uid.value()),
@@ -181,12 +171,16 @@ fn rnp_uid_is_valid(uid: *const RnpUserID,
     let uid = assert_ptr_ref!(uid);
     let result = assert_ptr_mut!(result);
 
-    if let Some(_) = uid.safe_to_display() {
-        *result = true;
-    } else {
-        // The User ID is not safe to display.  Treat as invalid.
-        *result = false;
-    }
+    let ctx = &*uid.ctx;
+    let userid = uid.cert.userids().nth(uid.nth_uid)
+        .expect("we know it's there");
+
+    // A User ID is safe to display if it is valid under the standard
+    // policy or the null policy.
+    *result = userid.clone()
+        .with_policy(&ctx.policy, None)
+        .or_else(|_| userid.with_policy(crate::NP, None))
+        .is_ok();
 
     t!("{}:{:?}: is{} valid",
        uid.cert.fingerprint(), String::from_utf8_lossy(uid.uid.value()),
