@@ -6,7 +6,7 @@
 // SPDX-FileCopyrightText: 2019-2020 Heiko Schaefer <heiko@schaefer.name>, 2019-2021 pep Foundation
 // SPDX-License-Identifier: LGPL-2.0-or-later
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use std::fmt;
 use std::io::Write;
@@ -472,6 +472,114 @@ pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&CacheTag>)
     };
 
     Ok(doit()?)
+}
+
+// Execute gpg --export-ownertrust and parse its output.  It looks
+// like this:
+//
+//   # List of assigned trustvalues, created Thu 16 Dec 2021 09:33:48 AM CET
+//   # (Use "gpg --import-ownertrust" to restore them)
+//   B58FC4B77C26A52287E10F0DD70D5F58603CD078:4:
+//   141198894E27D44F7084F098C0A4CBB987978569:4:
+//
+// The values are the fingerprint's ownertrust.  This is a private API
+// (https://lists.gnupg.org/pipermail/gnupg-users/2016-April/055722.html),
+// but according to the source code (gnupg/g10/trustdb.h):
+//
+//   #define TRUST_UNKNOWN   0  /* o: not yet calculated/assigned */
+//   #define TRUST_EXPIRED   1  /* e: calculation may be invalid */
+//   #define TRUST_UNDEFINED 2  /* q: not enough information for calculation */
+//   #define TRUST_NEVER     3  /* n: never trust this pubkey */
+//   #define TRUST_MARGINAL  4  /* m: marginally trusted */
+//   #define TRUST_FULLY     5  /* f: fully trusted      */
+//   #define TRUST_ULTIMATE  6  /* u: ultimately trusted */
+#[enumber::convert]
+#[derive(Debug, PartialEq, Eq)]
+pub enum OwnerTrust {
+    Unknown = 0,
+    Expired = 1,
+    Undefined = 2,
+    Never = 3,
+    Marginal = 4,
+    Fully = 5,
+    Ultimate = 6,
+    Other(usize),
+}
+
+pub fn export_ownertrust() -> Result<HashMap<Fingerprint, OwnerTrust>>
+{
+    // t!("export_ownertrust");
+
+    let mut command = Command::new("gpg");
+
+    #[cfg(windows)]
+        let mut command = {
+        use std::os::windows::process::CommandExt;
+
+        // see https://docs.microsoft.com/en-us/windows/win32/procthread/process-creation-flags
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let mut command = command;
+        command.creation_flags(CREATE_NO_WINDOW);
+        command
+    };
+
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .arg("--export-ownertrust");
+
+    let result = command.output()?;
+
+    // The output should be ASCII characters.  So this conversion
+    // should work.  If not, abort.
+    let output = String::from_utf8(result.stdout)?;
+
+    let mut db = HashMap::new();
+
+    for line in output.split('\n') {
+        if line == "" {
+            continue;
+        }
+
+        if let Some('#') = line.chars().next() {
+            // Ignore comments.
+            // t!("Ignoring comment: {:?}", line);
+            continue;
+        }
+
+        let mut fields = line.split(':');
+        let fingerprint = if let Some(fingerprint) = fields.next() {
+            fingerprint
+        } else {
+            // t!("Invalid line: {:?}", line);
+            continue;
+        };
+        let value = if let Some(value) = fields.next() {
+            value
+        } else {
+            // t!("Invalid line: {:?}", line);
+            continue;
+        };
+
+        match (fingerprint.parse::<Fingerprint>(),
+               value.parse::<usize>())
+        {
+            (Ok(fpr), Ok(field)) => {
+                let ownertrust: OwnerTrust = field.into();
+                // t!("{} => {:?}", fpr, ownertrust);
+                db.insert(fpr, ownertrust);
+            }
+            (Err(_err), _) => {
+                // t!("Failed to parse fingerprint: {}", err);
+            }
+            (_, Err(_err)) => {
+                // t!("Failed to parse ownertrust: {}", err);
+            }
+        }
+    }
+
+    Ok(db)
 }
 
 fn new_background_command<S>(program: S) -> Command

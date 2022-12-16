@@ -545,6 +545,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "enumber"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa35b49b30d8f4219e279f22c4b7c899aa7f98f475da4eff84b75f17ba11ed19"
+dependencies = [
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "fallible-iterator"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1713,6 +1723,7 @@ dependencies = [
  "chrono",
  "configparser",
  "csv",
+ "enumber",
  "lazy_static",
  "libc",
  "libgit2-sys",

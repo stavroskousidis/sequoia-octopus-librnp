@@ -29,6 +29,7 @@ buffered-reader = "1"
 chrono = "0.4"
 configparser = "2"
 csv = "1.1"
+enumber = "0.3"
 lazy_static = "1"
 num_cpus = "1"
 rand = { version = "0.8", default-features = false, features = ["std", "std_rng"], optional = true }
