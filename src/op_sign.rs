@@ -159,20 +159,20 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
 
             if op.agent_keys.len() > 0 {
                 for (cert, key) in &op.agent_keys {
-                    let s = gpgagent_keypair(&op.ctx.policy, &cert, &key)?;
+                    let s = gpgagent_keypair(&*op.ctx.policy(), &cert, &key)?;
                     signer = signer.add_signer(s);
                 }
             }
 
             message = signer.build()?;
         } else if let Some((cert, key)) = op.agent_keys.get(0) {
-            let s = gpgagent_keypair(&op.ctx.policy, &cert, &key)?;
+            let s = gpgagent_keypair(&*op.ctx.policy(), &cert, &key)?;
             let mut signer = Signer::new(message, s)
                 .hash_algo(op.hash.unwrap_or_default())?
                 .detached();
 
             for (cert, key) in &op.agent_keys[1..] {
-                let s = gpgagent_keypair(&op.ctx.policy, &cert, &key)?;
+                let s = gpgagent_keypair(&*op.ctx.policy(), &cert, &key)?;
                 signer = signer.add_signer(s);
             }
 
@@ -213,20 +213,20 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
 
             if op.agent_keys.len() > 0 {
                 for (cert, key) in &op.agent_keys {
-                    let s = gpgagent_keypair(&op.ctx.policy, &cert, &key)?;
+                    let s = gpgagent_keypair(&*op.ctx.policy(), &cert, &key)?;
                     signer = signer.add_signer(s);
                 }
             }
 
             message = signer.build()?;
         } else if let Some((cert, key)) = op.agent_keys.get(0) {
-            let s = gpgagent_keypair(&op.ctx.policy, &cert, &key)?;
+            let s = gpgagent_keypair(&*op.ctx.policy(), &cert, &key)?;
             let mut signer = Signer::new(message, s)
                 .hash_algo(op.hash.unwrap_or_default())?
                 .cleartext();
 
             for (cert, key) in &op.agent_keys[1..] {
-                let s = gpgagent_keypair(&op.ctx.policy, &cert, &key)?;
+                let s = gpgagent_keypair(&*op.ctx.policy(), &cert, &key)?;
                 signer = signer.add_signer(s);
             }
 

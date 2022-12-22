@@ -232,7 +232,7 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
     let op = assert_ptr_mut!(op);
 
     fn f(op: &mut RnpOpVerify) -> openpgp::Result<()> {
-        let policy = op.ctx.policy.clone();
+        let policy = op.ctx.policy().clone();
         match &mut op.mode {
             SignatureMode::Inline(output) => {
                 t!("Inline signature verification or decryption");
@@ -682,7 +682,7 @@ impl<'a> Helper<'a> {
         let r = ks.by_subkey_id(id)
             .chain(ks.by_primary_id(id))
             .filter_map(|cert| {
-                cert.with_policy(&self.ctx.policy, None).ok()
+                cert.with_policy(&*self.ctx.policy(), None).ok()
                     .and_then(|vcert| vcert.keys()
                               .secret()
                               .for_storage_encryption()
@@ -703,7 +703,7 @@ impl<'a> Helper<'a> {
         let r = ks.by_subkey_id(id)
             .chain(ks.by_primary_id(id))
             .filter_map(|cert| {
-                cert.with_policy(&self.ctx.policy, None).ok()
+                cert.with_policy(&*self.ctx.policy(), None).ok()
                     .and_then(|vcert| vcert.keys()
                               .key_handle(id).nth(0))
                     .map(|vka| (cert.clone(), vka.key().clone()))
@@ -794,7 +794,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
         for pkesk in pkesks.iter().filter(|p| p.recipient().is_wildcard()) {
             // Get all possible decryption keys from the context.
             for cert in ks.iter().filter(|cert| cert.is_tsk()) {
-                for key in cert.with_policy(&self.ctx.policy, None).ok()
+                for key in cert.with_policy(&*self.ctx.policy(), None).ok()
                     .iter()
                     .flat_map(|vcert| vcert.keys()
                               .secret()
@@ -857,7 +857,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
             if let Some((cert, key)) = self.get_public_key(pkesk.recipient()) {
                 let mut pair = ipc::gnupg::KeyPair::new(
                     &ipc::gnupg::Context::new()?, key.parts_as_public())?;
-                if let Ok(vcert) = cert.with_policy(&self.ctx.policy, None) {
+                if let Ok(vcert) = cert.with_policy(&*self.ctx.policy(), None) {
                     pair = pair.with_cert(&vcert);
                 }
                 if pkesk.decrypt(&mut pair, algo)

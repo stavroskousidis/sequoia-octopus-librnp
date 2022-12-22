@@ -77,7 +77,7 @@ impl RnpUserID {
             .expect("we know it's there");
 
         if let Ok(vu) = userid.clone()
-            .with_policy(&ctx.policy, None)
+            .with_policy(&*ctx.policy(), None)
             .or_else(|_| userid.with_policy(crate::NP, None)) {
             // The certificate is valid under a policy
 
@@ -178,7 +178,7 @@ fn rnp_uid_is_valid(uid: *const RnpUserID,
     // A User ID is safe to display if it is valid under the standard
     // policy or the null policy.
     *result = userid.clone()
-        .with_policy(&ctx.policy, None)
+        .with_policy(&*ctx.policy(), None)
         .or_else(|_| userid.with_policy(crate::NP, None))
         .is_ok();
 
@@ -199,7 +199,7 @@ fn rnp_uid_is_primary(uid: *const RnpUserID,
     let ctx = &*uid.ctx;
     let result = assert_ptr_mut!(result);
 
-    if let Ok(vc) = uid.cert.with_policy(&ctx.policy, None) {
+    if let Ok(vc) = uid.cert.with_policy(&*ctx.policy(), None) {
         if let Ok(ua) = vc.primary_userid() {
             *result = ua.userid() == &uid.uid
         } else {

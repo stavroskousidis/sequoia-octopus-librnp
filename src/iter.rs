@@ -33,7 +33,8 @@ fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
 
     // Thunderbird is doing a scan.  Now is a good time to check for
     // WoT updates.
-    if let Err(err) = (*ctx).certs.update_wot(&((*ctx).policy)) {
+    let policy = (*ctx).policy().clone();
+    if let Err(err) = (*ctx).certs.update_wot(&policy) {
         t!("Performed wot update: {}", err);
     }
 
@@ -63,7 +64,7 @@ fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
             let mut userids: Vec<String>
                 = Vec::with_capacity(2 * ks.count());
             for cert in ks.iter() {
-                if let Ok(vcert) = cert.with_policy(&ctx.policy, None) {
+                if let Ok(vcert) = cert.with_policy(&*ctx.policy(), None) {
                     userids.extend(vcert.userids()
                                    .filter_map(|u| {
                                        String::from_utf8(

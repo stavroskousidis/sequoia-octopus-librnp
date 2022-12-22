@@ -159,7 +159,7 @@ impl RnpKey {
             let fp = self.key.fingerprint();
 
             let mut candidates = Vec::new();
-            for cell in ctx.certs.read().cert_cell(&fp) {
+            if let Some(cell) = ctx.certs.read().cert_cell(&fp) {
                 let cert = cell.read().unwrap();
                 for k in cert.keys().key_handle(&fp) {
                     // Eq compares the secret parts when parts is
@@ -240,7 +240,7 @@ fn rnp_locate_key(ctx: *mut RnpContext,
 
     // Thunderbird is looking up an identifier.  Now is a good time to
     // check for WoT updates.
-    if let Err(err) = (*ctx).certs.update_wot(&((*ctx).policy)) {
+    if let Err(err) = (*ctx).certs.update_wot(&(*ctx).policy()) {
         t!("Performed wot update: {}", err);
     }
 
@@ -501,7 +501,7 @@ fn rnp_key_get_expiration(key: *mut RnpKey,
     let key = assert_ptr_mut!(key);
     assert_ptr!(expiration);
     let fp = key.fingerprint();
-    let policy = (*(key.ctx)).policy.clone();
+    let policy = (*(key.ctx)).policy().clone();
 
     if let Some(cert) = key.cert().as_ref()
         .and_then(|c| c.with_policy(&policy, None).ok())
@@ -538,7 +538,7 @@ fn rnp_key_get_primary_uid(key: *mut RnpKey,
     rnp_function!(rnp_key_get_primary_uid, crate::TRACE);
     let key = assert_ptr_mut!(key);
     assert_ptr!(uid);
-    let policy = (*(key.ctx)).policy.clone();
+    let policy = (*(key.ctx)).policy().clone();
 
     // If we fail to find a primary userid using the standard policy,
     // we fall back to using a null policy.  This value is only used
@@ -734,7 +734,7 @@ fn rnp_key_allows_usage(key: *mut RnpKey,
     assert_ptr!(key);
     assert_ptr!(usage);
     assert_ptr!(result);
-    let policy = (*((*key).ctx)).policy.clone();
+    let policy = (*((*key).ctx)).policy().clone();
 
     let usage = rnp_try!(RnpKeyUsage::from_rnp_id(usage));
 
@@ -766,7 +766,7 @@ fn rnp_key_is_revoked(key: *mut RnpKey,
     rnp_function!(rnp_key_is_revoked, crate::TRACE);
     assert_ptr!(key);
     assert_ptr!(result);
-    let policy = (*((*key).ctx)).policy.clone();
+    let policy = (*((*key).ctx)).policy().clone();
 
     if let Some(cert) = (*key).cert().as_ref()
         .and_then(|c| c.with_policy(&policy, None).ok())
@@ -805,7 +805,7 @@ fn rnp_key_export_autocrypt(key: *mut RnpKey,
     assert_ptr!(uid);
     assert_ptr!(output);
     let uid = rnp_try!(cstr_to_str(uid));
-    let policy = (*((*key).ctx)).policy.clone();
+    let policy = (*((*key).ctx)).policy().clone();
 
     fn f(policy: &dyn Policy, cert: RwLockReadGuard<Cert>, uid: &str,
          output: &mut dyn io::Write)
@@ -1409,7 +1409,7 @@ fn rnp_key_set_expiration(key: *mut RnpKey,
             },
         };
 
-        let policy = ctx.policy.clone();
+        let policy = ctx.policy().clone();
         let vcert = cert.with_policy(&policy, None)?;
         let sigs = if is_primary {
             vcert.primary_key()

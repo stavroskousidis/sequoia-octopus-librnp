@@ -9,6 +9,7 @@ use std::{
     },
     sync::atomic,
 };
+use std::sync::{Arc, RwLock, RwLockReadGuard};
 use libc::{
     c_char,
     c_int,
@@ -161,7 +162,7 @@ fn cert_dump(cert: &Cert) {
 
 #[derive(Default)]
 pub struct RnpContext {
-    policy: StandardPolicy<'static>,
+    policy: Arc<RwLock<StandardPolicy<'static>>>,
     certs: Keystore,
     unlocked_keys: HashMap<Fingerprint, Key<SecretParts, UnspecifiedRole>>,
     password_cb: Option<(RnpPasswordCb, *mut c_void)>,
@@ -307,6 +308,10 @@ fn rnp_ffi_set_pass_provider(ctx: *mut RnpContext,
 }
 
 impl RnpContext {
+    pub fn policy(&self) -> RwLockReadGuard<StandardPolicy<'static>> {
+        self.policy.read().unwrap()
+    }
+
     /// Inserts a cert into the keystore.
     ///
     /// This strips any secret key material.
@@ -668,16 +673,16 @@ fn rnp_load_keys(ctx: *mut RnpContext,
             }
 
             // Also load GPG's public key database.
-            if let Err(err) = (*ctx).certs.load_gpg_keyring(std::sync::Arc::new(std::sync::RwLock::new((*ctx).policy.clone()))) {
+            if let Err(err) = (*ctx).certs.load_gpg_keyring((*ctx).policy.clone()) {
                 warn!("Import gpg's keyring: {}", err);
             }
 
             // Enable the WoT functionality.
-            if let Err(err) = (*ctx).certs.enable_wot(&(*ctx).policy) {
+            if let Err(err) = (*ctx).certs.enable_wot(&(*ctx).policy()) {
                 warn!("Enabling the WoT functionality: {}", err);
             }
 
-            (*ctx).certs.start_parcimonie((*ctx).policy.clone());
+            (*ctx).certs.start_parcimonie((*ctx).policy().clone());
         }
         RNP_LOAD_SAVE_SECRET_KEYS => (),
         f => {
@@ -697,7 +702,7 @@ fn rnp_load_keys(ctx: *mut RnpContext,
 
     let policy = (*ctx).policy.clone();
     if let Err(err) = (*ctx).certs.load_keyring_in_background(
-        data, flags == RNP_LOAD_SAVE_SECRET_KEYS, std::sync::Arc::new(std::sync::RwLock::new(policy)))
+        data, flags == RNP_LOAD_SAVE_SECRET_KEYS, policy)
     {
         warn!("sequoia-octopus: Error reading certs: {}", err);
         return RNP_ERROR_GENERIC;

@@ -199,7 +199,7 @@ fn rnp_op_encrypt_add_recipient(op: *mut RnpOpEncrypt,
     // Try to locate encryption-capable subkeys.
     let mut found_some = false;
     if let Some(cert) = key.try_cert() {
-        for ka in cert.keys().with_policy(&op.ctx.policy, None)
+        for ka in cert.keys().with_policy(&*op.ctx.policy(), None)
             .for_transport_encryption()
             .for_storage_encryption()
             .alive()
