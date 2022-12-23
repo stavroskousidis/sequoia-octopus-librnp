@@ -202,6 +202,8 @@ fn rnp_op_encrypt_add_recipient(op: *mut RnpOpEncrypt,
         for ka in cert.keys().with_policy(&*op.ctx.policy(), None)
             .for_transport_encryption()
             .for_storage_encryption()
+            .revoked(false)
+            .supported()
             .alive()
         {
             t!("Adding (sub)key {:X}", ka.fingerprint());
