@@ -518,7 +518,6 @@ pub fn export_ownertrust() -> Result<HashMap<Fingerprint, OwnerTrust>>
 
         // see https://docs.microsoft.com/en-us/windows/win32/procthread/process-creation-flags
         const CREATE_NO_WINDOW: u32 = 0x08000000;
-        let mut command = command;
         command.creation_flags(CREATE_NO_WINDOW);
         command
     };
