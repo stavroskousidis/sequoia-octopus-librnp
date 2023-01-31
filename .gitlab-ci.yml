@@ -147,7 +147,7 @@ windows-msvc-release:
     - win2019
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-  needs: ["windows-msvc", "thunderbird-tests-beta", "thunderbird-tests-esr91"]
+  needs: ["windows-msvc", "thunderbird-tests-beta", "thunderbird-tests-esr102"]
   stage: release
   image: 192.168.122.1:5000/sequoia-pgp/build-docker-image/windows-msvc
   before_script:
@@ -173,7 +173,7 @@ debug-windows-msvc-release:
     - win2019
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-  needs: ["windows-msvc", "thunderbird-tests-beta", "thunderbird-tests-esr91"]
+  needs: ["windows-msvc", "thunderbird-tests-beta", "thunderbird-tests-esr102"]
   stage: release
   image: 192.168.122.1:5000/sequoia-pgp/build-docker-image/windows-msvc
   before_script:
@@ -199,7 +199,7 @@ windows-msvc-release-32:
     - win2019
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-  needs: ["windows-msvc-32", "thunderbird-tests-beta", "thunderbird-tests-esr91"]
+  needs: ["windows-msvc-32", "thunderbird-tests-beta", "thunderbird-tests-esr102"]
   stage: release
   image:
     name: 192.168.122.1:5000/sequoia-pgp/build-docker-image/windows-msvc
@@ -253,9 +253,9 @@ thunderbird-tests-beta:
   extends: .thunderbird-tests
   image: 192.168.122.1:5000/sequoia-pgp/build-thunderbird/tbbuild_beta:for_ci
 
-thunderbird-tests-esr91:
+thunderbird-tests-esr102:
   extends: .thunderbird-tests
-  image: 192.168.122.1:5000/sequoia-pgp/build-thunderbird/tbbuild_esr91:for_ci
+  image: 192.168.122.1:5000/sequoia-pgp/build-thunderbird/tbbuild_esr102:for_ci
 
 variables:
   DEBIAN_FRONTEND: noninteractive
