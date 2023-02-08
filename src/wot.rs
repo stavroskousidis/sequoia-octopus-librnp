@@ -1,10 +1,5 @@
 use std::collections::HashSet;
-use std::ops::DerefMut;
-use std::sync::Arc;
-use std::sync::mpsc;
-use std::sync::Mutex;
-use std::sync::MutexGuard;
-use std::thread;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use std::time::SystemTime;
 
@@ -16,45 +11,27 @@ use rusqlite::{
 };
 
 use sequoia_openpgp as openpgp;
-use openpgp::Fingerprint;
+use openpgp::{Cert, Fingerprint};
 use openpgp::packet::UserID;
+use sequoia_openpgp::policy::Policy;
+use sequoia_wot::{Root, Roots, store::Store};
 
 use crate::gpg;
 use crate::gpg::Validity;
+use crate::keystore::KeystoreData;
 use crate::tbprofile::TBProfile;
 
 pub struct WoT {
-    data: Arc<Mutex<Option<WoTData>>>,
-    sender: Arc<Mutex<Option<mpsc::Sender<()>>>>,
-}
-
-struct WoTData {
-    gpg_ctx: gpg::Ctx,
     conn: rusqlite::Connection,
-    output_tag: Option<gpg::CacheTag>,
+    _gpg_ctx: gpg::Ctx,
     last_update: SystemTime,
-}
-
-// A singleton.
-lazy_static! {
-    static ref WOT: Arc<WoT>
-        = Arc::new(WoT {
-            data: Arc::new(Mutex::new(None)),
-            sender: Arc::new(Mutex::new(None)),
-        });
 }
 
 impl WoT {
     // Return a locked WoTData.
     //
     // If WoT hasn't been initialized, do it now.
-    fn lock() -> openpgp::Result<MutexGuard<'static, Option<WoTData>>> {
-        let mut data = WOT.data.lock().unwrap();
-        if data.is_some() {
-            // The singleton is already initialized.
-            return Ok(data);
-        }
-
+    pub(crate) fn new() -> openpgp::Result<WoT> {
         let gpg_ctx = gpg::Ctx::new()?;
 
         let path = TBProfile::path()
@@ -140,161 +117,184 @@ impl WoT {
 
         tx.commit()?;
 
-        *data = Some(WoTData {
-            gpg_ctx,
+        Ok(WoT {
+            _gpg_ctx: gpg_ctx,
             conn,
-            output_tag: None,
             last_update: std::time::UNIX_EPOCH,
-        });
-
-        Ok(data)
+        })
     }
 
-    // Create a thread to start monitoring gpg's trust db for updates.
-    pub fn monitor() -> openpgp::Result<()> {
-        let data_ref = WoT::lock()?;
-        assert!(data_ref.is_some());
-
-        let mut sender_ref = WOT.sender.lock().unwrap();
-        if sender_ref.is_some() {
-            // Already started the thread.
-            return Ok(());
-        }
-
-        // Start the thread.
-        let (sender, receiver) = mpsc::channel();
-        *sender_ref = Some(sender);
-        drop(sender_ref);
-
-        thread::spawn(move || {
-            WoTData::monitor(receiver);
-        });
-
-        Ok(())
-    }
-
-    // Queue an update for the near future.
+    // Do an update of the WoT validities.
     //
-    // This fails if the monitor thread has not yet been started.
-    pub fn queue_update() -> openpgp::Result<()>
-    {
-        if let Some(sender) = WOT.sender.lock().unwrap().deref_mut() {
-            return Ok(sender.send(())?);
-        }
-
-        Err(anyhow::anyhow!("WoT Monitor not yet started."))
-    }
-}
-
-impl WoTData {
-    fn worker(receiver: &mut mpsc::Receiver<()>)
-        -> openpgp::Result<()>
-    {
-        rnp_function!(WoTData::worker, super::TRACE);
-        let mut first_time = true;
-        loop {
-            // Check for updates about once an hour (but not quite to
-            // avoid possible resonance), or when we are asked.
-            if first_time {
-                first_time = false;
-            } else {
-                let r = receiver.recv_timeout(Duration::new(67 * 60, 0));
-                match r {
-                    // Check now.
-                    Ok(()) => {
-                        // Drain the queue.
-                        while let Ok(_) = receiver.recv_timeout(
-                            Duration::new(0, 0)) {
-                        }
-                    },
-                    // Poll now.
-                    Err(mpsc::RecvTimeoutError::Timeout) => (),
-                    // wot was destroyed.
-                    Err(_err) => {
-                        t!("Monitor disconnected (1).  Time to shutdown.");
-                        return Ok(());
-                    }
-                }
-            }
-
-            let mut data_ref = WOT.data.lock().unwrap();
-            let data = if let Some(data) = data_ref.deref_mut() {
-                data
-            } else {
-                t!("Monitor disconnected (2).  Time to shutdown.");
-                return Ok(());
-            };
-
-            let now = SystemTime::now();
-            let elapsed = now.duration_since(data.last_update);
-            match elapsed {
-                Err(err) => {
-                    t!("Error computing time since last update: {}", err);
-                    continue;
-                },
-                Ok(elapsed) => {
-                    if elapsed < Duration::new(10, 0) {
-                        t!("Throttling updates.");
-                        continue;
-                    }
-                }
-            }
-
-            t!("Checking for WoT updates...");
-
-            if let Err(err) = Self::update(&mut data_ref) {
-                warn!("Updating web of trust: {}", err);
-            }
-
-            data_ref.as_mut().unwrap().last_update = SystemTime::now();
-
-            drop(data_ref);
-        }
-    }
-
-    // Monitor the worker thread.
-    //
-    // If it returns an error, then it is restarted (after a short
-    // timeout).
-    fn monitor(mut receiver: mpsc::Receiver<()>)
-    {
-        rnp_function!(WoTData::monitor, super::TRACE);
-        while let Err(err) = Self::worker(&mut receiver) {
-            t!("WoT thread returned unexpectedly ({:?}), restarting", err);
-            thread::sleep(Duration::new(5 * 60, 0));
-        }
-    }
-
     // Carefully update TB's acceptance DB with GPG's validity.
-    fn update(data: &mut MutexGuard<Option<WoTData>>) -> openpgp::Result<()>
+    pub fn update(&mut self, ksd: Arc<RwLock<KeystoreData>>, p: &dyn Policy) -> openpgp::Result<()>
     {
         rnp_function!(WoT::update, super::TRACE);
 
-        let data = data.as_mut().expect("init succeeded");
-
-        let (validity, output_tag)
-            = match gpg::list_validity(&data.gpg_ctx, None,
-                                       data.output_tag.as_ref())
-        {
-            Ok(validity) => validity,
+        let now = SystemTime::now();
+        let elapsed = now.duration_since(self.last_update);
+        match elapsed {
             Err(err) => {
-                let err = match err.downcast::<gpg::Error>() {
-                    Ok(gpg::Error::Unchanged(tag)) => {
-                        // Unchanged.  Short-circuit.
-                        data.output_tag = Some(tag);
-                        return Ok(());
-                    },
-                    Err(e) => e,
+                t!("Error computing time since last update: {}", err);
+                return Ok(());
+            }
+            Ok(elapsed) => {
+                if elapsed < Duration::new(10, 0) {
+                    t!("Throttling updates.");
+                    return Ok(());
+                }
+            }
+        }
+
+        t!("Checking for WoT updates...");
+
+        // We clone the certificates in the key store to be able to drop the
+        // keystore lock as soon as possible.
+        let keystore_data = ksd.read().unwrap();
+        let certs: Vec<Cert> = keystore_data.iter()
+            .map(|c| (*c).clone())
+            .collect();
+        drop(keystore_data);
+
+        t!("Keystore size: {}", certs.len());
+
+        let reference_time = SystemTime::now();
+
+        // GnuPG ownertrust "Ultimate"
+        let mut trust_roots: Vec<Root> = Vec::new();
+
+        // Possible roots: GnuPG ownertrust "Fully" and "Marginal"
+        let mut possible_roots: Vec<Root> = Vec::new();
+
+        // Get trust roots from GnuPG.
+        let ownertrust = gpg::export_ownertrust()?;
+        for (fpr, ownertrust) in ownertrust {
+            match ownertrust {
+                gpg::OwnerTrust::Ultimate => {
+                    trust_roots.push(
+                        Root::new(fpr, sequoia_wot::FULLY_TRUSTED));
+                }
+                gpg::OwnerTrust::Fully => {
+                    possible_roots.push(
+                        Root::new(fpr, sequoia_wot::FULLY_TRUSTED));
+                }
+                gpg::OwnerTrust::Marginal => {
+                    possible_roots.push(
+                        Root::new(fpr, sequoia_wot::PARTIALLY_TRUSTED));
+                }
+                _ => (),
+            }
+        }
+
+        let roots = Roots::new(trust_roots.clone());
+        t!("Trust roots (ultimate ownertrust): {:?}", roots);
+
+        let network = sequoia_wot::Network::from_certs(
+            &certs, &*p, reference_time).unwrap();
+        let mut query =
+            sequoia_wot::Query::new(&network, roots);
+
+        // Add GnuPG intermediate trust roots to 'trust_roots'
+        let mut found_one = true;
+        while found_one && !possible_roots.is_empty() {
+            // For GnuPG to consider a non-ultimately trusted root as
+            // valid, there must be a path from an ultimately trusted root
+            // to the non-ultimately trusted root.  If this is the case,
+            // add those roots.
+
+            t!("Checking if any of {} are reachable from the current {} roots",
+                possible_roots.iter()
+                    .fold(String::new(), |mut s, pr| {
+                        if ! s.is_empty() {
+                            s.push_str(", ");
+                        }
+                        s.push_str(&pr.fingerprint().to_hex());
+                        s
+                    }),
+                trust_roots.len());
+
+            found_one = false;
+            let pr = possible_roots;
+            possible_roots = Vec::new();
+
+            'root: for r in pr.into_iter() {
+                let cert = match network.cert_by_fpr(&r.fingerprint()) {
+                    Err(_e) => {
+                        t!("Ignoring root {}: not in network.", r.fingerprint());
+                        continue;
+                    }
+                    Ok(v) => v,
                 };
 
-                let err = err.context("openpgp.sqlite: \
-                                       Running  gpg --list-keys");
-                warn!("{}", err);
-                return Err(err);
-            }
-        };
+                for u in cert.userids() {
+                    if u.revocation_status().in_effect(reference_time) {
+                        t!("Ignoring root {}'s User ID {:?}: revoked.",
+                            r.fingerprint(), String::from_utf8_lossy(u.value()));
+                        continue;
+                    }
 
-        let mut tx = data.conn.transaction()?;
+                    let authenticated_amount = query.authenticate(
+                        u.userid(), r.fingerprint(), sequoia_wot::FULLY_TRUSTED)
+                        .amount();
+
+                    if authenticated_amount >= sequoia_wot::FULLY_TRUSTED {
+                        // Authenticated!  We'll keep it.
+                        t!("Non-ultimately trusted root <{}, {}> reachable, \
+                            keeping at {}",
+                            r.fingerprint(),
+                            String::from_utf8_lossy(u.userid().value()),
+                            r.amount());
+                        found_one = true;
+                        trust_roots.push(r);
+                        query = sequoia_wot::Query::new(
+                            &network, Roots::new(trust_roots.clone()));
+                        continue 'root;
+                    } else {
+                        t!("Non-ultimately trusted binding <{}, {}> \
+                            NOT fully trusted (amount: {})",
+                            r.fingerprint(),
+                            String::from_utf8_lossy(u.userid().value()),
+                            authenticated_amount);
+                    }
+                }
+
+                t!("Non-ultimately trusted root {} NOT fully trusted. Ignoring.",
+                    r.fingerprint());
+                possible_roots.push(r);
+            }
+        }
+
+        let validity: Vec<(Fingerprint, Vec<(String, Validity)>)> =
+            certs.iter().map(|c| {
+                let fp = c.fingerprint();
+                let userids: Vec<(String, Validity)> =
+                    c.with_policy(&*p, reference_time).map(|vc| {
+                        vc.userids().filter_map(|uid| {
+                            if let Ok(s) = String::from_utf8(uid.value().to_vec()) {
+                                let paths = query.authenticate(
+                                    uid.userid(), &fp,
+                                    sequoia_wot::FULLY_TRUSTED);
+
+                                if let Some(validity) = match paths.amount() {
+                                    amount if amount >= sequoia_wot::FULLY_TRUSTED => Some(Validity::Fully),
+                                    amount if amount > 0 => Some(Validity::Marginal),
+                                    _ => None
+                                } {
+                                    Some((s, validity))
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        }).collect::<Vec<(String, Validity)>>()
+                    }).unwrap_or(vec![]);
+                (fp, userids)
+            }).collect();
+
+        t!("sequoia-wot validities: {:#?}", validity);
+
+        let mut tx = self.conn.transaction()?;
 
         // See comment in `WoT::new` regarding what exactly is
         // considered managed by sequoia.
@@ -316,14 +316,15 @@ impl WoTData {
             }
         };
 
-        WoTData::import_validity(&mut tx, Some(managed_by_tb), validity)?;
+        Self::import_validity(&mut tx, Some(managed_by_tb), validity)?;
 
         tx.commit()?;
 
-        data.output_tag = Some(output_tag);
+        self.last_update = SystemTime::now();
 
         Ok(())
     }
+
 
     // If managed_by_tb is None, then validity has already been
     // filtered to only contain keys managed by us.

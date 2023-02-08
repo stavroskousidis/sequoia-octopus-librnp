@@ -64,7 +64,6 @@ use crate::{
     conversions::*,
     error::*,
     signature::ca_signatures,
-    wot,
 };
 
 pub struct RnpKey {
@@ -241,8 +240,8 @@ fn rnp_locate_key(ctx: *mut RnpContext,
 
     // Thunderbird is looking up an identifier.  Now is a good time to
     // check for WoT updates.
-    if let Err(err) = wot::WoT::queue_update() {
-        t!("Queuing wot update: {}", err);
+    if let Err(err) = (*ctx).certs.update_wot(&((*ctx).policy)) {
+        t!("Performed wot update: {}", err);
     }
 
     // (*ctx).cert also takes a read lock.  But we need to keep the

@@ -9,7 +9,6 @@ use crate::{
     str_to_rnp_buffer,
     error::*,
     conversions::*,
-    wot,
 };
 
 pub struct RnpIdentifierIterator {
@@ -34,8 +33,8 @@ fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
 
     // Thunderbird is doing a scan.  Now is a good time to check for
     // WoT updates.
-    if let Err(err) = wot::WoT::queue_update() {
-        t!("Queuing wot update: {}", err);
+    if let Err(err) = (*ctx).certs.update_wot(&((*ctx).policy)) {
+        t!("Performed wot update: {}", err);
     }
 
     // We load the keyrings in the background.  But, once TB tries to

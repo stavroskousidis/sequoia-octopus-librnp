@@ -42,6 +42,7 @@ use crate::{
     gpg,
     Keygrip,
     parcimonie::Parcimonie,
+    wot::WoT,
 };
 
 struct MapEntry<E> {
@@ -165,6 +166,14 @@ pub struct Keystore {
     data: Arc<RwLock<KeystoreData>>,
     parcimonie: Option<Parcimonie>,
 
+    // The wot functionality gets enabled for the 'main' context, not for
+    // ephemeral RnpContexts. Wot calculations are only done for the 'main'
+    // context.
+    //
+    // We assume rnp_load_keys() is only used by the 'main' context, so wot
+    // gets initialized there.
+    wot : Option<WoT>,
+
     // A sender to ping the thread and tell it to check for updates
     // now.
     gpg_sender: Option<Arc<Mutex<mpsc::Sender<Option<(Vec<u8>, bool)>>>>>,
@@ -180,6 +189,8 @@ impl Default for Keystore {
         Self {
             data: Arc::new(RwLock::new(Default::default())),
             parcimonie: None,
+
+            wot: None,
 
             gpg_sender: None,
             in_init: Arc::new((Mutex::new(0), Condvar::new())),
@@ -205,6 +216,29 @@ impl Keystore {
         if self.parcimonie.is_none() {
             self.parcimonie = Some(Parcimonie::new(policy, self));
         }
+    }
+
+    pub fn enable_wot(&mut self, policy: &StandardPolicy<'static>)
+        -> openpgp::Result<()>
+    {
+        let mut wot = WoT::new()?;
+        wot.update(self.create_ref(), policy)?;
+
+        self.wot = Some(wot);
+
+        Ok(())
+    }
+
+    pub fn update_wot(&mut self, policy: &StandardPolicy<'static>)
+        -> openpgp::Result<()>
+    {
+        let ksd = self.create_ref();
+
+        if let Some(ref mut wot) = self.wot {
+            wot.update(ksd, policy)?;
+        }
+
+        Ok(())
     }
 
     pub fn create_ref(&self) -> Arc<RwLock<KeystoreData>> {
@@ -255,7 +289,10 @@ impl Keystore {
     //
     // Returns whether or not a thread was started.  That is, if the
     // thread was already running, this returns false.
-    fn gpg_thread_start(&mut self) -> openpgp::Result<bool> {
+    fn gpg_thread_start(&mut self,
+                        policy: Arc<RwLock<StandardPolicy<'static>>>)
+        -> openpgp::Result<bool>
+    {
         if self.gpg_sender.is_some() {
             // Already started.
             return Ok(false);
@@ -284,7 +321,7 @@ impl Keystore {
 
         ks.gpg_thread
             = Some(thread::spawn(move || {
-                KeystoreData::gpg_thread(ks_ref, receiver, in_init);
+                KeystoreData::gpg_thread(ks_ref, receiver, in_init, policy);
             }));
 
         self.gpg_sender = Some(Arc::new(Mutex::new(sender)));
@@ -300,10 +337,13 @@ impl Keystore {
     ///
     /// This also starts a thread to monitor the gpg store.  This
     /// imports updates from the gpg keyring (XXX: but not removals!).
-    pub fn load_gpg_keyring(&mut self) -> openpgp::Result<()> {
+    pub fn load_gpg_keyring(&mut self,
+                            policy: Arc<RwLock<StandardPolicy<'static>>>)
+        -> openpgp::Result<()>
+    {
         rnp_function!(Keystore::load_gpg_keyring, super::TRACE);
 
-        if ! self.gpg_thread_start()? {
+        if !self.gpg_thread_start(policy)? {
             // If we just started the thread, then it will read the
             // gpg keyring on its own.  Otherwise, signal that it
             // should reread it now.
@@ -319,12 +359,13 @@ impl Keystore {
     /// If import_secret_keys is true, then it also imports any secret
     /// key material.  Otherwise, secret key material is stripped.
     pub fn load_keyring_in_background(&mut self, keyring: Vec<u8>,
-                                      import_secret_keys: bool)
+                                      import_secret_keys: bool,
+                                      policy: Arc<RwLock<StandardPolicy<'static>>>)
         -> openpgp::Result<()>
     {
         rnp_function!(Keystore::load_keyring_in_background, super::TRACE);
 
-        if let Err(err) = self.gpg_thread_start() {
+        if let Err(err) = self.gpg_thread_start(policy) {
             warn!("Failed to start gpg thread: {}", err);
             KeystoreData::load_keyring(
                 &mut self.data, &keyring, import_secret_keys, false)?;
@@ -661,11 +702,17 @@ impl KeystoreData {
     // This checks for updates to the keyring.
     fn gpg_thread(ks: Arc<RwLock<Self>>,
                   receiver: mpsc::Receiver<Option<(Vec<u8>, bool)>>,
-                  in_init: Arc<(Mutex<usize>, Condvar)>) {
+                  in_init: Arc<(Mutex<usize>, Condvar)>,
+                  policy: Arc<RwLock<StandardPolicy<'static>>>) {
         rnp_function!(KeystoreData::gpg_thread, super::TRACE);
 
         let mut keyring_tag: Option<gpg::CacheTag> = None;
         let mut gpg_ctx: Option<gpg::Ctx> = None;
+
+        let mut wot = match WoT::new() {
+            Ok(wot) => Some(wot),
+            Err(_e) => None, // FIXME
+        };
 
         let mut last_check = std::time::UNIX_EPOCH;
         let mut first_time = true;
@@ -788,6 +835,12 @@ impl KeystoreData {
                     in_init.1.notify_all();
                 }
                 drop(in_init_);
+            }
+
+            // perform WoT update
+            if let Some(ref mut wot) = wot {
+                let p = policy.read().unwrap();
+                wot.update(ks.clone(), &*p).expect("foo");
             }
 
             last_check = SystemTime::now();

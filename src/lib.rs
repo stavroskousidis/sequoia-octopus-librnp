@@ -668,13 +668,13 @@ fn rnp_load_keys(ctx: *mut RnpContext,
             }
 
             // Also load GPG's public key database.
-            if let Err(err) = (*ctx).certs.load_gpg_keyring() {
+            if let Err(err) = (*ctx).certs.load_gpg_keyring(std::sync::Arc::new(std::sync::RwLock::new((*ctx).policy.clone()))) {
                 warn!("Import gpg's keyring: {}", err);
             }
 
-            // And load the WoT data.
-            if let Err(err) = wot::WoT::monitor() {
-                t!("Instantiating WoT updater: {}", err);
+            // Enable the WoT functionality.
+            if let Err(err) = (*ctx).certs.enable_wot(&(*ctx).policy) {
+                warn!("Enabling the WoT functionality: {}", err);
             }
 
             (*ctx).certs.start_parcimonie((*ctx).policy.clone());
@@ -695,8 +695,9 @@ fn rnp_load_keys(ctx: *mut RnpContext,
         return RNP_ERROR_GENERIC;
     }
 
+    let policy = (*ctx).policy.clone();
     if let Err(err) = (*ctx).certs.load_keyring_in_background(
-        data, flags == RNP_LOAD_SAVE_SECRET_KEYS)
+        data, flags == RNP_LOAD_SAVE_SECRET_KEYS, std::sync::Arc::new(std::sync::RwLock::new(policy)))
     {
         warn!("sequoia-octopus: Error reading certs: {}", err);
         return RNP_ERROR_GENERIC;
