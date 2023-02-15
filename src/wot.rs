@@ -335,6 +335,19 @@ impl WoT {
     {
         rnp_function!(import_validity, super::TRACE);
 
+        // First, remove all assertions managed by sequoia
+        // (they will get re-added below, if they are still valid).
+        match tx.execute(
+            "DELETE FROM acceptance_decision WHERE fpr IN \
+            (SELECT fpr FROM managed_by_sequoia)",
+            params![],
+        ) {
+            Ok(_) => t!("Removed sequoia-managed acceptance entries"),
+            Err(e) => {
+                warn!("Removing sequoia-managed acceptance failed: {}", e);
+            }
+        }
+
         for (fpr, key_validity) in validity {
             let key_validity: Vec<_> = key_validity
                 .into_iter()
