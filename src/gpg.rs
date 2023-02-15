@@ -453,6 +453,8 @@ pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&CacheTag>)
             .arg("--homedir")
             .arg(ctx.directory("homedir")?)
             .arg("--armor")
+            .arg("--export-options")
+            .arg("export-local-sigs")
             .arg("--export");
         if let Some(search) = search {
             gpg.arg(search);
