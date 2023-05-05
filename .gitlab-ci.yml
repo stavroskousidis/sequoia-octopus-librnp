@@ -58,7 +58,7 @@ codespell:
     - >
       codespell --disable-colors
       -L "crate,ede,iff,mut,nd,te,uint,KeyServer,keyserver,Keyserver,keyservers,Keyservers,keypair,keypairs,KeyPair,fpr,dedup"
-      -S "*.bin,*.gpg,*.pgp,./.git,data,highlight.js,*/target,Makefile"
+      -S "*.bin,*.gpg,*.pgp,./.git,data,highlight.js,*/target,Makefile,Cargo.lock"
   after_script: []
 
 deny:
