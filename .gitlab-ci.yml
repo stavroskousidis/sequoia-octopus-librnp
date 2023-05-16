@@ -33,7 +33,7 @@ bookworm:
 
   script:
     - cargo build
-    - cargo test
+    - RUST_BACKTRACE=1 cargo test
     - if ! git diff --quiet Cargo.lock ; then echo "Cargo.lock changed.  Please add the change to the corresponding commit." ; false ; fi
     - cp $CARGO_TARGET_DIR/debug/libsequoia_octopus_librnp.so libsequoia_octopus_librnp.so
     - NEEDLESSLY_EXPORTED_SYMBOLS="$(readelf --dyn-syms libsequoia_octopus_librnp.so | grep -v UND | grep -v rnp_ | grep DEFAULT)"
