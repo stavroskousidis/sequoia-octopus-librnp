@@ -83,6 +83,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
 
 [[package]]
+name = "base64"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4a4ddaa51a5bc52a6948f74c06d20aaaddb71924eab79b8c97a8c556e942d6a"
+
+[[package]]
 name = "bindgen"
 version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2080,7 +2086,7 @@ version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3b0b225864155193e45287e6aa80b5348bb19da9906e05e0acfa875afc5fb57"
 dependencies = [
- "base64",
+ "base64 0.13.0",
  "sequoia-openpgp",
 ]
 
@@ -2119,7 +2125,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fef4106809f4d785832ccfe0e06fbfc098b7cfad9b24779d8286752f3344c7ad"
 dependencies = [
  "anyhow",
- "base64",
+ "base64 0.13.0",
  "futures-util",
  "http",
  "hyper",
@@ -2142,7 +2148,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cca7e201e65a2acd3fbbb6004f843e622959f00afbbe8f3308a7997c9784dfa"
 dependencies = [
  "anyhow",
- "base64",
+ "base64 0.13.0",
  "futures-util",
  "http",
  "hyper",
@@ -2193,12 +2199,12 @@ dependencies = [
 
 [[package]]
 name = "sequoia-openpgp"
-version = "1.15.0"
+version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f614c63ebc9e217e390d4f1ac1bdd629e9976086e4605f8d75d95ba80e063b2"
+checksum = "30efff3f9930e85b4284e76bbdad741f36412dfb1e370efd0de5866ae1a11dfc"
 dependencies = [
  "anyhow",
- "base64",
+ "base64 0.21.0",
  "buffered-reader",
  "bzip2",
  "chrono",
