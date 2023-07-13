@@ -19,6 +19,7 @@ use openpgp::{
     },
     policy::AsymmetricAlgorithm,
     types::{
+        AEADAlgorithm,
         Curve,
         HashAlgorithm,
         SymmetricAlgorithm,
@@ -86,6 +87,26 @@ impl FromRnpId for SymmetricAlgorithm {
             b"SM4" => Err(RNP_ERROR_NOT_SUPPORTED),
             _ => {
                 global_warn!("unknown symmetric algorithm: {:?}", id);
+                Err(RNP_ERROR_BAD_PARAMETERS)
+            },
+        }
+    }
+}
+
+impl FromRnpId for Option<AEADAlgorithm> {
+    fn from_rnp_id(id: *const c_char) -> Result<Self> {
+        use AEADAlgorithm::*;
+        let id = unsafe {
+            CStr::from_ptr(id)
+        };
+        match &id.to_bytes().iter().map(u8::to_ascii_uppercase)
+            .collect::<Vec<_>>()[..]
+        {
+            b"NONE" => Ok(None),
+            b"EAX" => Ok(Some(EAX)),
+            b"OCB" => Ok(Some(OCB)),
+            _ => {
+                global_warn!("unknown AEAD algorithm: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)
             },
         }

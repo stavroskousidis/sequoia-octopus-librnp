@@ -1,5 +1,6 @@
 use libc::{
     c_char,
+    c_int,
     c_void,
 };
 
@@ -15,6 +16,7 @@ use openpgp::{
     },
     serialize::stream::*,
     types::{
+        AEADAlgorithm,
         HashAlgorithm,
         SymmetricAlgorithm,
     },
@@ -264,6 +266,36 @@ fn rnp_op_encrypt_set_cipher(op: *mut RnpOpEncrypt,
     assert_ptr!(cipher);
     (*op).cipher = Some(rnp_try!(SymmetricAlgorithm::from_rnp_id(cipher)));
     RNP_SUCCESS
+}
+
+#[no_mangle] pub unsafe extern "C"
+fn rnp_op_encrypt_set_aead(op: *mut RnpOpEncrypt,
+                           algo: *const c_char)
+                           -> RnpResult {
+    rnp_function!(rnp_op_encrypt_set_aead, crate::TRACE);
+    assert_ptr!(op);
+    assert_ptr!(algo);
+    let aead = rnp_try!(Option::<AEADAlgorithm>::from_rnp_id(algo));
+    match aead {
+        None => RNP_SUCCESS,
+        Some(_) => RNP_ERROR_NOT_SUPPORTED,
+    }
+}
+
+#[no_mangle] pub unsafe extern "C"
+fn rnp_op_encrypt_set_aead_bits(op: *mut RnpOpEncrypt,
+                                encoded_bits: c_int)
+                                -> RnpResult {
+    rnp_function!(rnp_op_encrypt_set_aead_bits, crate::TRACE);
+    assert_ptr!(op);
+
+    // This sets the chunk size using the OpenPGP wire encoding.
+    if (0..=16).contains(&encoded_bits) {
+        // Range is okay, we just don't do anything.
+        RNP_SUCCESS
+    } else {
+        RNP_ERROR_BAD_PARAMETERS
+    }
 }
 
 #[no_mangle] pub unsafe extern "C"
