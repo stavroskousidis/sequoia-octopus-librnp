@@ -67,6 +67,18 @@ default = [
     "sequoia-openpgp/default",
     "net",
 ]
+crypto-openssl = [
+    "sequoia-openpgp/compression",
+    "sequoia-openpgp/crypto-openssl",
+]
+crypto-botan = [
+    "sequoia-openpgp/compression",
+    "sequoia-openpgp/crypto-botan",
+]
+crypto-botan2 = [
+    "sequoia-openpgp/compression",
+    "sequoia-openpgp/crypto-botan2",
+]
 crypto-nettle = [
     "sequoia-openpgp/compression",
     "sequoia-openpgp/crypto-nettle",
