@@ -753,17 +753,23 @@ impl<'a> DecryptionHelper for Helper<'a> {
                   mut decrypt: D) -> openpgp::Result<Option<Fingerprint>>
         where D: FnMut(SymmetricAlgorithm, &SessionKey) -> bool
     {
+        rnp_function!(Helper::decrypt, crate::TRACE);
+        t!("{} PKESKs, {} SKESKs, algo: {:?}",
+           pkesks.len(), skesks.len(), algo);
+
         // Preserve PKESKs and SKESKs for later inspection.
         self.result.pkesks = pkesks.iter().cloned().collect();
         self.result.skesks = skesks.iter().cloned().collect();
 
         // Even if we happen to be loading a keyring in the
         // background, try the lookup.
+        t!("trying to decrypt PKESKs with unencrypted keys");
         for &block in [false, true].iter() {
             if block {
                 if let Ok(false) = self.ctx.certs.block_on_load() {
                     // We didn't block.  It is extremely unlikely that
                     // the keystore was updated.
+                    t!("we didn't block, breaking out of the loop.");
                     break;
                 }
             }
@@ -772,6 +778,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
             // prompting for a password.
             for pkesk in pkesks {
                 let keyid = pkesk.recipient();
+                t!("trying to decrypt PKESK with recipient {}", keyid);
                 if let Some(key) = self.get_decryption_key(&keyid) {
                     if ! key.secret().is_encrypted() {
                         if let Some((_algo, _sk, fp)) =
@@ -779,10 +786,17 @@ impl<'a> DecryptionHelper for Helper<'a> {
                                 self.try_decrypt(pkesk, algo, &mut k, &mut decrypt)
                             })
                         {
+                            t!("success!");
                             self.result.pkesk_used = Some(pkesk.clone());
                             return Ok(fp);
+                        } else {
+                            t!("failure!");
                         }
+                    } else {
+                        t!("but it is encrypted!");
                     }
+                } else {
+                    t!("but we don't have that key!");
                 }
             }
         }
@@ -790,10 +804,15 @@ impl<'a> DecryptionHelper for Helper<'a> {
         // Second, we try to decrypt PKESK packets with wildcard
         // recipients using those keys that we can use without
         // prompting for a password.
+        t!("trying to decrypt PKESKs using wildcard recipients with \
+            unencrypted keys");
         let ks = self.ctx.certs.read();
         for pkesk in pkesks.iter().filter(|p| p.recipient().is_wildcard()) {
+            t!("trying to decrypt PKESK with wildcard recipient...");
             // Get all possible decryption keys from the context.
             for cert in ks.iter().filter(|cert| cert.is_tsk()) {
+                 t!("... using cert {}...", cert.fingerprint());
+
                 for key in cert.with_policy(&*self.ctx.policy(), None).ok()
                     .iter()
                     .flat_map(|vcert| vcert.keys()
@@ -802,6 +821,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
                               .for_transport_encryption()
                               .map(|vka| vka.key().clone()))
                 {
+                    t!("... and key {}", key.fingerprint());
                     if ! key.secret().is_encrypted() {
                         if let Some((_algo, _sk, fp)) =
                             key.clone().into_keypair().ok().and_then(|mut k| {
@@ -809,16 +829,22 @@ impl<'a> DecryptionHelper for Helper<'a> {
                                                  &mut decrypt)
                             })
                         {
+                            t!("success!");
                             self.result.pkesk_used =
                                 Some(pkesk.clone());
                             return Ok(fp);
+                        } else {
+                            t!("failure!");
                         }
+                    } else {
+                        t!("but it is encrypted!");
                     }
                 }
             }
         }
         drop(ks);
 
+        t!("trying to decrypt PKESKs with encrypted keys");
         // Third, we try those keys that are encrypted.
         'next_pkesk: for pkesk in pkesks {
             // Don't ask the user to decrypt a key if we don't support
@@ -828,9 +854,12 @@ impl<'a> DecryptionHelper for Helper<'a> {
             }
 
             let keyid = pkesk.recipient();
+            t!("trying to decrypt PKESK with recipient {}", keyid);
             if let Some(key) = self.get_decryption_key(&keyid) {
                 let mut keypair =
                     if ! key.secret().is_encrypted() {
+                        t!("odd, it is not encrypted, why didn't we \
+                            decrypt this PKESK before?");
                         key.clone().into_keypair()?
                     } else {
                         match self.ctx.decrypt_key_for(
@@ -839,7 +868,10 @@ impl<'a> DecryptionHelper for Helper<'a> {
                             RnpPasswordFor::Decrypt)
                         {
                             Ok(k) => k.into_keypair()?,
-                            Err(_) => break 'next_pkesk,
+                            Err(_) => {
+                                t!("failed to decrypt the key!");
+                                break 'next_pkesk;
+                            },
                         }
                     };
 
@@ -847,14 +879,22 @@ impl<'a> DecryptionHelper for Helper<'a> {
                     self.try_decrypt(pkesk, algo, &mut keypair,
                                      &mut decrypt)
                 {
+                    t!("success!");
                     self.result.pkesk_used = Some(pkesk.clone());
                     return Ok(fp);
+                } else {
+                    t!("failure!");
                 }
+            } else {
+                t!("but we don't have that key!");
             }
         }
 
+        t!("trying to decrypt PKESKs with gpg-agent");
         for pkesk in pkesks {
-            if let Some((cert, key)) = self.get_public_key(pkesk.recipient()) {
+            let keyid = pkesk.recipient();
+            t!("trying to decrypt PKESK with recipient {}", keyid);
+            if let Some((cert, key)) = self.get_public_key(keyid) {
                 let mut pair = ipc::gnupg::KeyPair::new(
                     &ipc::gnupg::Context::new()?, key.parts_as_public())?;
                 if let Ok(vcert) = cert.with_policy(&*self.ctx.policy(), None) {
@@ -864,13 +904,19 @@ impl<'a> DecryptionHelper for Helper<'a> {
                     .map(|(algo, session_key)| decrypt(algo, &session_key))
                     .unwrap_or(false)
                 {
+                    t!("success!");
                     self.result.pkesk_used = Some(pkesk.clone());
                     return Ok(Some(cert.fingerprint()));
+                } else {
+                    t!("failure!");
                 }
+            } else {
+                t!("but we don't even have that cert!");
             }
         }
 
         if skesks.is_empty() {
+            t!("decryption using PKESKs failed and there are no SKESKs");
             return
                 Err(anyhow::anyhow!("No key to decrypt message"));
         }
@@ -891,6 +937,8 @@ impl<'a> DecryptionHelper for Helper<'a> {
         //        }
         //    }
         //}
+        t!("decryption using SKESKs is not supported by Thunderbird, \
+            giving up");
 
         Err(anyhow::anyhow!("Decryption failed"))
     }
