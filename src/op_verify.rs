@@ -677,18 +677,48 @@ impl<'a> Helper<'a> {
     fn get_decryption_key(&self, id: &KeyID)
                           -> Option<Key<SecretParts, UnspecifiedRole>>
     {
+        rnp_function!(Helper::get_decryption_key, crate::TRACE);
+        t!("want key {}", id);
         let ks = self.ctx.certs.read();
 
         let r = ks.by_subkey_id(id)
             .chain(ks.by_primary_id(id))
             .filter_map(|cert| {
-                cert.with_policy(&*self.ctx.policy(), None).ok()
-                    .and_then(|vcert| vcert.keys()
-                              .secret()
-                              .for_storage_encryption()
-                              .for_transport_encryption()
-                              .key_handle(id).nth(0))
-                    .map(|vka| vka.key().clone())
+                t!("candidate cert {}", cert.fingerprint());
+                match cert.with_policy(&*self.ctx.policy(), None) {
+                    Ok(vcert) => {
+                        let r = vcert.keys()
+                            .secret()
+                            .for_storage_encryption()
+                            .for_transport_encryption()
+                            .key_handle(id).nth(0)
+                            .map(|vka| vka.key().clone());
+
+                        // Some diagnostics:
+                        if r.is_none() {
+                            if vcert.keys()
+                                .for_storage_encryption()
+                                .for_transport_encryption()
+                                .key_handle(id).nth(0).is_some()
+                            {
+                                t!("the key exists, but we don't have \
+                                    the secret");
+                            }
+                            if let Some(k) = vcert.keys().key_handle(id).nth(0)
+                            {
+                                t!("the key exists, but it is not \
+                                    marked as encryption capable");
+                                t!("key flags: {:?}", k.key_flags());
+                            }
+                        }
+
+                        r
+                    },
+                    Err(e) => {
+                        t!("but it is not valid: {}", e);
+                        None
+                    },
+                }
             })
             .nth(0);
         r
@@ -698,15 +728,25 @@ impl<'a> Helper<'a> {
     fn get_public_key(&self, id: &KeyID)
         -> Option<(Cert, Key<PublicParts, UnspecifiedRole>)>
     {
+        rnp_function!(Helper::get_public_key, crate::TRACE);
+        t!("want key {}", id);
         let ks = self.ctx.certs.read();
 
         let r = ks.by_subkey_id(id)
             .chain(ks.by_primary_id(id))
             .filter_map(|cert| {
-                cert.with_policy(&*self.ctx.policy(), None).ok()
-                    .and_then(|vcert| vcert.keys()
-                              .key_handle(id).nth(0))
-                    .map(|vka| (cert.clone(), vka.key().clone()))
+                t!("candidate cert {}", cert.fingerprint());
+                match cert.with_policy(&*self.ctx.policy(), None) {
+                    Ok(vcert) => {
+                        vcert.keys()
+                            .key_handle(id).nth(0)
+                            .map(|vka| (cert.clone(), vka.key().clone()))
+                    },
+                    Err(e) => {
+                        t!("but it is not valid: {}", e);
+                        None
+                    },
+                }
             })
             .nth(0);
         r
