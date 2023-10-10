@@ -559,6 +559,41 @@ impl<'a> VerificationHelper for Helper<'a> {
 
         use self::VerificationError::*;
 
+        // Thunderbird doesn't deal well with not having a key
+        // associated with a signature, even though that seems
+        // possible in RNP.  Make a last-ditch effort to find the key.
+        fn last_ditch_key_lookup(ctx: &RnpContext,
+                                 sig: &Signature,
+                                 cert: Option<&Cert>)
+                                 -> Option<(Key<UnspecifiedParts, UnspecifiedRole>, Cert)>
+        {
+            t!("Doing a last-ditch key lookup for {:?}, {:?}", sig, cert);
+            if let Some(cert) = cert {
+                for h in sig.get_issuers() {
+                    if let Some(key) = cert.keys().key_handle(h).nth(0) {
+                        t!("success: key {}, cert {}",
+                           key.fingerprint(), cert.fingerprint());
+                        return Some((key.parts_as_unspecified().key().clone(),
+                                     cert.clone()));
+                    }
+                }
+            }
+
+            for h in sig.get_issuers() {
+                if let Some(cert) = ctx.cert_by_subkey_handle(&h) {
+                    if let Some(key) = cert.keys().key_handle(h).nth(0) {
+                        t!("success: key {}, cert {}",
+                           key.fingerprint(), cert.fingerprint());
+                        return Some((key.parts_as_unspecified().key().clone(),
+                                     cert.clone()));
+                    }
+                }
+            }
+
+            t!("failed");
+            None
+        }
+
         let n_layers = structure.iter().count();
         for (i, layer) in structure.into_iter().enumerate() {
             match (i, layer) {
@@ -587,7 +622,8 @@ impl<'a> VerificationHelper for Helper<'a> {
                                         ctx: self.ctx as *mut _,
                                         status: RNP_ERROR_SIGNATURE_INVALID,
                                         sig: sig.clone(),
-                                        key: None,
+                                        key: last_ditch_key_lookup(
+                                            self.ctx, sig, None),
                                     });
                             },
                             Err(MissingKey { sig, .. }) => {
@@ -598,7 +634,8 @@ impl<'a> VerificationHelper for Helper<'a> {
                                         ctx: self.ctx as *mut _,
                                         status: RNP_ERROR_KEY_NOT_FOUND,
                                         sig: sig.clone(),
-                                        key: None,
+                                        key: last_ditch_key_lookup(
+                                            self.ctx, sig, None),
                                     });
                             },
                             Err(UnboundKey { sig, cert, error }) => {
@@ -610,7 +647,12 @@ impl<'a> VerificationHelper for Helper<'a> {
                                         ctx: self.ctx as *mut _,
                                         status: RNP_ERROR_SIGNATURE_INVALID,
                                         sig: sig.clone(),
-                                        key: None,
+                                        // The key was not bound under
+                                        // the policy, let's see if we
+                                        // can get it without
+                                        // validating the cert.
+                                        key: last_ditch_key_lookup(
+                                            self.ctx, sig, Some(cert)),
                                     });
                             },
                             Err(BadKey { sig, ka, error }) => {

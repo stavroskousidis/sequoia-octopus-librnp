@@ -23,6 +23,7 @@ extern crate lazy_static;
 use sequoia_openpgp as openpgp;
 use openpgp::{
     Fingerprint,
+    KeyHandle,
     KeyID,
     cert::{
         Cert,
@@ -411,6 +412,20 @@ impl RnpContext {
         }
 
         r_cert
+    }
+
+    /// Retrieves a certificate from the keystore by (sub)key
+    /// handle.
+    ///
+    /// # Locking
+    ///
+    /// This acquires a read lock on the keystore and, if a matching
+    /// certificate is present, a read lock on the certificate's cell.
+    pub fn cert_by_subkey_handle(&self, handle: &KeyHandle) -> Option<Cert> {
+        match handle {
+            KeyHandle::Fingerprint(fp) => self.cert_by_subkey_fp(fp),
+            KeyHandle::KeyID(id) => self.cert_by_subkey_id(id),
+        }
     }
 
     /// Retrieves a certificate from the keystore by (sub)key
