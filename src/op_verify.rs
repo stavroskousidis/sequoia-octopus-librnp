@@ -359,17 +359,19 @@ fn rnp_op_verify_signature_get_status(sig: *mut RnpOpVerifySignature)
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_op_verify_signature_get_key(sig: *mut RnpOpVerifySignature,
-                                   key: *mut *mut RnpKey)
+                                   key_out: *mut *mut RnpKey)
                                    -> RnpResult {
     rnp_function!(rnp_op_verify_signature_get_key, crate::TRACE);
     assert_ptr!(sig);
-    assert_ptr!(key);
-    *key = if let Some(key) = (*sig).key.as_ref().cloned() {
-        Box::into_raw(Box::new(RnpKey::new((*sig).ctx, key.0, &key.1)))
+    assert_ptr!(key_out);
+    if let Some(key) = (*sig).key.as_ref().cloned() {
+        *key_out =
+            Box::into_raw(Box::new(RnpKey::new((*sig).ctx, key.0, &key.1)));
+        RNP_SUCCESS
     } else {
-        std::ptr::null_mut()
-    };
-    RNP_SUCCESS
+        *key_out = std::ptr::null_mut();
+        RNP_ERROR_KEY_NOT_FOUND
+    }
 }
 
 #[no_mangle] pub unsafe extern "C"
