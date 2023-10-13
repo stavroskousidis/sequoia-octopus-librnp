@@ -45,7 +45,8 @@ use crate::{
     wot::WoT,
 };
 
-struct MapEntry<E> {
+#[derive(Debug)]
+struct MapEntry<E: std::fmt::Debug> {
     cert: Arc<RwLock<Cert>>,
     // We cache the fingerprint so that we can figure out what
     // certificate is in here without locking cert.
@@ -53,7 +54,7 @@ struct MapEntry<E> {
     extra: E,
 }
 
-impl<E> MapEntry<E> {
+impl<E: std::fmt::Debug> MapEntry<E> {
     pub fn cert(&self) -> RwLockReadGuard<Cert> {
         self.cert.read().unwrap()
     }
