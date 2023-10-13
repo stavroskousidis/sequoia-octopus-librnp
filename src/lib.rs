@@ -47,6 +47,13 @@ use openpgp::{
 /// Controls tracing.
 const TRACE: bool = cfg!(debug_assertions);
 
+/// Enable Thunderbird-specific quirks
+///
+/// If true, then the octopus will deviate from RNP's behavior in
+/// order to work around a bug or assumption in Thunderbird.  This
+/// also clearly marks all occurrences of workarounds in this crate.
+const THUNDERBIRD_WORKAROUND: bool = true;
+
 #[allow(unused_macros)]
 macro_rules! stub {
     ($s: ident) => {

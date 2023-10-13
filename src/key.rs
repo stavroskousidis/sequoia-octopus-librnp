@@ -958,7 +958,17 @@ fn rnp_key_is_locked(key: *mut RnpKey,
         *result = (*key.ctx).key_is_locked(k);
         RNP_SUCCESS
     } else {
-        RNP_ERROR_NO_SUITABLE_KEY
+        if thunderbird_workaround!() {
+            // Tell Thunderbird that keys without secret key material
+            // are unlocked.  This will make transparent encryption
+            // using gpg-agent work.
+            *result = false;
+            RNP_SUCCESS
+        } else {
+            // Stock RNP will return an error if invoked on keys
+            // without secret key material.
+            RNP_ERROR_NO_SUITABLE_KEY
+        }
     }
 }
 

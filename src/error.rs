@@ -403,6 +403,16 @@ macro_rules! rnp_function {
             };
         }
 
+        #[allow(unused_macros)]
+        macro_rules! thunderbird_workaround {
+            () => {{
+                if crate::THUNDERBIRD_WORKAROUND {
+                    t!("Thunderbird-specific workaround in {}:{}",
+                       file!(), line!());
+                }
+                crate::THUNDERBIRD_WORKAROUND
+            }};
+        }
         t!("Entering function");
     };
 }
