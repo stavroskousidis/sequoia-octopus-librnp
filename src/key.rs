@@ -458,6 +458,7 @@ fn rnp_key_have_secret(key: *const RnpKey,
         has_secret = (*(*key).ctx).certs.key_on_agent(&(*key).fingerprint());
     }
 
+    t!("returning {:?}", has_secret);
     *result = has_secret;
     RNP_SUCCESS
 }
@@ -1066,6 +1067,7 @@ fn rnp_key_get_protection_type(key: *mut RnpKey, typ: *mut *const c_char)
         "Unknown"
     };
 
+    t!("returning {:?}", r_typ);
     *typ = str_to_rnp_buffer(r_typ);
 
     RNP_SUCCESS
