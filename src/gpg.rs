@@ -610,7 +610,7 @@ fn list_keys_raw(ctx: &Ctx, secret: bool, filter: Option<String>,
                  if_changed: Option<&CacheTag>)
     -> Result<(Vec<StringRecord>, CacheTag)>
 {
-    rnp_function!(list_keys_raw, false);
+    rnp_function!(gpg::list_keys_raw, false);
     t!("filter: {:?}", filter);
     t!("if_chnaged: {:?}", if_changed);
 
@@ -705,7 +705,7 @@ pub fn list_validity(ctx: &Ctx, filter: Option<String>,
                      if_changed: Option<&CacheTag>)
     -> Result<(Vec<(Fingerprint, Vec<(String, Validity)>)>, CacheTag)>
 {
-    rnp_function!(list_validity, super::TRACE);
+    rnp_function!(gpg::list_validity, super::TRACE);
 
     let (res, tag) = list_keys_raw(&ctx, false, filter, if_changed)?;
 
@@ -786,7 +786,7 @@ pub fn list_secret_keys(ctx: &Ctx, filter: Option<String>,
                         if_changed: Option<&CacheTag>)
     -> Result<(Vec<(Fingerprint, Fingerprint)>, CacheTag)>
 {
-    rnp_function!(list_secret_keys, super::TRACE);
+    rnp_function!(gpg::list_secret_keys, super::TRACE);
 
     let (res, tag) = list_keys_raw(&ctx, true, filter, if_changed)?;
     let secret_keys = list_secret_keys_parse(res)?;
@@ -797,7 +797,7 @@ pub fn list_secret_keys(ctx: &Ctx, filter: Option<String>,
 pub fn list_secret_keys_parse(res: Vec<csv::StringRecord>)
     -> Result<Vec<(Fingerprint, Fingerprint)>>
 {
-    rnp_function!(list_secret_keys_parse, super::TRACE);
+    rnp_function!(gpg::list_secret_keys_parse, super::TRACE);
 
     let mut secret_keys: Vec<(Fingerprint, Fingerprint)> = Vec::new();
 

@@ -144,6 +144,7 @@ fn rnp_identifier_iterator_next(iter: *mut RnpIdentifierIterator,
         RNP_SUCCESS
     } else {
         // Exhausted the iterator.
+        t!("Iterator exhausted.");
         *item = std::ptr::null();
         RNP_ERROR_GENERIC
     };

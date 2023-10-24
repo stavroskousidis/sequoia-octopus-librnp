@@ -333,7 +333,7 @@ impl WoT {
                        validity: Vec<(Fingerprint, Vec<(String, gpg::Validity)>)>)
                        -> openpgp::Result<()>
     {
-        rnp_function!(import_validity, super::TRACE);
+        rnp_function!(WoT::import_validity, super::TRACE);
 
         // First, remove all assertions managed by sequoia
         // (they will get re-added below, if they are still valid).
