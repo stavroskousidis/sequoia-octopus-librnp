@@ -154,6 +154,27 @@ cp target/release/libsequoia_octopus_librnp.so path/to/thunderbird/obj-x86_64-pc
 
 On debian bullseye it is not possible to build versions >= v1.2.1. You can follow these instructions: [Debian Bullseye](README-Debian.md)
 
+#### Selecting a different cryptographic backend
+
+To select a different cryptographic backend, OpenSSL in this example,
+and create a debug build, do the following:
+
+```sh
+cargo build --no-default-features --features crypto-openssl
+cp target/debug/libsequoia_octopus_librnp.so path/to/thunderbird/obj-x86_64-pc-linux-gnu/dist/bin/librnp.so
+```
+
+To use a release build, do the following:
+
+```sh
+cargo build --no-default-features --features crypto-openssl --release
+cp target/release/libsequoia_octopus_librnp.so path/to/thunderbird/obj-x86_64-pc-linux-gnu/dist/bin/librnp.so
+```
+
+Please see
+https://gitlab.com/sequoia-pgp/sequoia/-/tree/main/openpgp#crypto-backends
+for a description of the available backends.
+
 #### Building on Windows (MSVC)
 
 There still exist some 32-bit installations of Thunderbird, even on 64-bit Windows.
