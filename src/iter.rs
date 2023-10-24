@@ -139,17 +139,14 @@ fn rnp_identifier_iterator_next(iter: *mut RnpIdentifierIterator,
     t!("type = {:?}", iter.typ);
     assert_ptr!(item);
 
-    let result = if let Some(id) = iter.iter.next() {
+    if let Some(id) = iter.iter.next() {
         t!("Yielding {:?} = {}", iter.typ, id);
         *item = str_to_rnp_buffer(&id);
-        RNP_SUCCESS
     } else {
         // Exhausted the iterator.
         t!("Iterator exhausted.");
         *item = std::ptr::null();
-        RNP_ERROR_GENERIC
-    };
+    }
 
-
-    result
+    RNP_SUCCESS
 }
