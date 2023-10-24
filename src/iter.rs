@@ -137,6 +137,7 @@ fn rnp_identifier_iterator_next(iter: *mut RnpIdentifierIterator,
     rnp_function!(rnp_identifier_iterator_next, crate::TRACE);
     let iter = assert_ptr_mut!(iter);
     t!("type = {:?}", iter.typ);
+    assert_ptr!(item);
 
     let result = if let Some(id) = iter.iter.next() {
         t!("Yielding {:?} = {}", iter.typ, id);
@@ -149,7 +150,6 @@ fn rnp_identifier_iterator_next(iter: *mut RnpIdentifierIterator,
         RNP_ERROR_GENERIC
     };
 
-    assert_ptr!(item);
 
     result
 }
