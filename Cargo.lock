@@ -2273,9 +2273,9 @@ checksum = "836fa6a3e1e547f9a2c4040802ec865b5d85f4014efe00555d7090a3dcaa1090"
 
 [[package]]
 name = "sequoia-autocrypt"
-version = "0.24.0"
+version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3b0b225864155193e45287e6aa80b5348bb19da9906e05e0acfa875afc5fb57"
+checksum = "e24fc0ec87c156a35f24fc153ab694e0f37cd6fa87c1cf5005c9f4fa5e10415b"
 dependencies = [
  "base64 0.21.2",
  "sequoia-openpgp",
@@ -2317,7 +2317,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ea77e27eac0406c9edb5e30a618d7f865b80302ee53eb93d5d528b67ebdbe18"
 dependencies = [
  "anyhow",
- "base64 0.21.2",
+ "base64 0.13.1",
  "futures-util",
  "http",
  "hyper",
