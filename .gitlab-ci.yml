@@ -242,7 +242,7 @@ windows-msvc-release-32:
     - ./mach test --headless comm/mail/extensions/openpgp/test mail/test/browser/openpgp
   after_script: []
   tags:
-    - cookiejar
+    - self-hosted
   variables:
     CARGO_TARGET_DIR: $CI_PROJECT_DIR/../target.$CI_CONCURRENT_ID.trixie
     RUSTFLAGS: -D warnings -A unused-parens
