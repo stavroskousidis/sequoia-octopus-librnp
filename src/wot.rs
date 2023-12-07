@@ -352,7 +352,7 @@ impl WoT {
             let key_validity: Vec<_> = key_validity
                 .into_iter()
                 .filter_map(|(uid, validity)| {
-                    match UserID::from(uid.clone()).email() {
+                    match UserID::from(uid.clone()).email2() {
                         Ok(Some(email)) => {
                             Some((email.to_ascii_lowercase(), validity))
                         },

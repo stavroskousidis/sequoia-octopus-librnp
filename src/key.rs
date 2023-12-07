@@ -814,14 +814,14 @@ fn rnp_key_export_autocrypt(key: *mut RnpKey,
     {
         // Attempt to parse the given user id into only the email.
         let parsed_uid = UserID::from(uid.to_string());
-        let addr = parsed_uid.email().ok().and_then(|e| e)
+        let addr = parsed_uid.email2().ok().and_then(|e| e)
         // But fall back to whatever we got.
-            .unwrap_or(uid.to_string());
+            .unwrap_or(uid);
 
         // Instead of implementing what RNP does, we use
         // sequoia-autocrypt for the normalization, and ignore subkey.
         use sequoia_autocrypt::AutocryptHeader;
-        let header = AutocryptHeader::new_sender(policy, &cert, &addr, None)?;
+        let header = AutocryptHeader::new_sender(policy, &cert, addr, None)?;
         let cert = header.key.expect("on success, the cleaned cert is there");
         cert.serialize(output)?;
         Ok(())

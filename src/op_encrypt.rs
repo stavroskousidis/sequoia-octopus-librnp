@@ -14,7 +14,7 @@ use openpgp::{
             UnspecifiedRole,
         },
     },
-    serialize::stream::*,
+    serialize::stream::{*, Encryptor2 as Encryptor},
     types::{
         AEADAlgorithm,
         HashAlgorithm,
