@@ -2318,7 +2318,6 @@ dependencies = [
  "configparser",
  "csv",
  "enumber",
- "lazy_static",
  "libc",
  "num_cpus",
  "rand 0.8.5",

@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use libc::{
     c_char
 };
@@ -36,8 +38,9 @@ pub unsafe extern "C" fn rnp_version(
 
 #[no_mangle]
 pub unsafe extern "C" fn rnp_version_string_full() -> *const c_char {
-    lazy_static::lazy_static! {
-        static ref VERSION: Vec<u8> = {
+    static VERSION: OnceLock<Vec<u8>> = OnceLock::new();
+    VERSION.get_or_init(
+        || {
             let mut b = match option_env!("VERGEN_GIT_SHA_SHORT") {
                 Some(git_sha) => {
                     format!(
@@ -57,8 +60,6 @@ pub unsafe extern "C" fn rnp_version_string_full() -> *const c_char {
             };
             b.push(0); // Sentinel.
             b
-        };
-    };
-
-    VERSION.as_ptr() as *const _
+        })
+        .as_ptr() as *const _
 }

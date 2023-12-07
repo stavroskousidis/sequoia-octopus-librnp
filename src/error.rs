@@ -182,8 +182,8 @@ pub fn log_internal<T: AsRef<str>>(text: T) {
         use std::fs::File;
         use std::io::Write;
         use std::ops::DerefMut;
-        use std::sync::Arc;
         use std::sync::Mutex;
+        use std::sync::OnceLock;
         use std::sync::mpsc::channel;
         use std::sync::mpsc::Sender;
         use std::sync::mpsc::Receiver;
@@ -196,19 +196,19 @@ pub fn log_internal<T: AsRef<str>>(text: T) {
             output: Mutex<Option<(Receiver<String>, Option<File>)>>,
         }
 
-        lazy_static! {
-            static ref LOGGER: Arc<State> = {
+        static LOGGER: OnceLock<State> = OnceLock::new();
+        let logger = LOGGER.get_or_init(
+            || {
                 let (sender, receiver) = channel();
 
-                Arc::new(State {
+                State {
                     sender: Mutex::new(sender),
                     output: Mutex::new(Some((receiver, None))),
-                })
-            };
-        }
+                }
+            });
 
         let mut logged = false;
-        if let Ok(mut guard) = LOGGER.output.try_lock() {
+        if let Ok(mut guard) = logger.output.try_lock() {
             // We got the lock.
 
             // If initialization fails, we set output to None.  But
@@ -253,7 +253,7 @@ pub fn log_internal<T: AsRef<str>>(text: T) {
         } else {
             // Locked.  Enqueue the message for later.  If we can't
             // send, it means initialization failed so just ignore.
-            if let Ok(_) = LOGGER.sender.lock().unwrap().send(text.clone()) {
+            if let Ok(_) = logger.sender.lock().unwrap().send(text.clone()) {
                 logged = true;
             }
         }

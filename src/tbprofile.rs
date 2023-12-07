@@ -2,9 +2,9 @@ use std::path::PathBuf;
 use std::fs::File;
 use std::io::Read;
 use std::ops::Deref;
-use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
+use std::sync::OnceLock;
 use std::thread;
 use std::thread::ThreadId;
 use std::time::{SystemTime, Duration, UNIX_EPOCH};
@@ -39,19 +39,20 @@ const LOCK_FILE: &'static str = "parent.lock";
 const LOCK_FILE: &'static str = "lock";
 
 
-lazy_static! {
-    // ThreadId is the thread initializing the TBProfile, if any.
-    //
-    // The locking protocol is:
-    //
-    //   - Profile lobk, then Thread lock
-    //
-    // It is okay to take the thread lock without first taking the
-    // profile lock, but if you hold the thread lcok you MUST NOT
-    // block on the profile lock.
-    static ref TBPROFILE: Arc<(Mutex<Option<ThreadId>>,
-                               Mutex<Option<TBProfile>>)>
-        = Arc::new((Mutex::new(None), Mutex::new(None)));
+/// ThreadId is the thread initializing the TBProfile, if any.
+///
+/// The locking protocol is:
+///
+///   - Profile lock, then Thread lock
+///
+/// It is okay to take the thread lock without first taking the
+/// profile lock, but if you hold the thread lock you MUST NOT
+/// block on the profile lock.
+fn tb_profile() -> &'static (Mutex<Option<ThreadId>>, Mutex<Option<TBProfile>>)
+{
+    static TBPROFILE: OnceLock<(Mutex<Option<ThreadId>>,
+                                Mutex<Option<TBProfile>>)> = OnceLock::new();
+    TBPROFILE.get_or_init(|| (Mutex::new(None), Mutex::new(None)))
 }
 
 pub struct TBProfile {
@@ -71,7 +72,7 @@ impl TBProfile {
         // particular, the tracing functionality).
 
         // Try the happy path.
-        if let Ok(profile_guard) = TBPROFILE.1.try_lock() {
+        if let Ok(profile_guard) = tb_profile().1.try_lock() {
             // We got the profile lock!
             if let Some(profile) = profile_guard.deref() {
                 // We have a profile!
@@ -83,7 +84,7 @@ impl TBProfile {
 
         // Either the profile lock is contended or we need to
         // initialize profile.
-        let thread_guard = TBPROFILE.0.lock().unwrap();
+        let thread_guard = tb_profile().0.lock().unwrap();
         if thread_guard.deref() == &Some(thread::current().id()) {
             // We're in the middle of doing the initialization!
             return None;
@@ -93,7 +94,7 @@ impl TBProfile {
         // We are not initializing the profile.  We can block on the
         // profile lock.
 
-        let profile_guard = TBPROFILE.1.lock().unwrap();
+        let profile_guard = tb_profile().1.lock().unwrap();
 
         // Another thread might have initialized the profile in the
         // meantime.  So, check again.
@@ -108,7 +109,7 @@ impl TBProfile {
         // initialize the profile yet.  It is up to us to do it.
 
         // Register ourself.
-        let mut thread_guard = TBPROFILE.0.lock().unwrap();
+        let mut thread_guard = tb_profile().0.lock().unwrap();
 
         assert!(thread_guard.deref().is_none());
         *thread_guard = Some(thread::current().id());
@@ -133,7 +134,7 @@ impl TBProfile {
         let r = Self::find(profile_guard);
 
         // Initialization is complete.  Reset thread_guard to None.
-        let mut thread_guard = TBPROFILE.0.lock().unwrap();
+        let mut thread_guard = tb_profile().0.lock().unwrap();
         *thread_guard = None;
 
         if let Ok(r) = r {

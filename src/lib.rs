@@ -17,9 +17,6 @@ use libc::{
     size_t,
 };
 
-#[macro_use]
-extern crate lazy_static;
-
 use sequoia_openpgp as openpgp;
 use openpgp::{
     Fingerprint,
@@ -619,10 +616,7 @@ fn rnp_load_keys(ctx: *mut RnpContext,
     assert_ptr!(format);
     assert_ptr!(input);
 
-    lazy_static! {
-        static ref BANNER_SHOWN: atomic::AtomicBool
-            = atomic::AtomicBool::new(false);
-    };
+    static BANNER_SHOWN: atomic::AtomicBool = atomic::AtomicBool::new(false);
     if ! BANNER_SHOWN.load(atomic::Ordering::Relaxed) {
         warn!("Your Thunderbird is using Sequoia's Octopus, version {}\n\
                (sequoia-openpgp: {}).  For details, and to report issues please\n\
