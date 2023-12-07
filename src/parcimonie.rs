@@ -52,25 +52,25 @@
 //! Because the user may add new certificates and we only recompute
 //! the time to sleep after doing an update, we limit lambda to 19
 //! hours.
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
+
 use std::sync::Arc;
+use std::collections::btree_map::{BTreeMap, Entry};
+use std::fmt;
 use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
 use std::thread;
 use std::time::Duration;
 
+use tokio::task::JoinSet;
+
 use sequoia_openpgp as openpgp;
-use openpgp::Fingerprint;
+use openpgp::{Fingerprint, KeyHandle};
 use openpgp::cert::prelude::*;
 use openpgp::types::RevocationStatus;
 use openpgp::packet::prelude::*;
 use openpgp::policy::Policy;
 
 use sequoia_net as net;
-use net::KeyServer;
-use net::Policy as NetPolicy;
-use net::wkd;
 
 use rand::prelude::*;
 use rand_distr::{Poisson, Distribution};
@@ -124,8 +124,14 @@ impl<P: Policy + 'static> ParcimonieServer<P> {
     fn run(mut self) {
         rnp_function!(ParcimonieServer::run, super::TRACE);
 
+        // Sleep for a while to avoid interfering with TB's startup.
+        let delay = if super::TRACE { 30 } else { 5 * 60 };
+        thread::sleep(Duration::new(delay, 0));
+
+        let rt = tokio::runtime::Runtime::new()
+            .expect("failed to start a tokio runtime");
         loop {
-            let r = self.worker();
+            let r = rt.block_on(self.worker());
 
             // This shouldn't happen.  If it does, sleep a while and
             // then restart.
@@ -134,18 +140,24 @@ impl<P: Policy + 'static> ParcimonieServer<P> {
         }
     }
 
-    fn worker(&mut self) -> openpgp::Result<()> {
+    async fn worker(&mut self) -> openpgp::Result<()> {
         rnp_function!(Parcimonie::woker, super::TRACE);
 
-        // Sleep for a while to avoid interfering with TB's startup.
-        let delay = if super::TRACE { 300 } else { 5 * 60 };
-        thread::sleep(Duration::new(delay, 0));
-
         let mut rng = rand::thread_rng();
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_io()
-            .enable_time()
+
+        let http_client = net::reqwest::Client::builder()
+	    .user_agent(format!("sequoia-octopus-librnp {}",
+                                env!("CARGO_PKG_VERSION")))
+	    .connect_timeout(Duration::new(15, 0))
+	    .timeout(Duration::new(5, 0))
             .build()?;
+
+        let keyservers = [
+            "hkps://keys.openpgp.org",
+            "hkps://mail-api.proton.me",
+            "hkps://keys.mailvelope.com",
+            "hkps://keyserver.ubuntu.com",
+        ];
 
         let mut n = self.ks.read().unwrap().count();
         loop {
@@ -270,84 +282,70 @@ impl<P: Policy + 'static> ParcimonieServer<P> {
             };
 
             // Do this is parallel.  Not to be fast, but to overlap I/O.
-            let certs: openpgp::Result<Vec<Cert>> = rt.block_on(async move {
-                let mut jhs = Vec::with_capacity(emails.len());
-                let mut certs: Vec<Cert> = Vec::new();
-
-                for email in emails.into_iter() {
-                    jhs.push(tokio::spawn(async move {
-                        let r: openpgp::Result<Vec<Cert>>
-                            = wkd::get(&email).await;
-                        t!("wkd for {}: {:?}",
-                                  email,
-                                  r.as_ref().map(|certs| {
-                                      certs.iter().map(|cert| cert.fingerprint())
-                                          .collect::<Vec<Fingerprint>>()
-                                  }));
-                        r
-                    }));
-                }
-
-                // This should be in its own task, but it's missing a
-                // Send.  It doesn't actually matter in practice as
-                // this is the last thing we do before collecting the
-                // other results.
-                match KeyServer::keys_openpgp_org(NetPolicy::Encrypted) {
-                    Ok(mut ks) => {
-                        match ks.get(fpr).await {
-                            Ok(cert) => certs.push(cert),
-                            Err(err) =>
-                                t!("key server: {:?}", err),
-                        };
+            let mut requests = JoinSet::new();
+            for ks in keyservers.iter().map(
+                |ks| net::KeyServer::with_client(ks, http_client.clone()))
+                .collect::<openpgp::Result<Vec<_>>>()?
+            {
+                let fp = fpr.clone();
+                requests.spawn(async move {
+                    let results = ks.get(&fp).await;
+                    Response {
+                        query: Query::Handle(fp.into()),
+                        results,
+                        method: Method::KeyServer(
+                            ks.url().as_str().to_string()),
                     }
-                    Err(err) => t!("key server: {:?}", err),
-                }
-
-                for jh in jhs.into_iter() {
-                    if let Ok(c) = jh.await.unwrap() {
-                        certs.extend(c);
+                });
+            }
+            for email in emails {
+                let client = http_client.clone();
+                let email = email.clone();
+                requests.spawn(async move {
+                    let results =
+                        net::wkd::get(&client, &email).await;
+                    Response {
+                        query: Query::Address(email.to_string()),
+                        results,
+                        method: Method::WKD,
                     }
-                }
+                });
+            }
 
-                Ok(certs)
-            });
-
-            // Merge the certificates.  Because we also looked up keys
-            // by email address, we may have multiple certificates.
-            let certs = match certs {
-                Ok(mut certs) => {
-                    certs.sort_by_key(|cert| cert.fingerprint());
-                    let l = certs.len();
-                    certs.into_iter().fold(
-                        Vec::with_capacity(l),
-                        |mut agg, cert| {
-                            let l = agg.len();
-                            if l == 0 {
-                                agg.push(cert);
-                            } else if agg[l - 1].fingerprint()
-                                == cert.fingerprint()
-                            {
-                                let r = agg.pop()
-                                    .expect("not empty")
-                                    .merge_public(cert)
-                                    .expect("Same certificate");
-                                agg.push(r);
-                            } else {
-                                agg.push(cert);
-                            }
-                            agg
-                        })
+            let mut certs = BTreeMap::new();
+            while let Some(response) = requests.join_next().await {
+                let response = response?;
+                match response.results {
+                    Ok(returned_certs) => for cert in returned_certs {
+                        match cert {
+                            Ok(cert) => {
+                                t!("{}({}): {:?}",
+                                   response.method, response.query,
+                                   cert.keyid());
+                                match certs.entry(cert.fingerprint()) {
+                                    Entry::Vacant(e) => {
+                                        e.insert(cert);
+                                    },
+                                    Entry::Occupied(mut e) => {
+                                        let old = e.get().clone();
+                                        e.insert(old.merge_public(cert)?);
+                                    },
+                                }
+                            },
+                            Err(e) =>
+                                t!("{}({}): {:?}",
+                                   response.method, response.query, e),
+                        }
+                    },
+                    Err(e) =>
+                        t!("{}({}): {:?}", response.method, response.query, e),
                 }
-                Err(err) => {
-                    t!("Fetching updates: {}", err);
-                    continue;
-                }
-            };
+            }
 
             if certs.len() > 0 {
                 let ks = self.ks.read().unwrap();
 
-                let certs = certs.into_iter()
+                let certs = certs.into_values()
                     .filter_map(|cert| {
                         let cert = cert.strip_secret_key_material();
 
@@ -388,6 +386,8 @@ impl<P: Policy + 'static> ParcimonieServer<P> {
     /// This function takes a read lock on the keystore.
     fn clean(&self, cert: Cert) -> Option<Cert> {
         rnp_function!(Parcimonie::clean, super::TRACE);
+        use std::collections::HashMap;
+        use std::collections::hash_map::Entry;
 
         // Check for an excess of third-party signatures.
         let flooded_uids = cert.userids()
@@ -554,4 +554,43 @@ impl<P: Policy + 'static> ParcimonieServer<P> {
         // Finally, parse into Cert.
         Some(Cert::from_packets(p.into_iter()).expect("still valid"))
     }
+}
+
+#[derive(Clone)]
+enum Query {
+    Handle(KeyHandle),
+    Address(String),
+}
+
+impl fmt::Display for Query {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Query::Handle(h) => write!(f, "{}", h),
+            Query::Address(a) => write!(f, "{}", a),
+        }
+    }
+}
+
+#[derive(Clone)]
+enum Method {
+    KeyServer(String),
+    WKD,
+    #[allow(dead_code)]
+    DANE,
+}
+
+impl fmt::Display for Method {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Method::KeyServer(url) => write!(f, "{}", url),
+            Method::WKD => write!(f, "WKD"),
+            Method::DANE => write!(f, "DANE"),
+        }
+    }
+}
+
+struct Response {
+    query: Query,
+    method: Method,
+    results: openpgp::Result<Vec<openpgp::Result<Cert>>>,
 }
