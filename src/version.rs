@@ -41,7 +41,7 @@ pub unsafe extern "C" fn rnp_version_string_full() -> *const c_char {
     static VERSION: OnceLock<Vec<u8>> = OnceLock::new();
     VERSION.get_or_init(
         || {
-            let mut b = match option_env!("VERGEN_GIT_SHA_SHORT") {
+            let mut b = match option_env!("VERGEN_GIT_SHA") {
                 Some(git_sha) => {
                     format!(
                         "{}-{}+sequoia-openpgp-{}",
