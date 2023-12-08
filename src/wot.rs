@@ -16,6 +16,7 @@ use openpgp::packet::UserID;
 use sequoia_openpgp::policy::Policy;
 use sequoia_wot::{Root, Roots, store::Store};
 
+
 use crate::gpg;
 use crate::gpg::Validity;
 use crate::keystore::KeystoreData;
@@ -189,7 +190,7 @@ impl WoT {
         let roots = Roots::new(trust_roots.clone());
         t!("Trust roots (ultimate ownertrust): {:?}", roots);
 
-        let network = sequoia_wot::Network::from_certs(
+        let network = sequoia_wot::Network::from_cert_refs(
             &certs, &*p, reference_time).unwrap();
         let mut query =
             sequoia_wot::Query::new(&network, roots);
@@ -218,7 +219,7 @@ impl WoT {
             possible_roots = Vec::new();
 
             'root: for r in pr.into_iter() {
-                let cert = match network.cert_by_fpr(&r.fingerprint()) {
+                let cert = match network.lookup_synopsis_by_fpr(&r.fingerprint()) {
                     Err(_e) => {
                         t!("Ignoring root {}: not in network.", r.fingerprint());
                         continue;
