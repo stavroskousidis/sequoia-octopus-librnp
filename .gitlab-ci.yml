@@ -114,6 +114,7 @@ windows-msvc:
   after_script: []
   variables:
     CFLAGS: "" # Silence some C warnings when compiling with MSVC
+    VCPKG_ROOT: "C:\\src\\vcpkg"
 
 windows-msvc-32:
   tags:
@@ -140,6 +141,7 @@ windows-msvc-32:
   after_script: []
   variables:
     CFLAGS: "" # Silence some C warnings when compiling with MSVC
+    VCPKG_ROOT: "C:\\src\\vcpkg"
 
 windows-msvc-release:
   tags:
@@ -166,6 +168,7 @@ windows-msvc-release:
       - C:\builds\sequoia-pgp\sequoia-octopus-librnp\target\release\rnp.dll
   variables:
     CFLAGS: "" # Silence some C warnings when compiling with MSVC
+    VCPKG_ROOT: "C:\\src\\vcpkg"
 
 debug-windows-msvc-release:
   tags:
@@ -192,6 +195,7 @@ debug-windows-msvc-release:
       - C:\builds\sequoia-pgp\sequoia-octopus-librnp\target\debug\rnp.dll
   variables:
     CFLAGS: "" # Silence some C warnings when compiling with MSVC
+    VCPKG_ROOT: "C:\\src\\vcpkg"
 
 windows-msvc-release-32:
   tags:
