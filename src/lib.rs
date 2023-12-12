@@ -42,7 +42,8 @@ use openpgp::{
 };
 
 /// Controls tracing.
-const TRACE: bool = cfg!(debug_assertions);
+const TRACE: bool = cfg!(debug_assertions)
+    && option_env!("SEQUOIA_OCTOPUS_DISABLE_TRACING").is_none();
 
 /// Enable Thunderbird-specific quirks
 ///

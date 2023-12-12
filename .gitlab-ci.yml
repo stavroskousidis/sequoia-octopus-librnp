@@ -32,9 +32,9 @@ trixie:
     - codespell
 
   script:
-    - cargo build
     - RUST_BACKTRACE=1 cargo test
     - if ! git diff --quiet Cargo.lock ; then echo "Cargo.lock changed.  Please add the change to the corresponding commit." ; false ; fi
+    - SEQUOIA_OCTOPUS_DISABLE_TRACING=1 cargo build
     - cp $CARGO_TARGET_DIR/debug/libsequoia_octopus_librnp.so libsequoia_octopus_librnp.so
     - NEEDLESSLY_EXPORTED_SYMBOLS="$(readelf --dyn-syms libsequoia_octopus_librnp.so | grep -v UND | grep -v rnp_ | grep DEFAULT)"
     - echo "$NEEDLESSLY_EXPORTED_SYMBOLS"
