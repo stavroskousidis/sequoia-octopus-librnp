@@ -152,7 +152,7 @@ fn rnp_import_keys(ctx: *mut RnpContext,
 
             let status;
             if let Some(known) = ctx.certs.read().by_primary_fp(&fp) {
-                if *known == cert {
+                if known.as_tsk() == cert.as_tsk() {
                     status = Unchanged;
                 } else {
                     // XXX: This is not quite correct.  False
