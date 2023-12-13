@@ -527,8 +527,12 @@ fn rnp_key_get_expiration(key: *mut RnpKey,
         // Expired immediately.  0 is special and means does not expire.
         *expiration = 1;
     }
-    t!("{} expires {} seconds after its creation",
-       fp, *expiration);
+    if *expiration > 0 {
+        t!("{} expires {} seconds after its creation",
+           fp, *expiration);
+    } else {
+        t!("{} does not expire", fp);
+    }
     RNP_SUCCESS
 }
 
