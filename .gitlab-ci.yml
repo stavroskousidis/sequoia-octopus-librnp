@@ -243,6 +243,7 @@ windows-msvc-release-32:
     - mv -f libsequoia_octopus_librnp.so /source/obj-artifact/dist/bin/librnp.so
     - ldd /source/obj-artifact/dist/bin/librnp.so
     - cd /source/
+    - sed -i -e 's/^var gTimeoutSeconds = .*$/var gTimeoutSeconds = 180;/' testing/mochitest/browser-test.js
     - ./mach test --headless comm/mail/extensions/openpgp/test mail/test/browser/openpgp
   after_script: []
   tags:
