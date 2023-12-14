@@ -6,9 +6,11 @@ use libc::{
 
 use sequoia_openpgp as openpgp;
 use openpgp::{
+    Cert,
     packet::{
         Key,
         key::{
+            PublicParts,
             UnspecifiedParts,
             SecretParts,
             UnspecifiedRole,
@@ -29,6 +31,7 @@ use crate::{
     RnpOutput,
     RnpPasswordFor,
     conversions::FromRnpId,
+    gpg,
     key::RnpKey,
     error::*,
     flags::*,
@@ -40,11 +43,19 @@ pub struct RnpOpEncrypt<'a> {
     output: &'a mut RnpOutput<'a>,
     recipients: Vec<Key<UnspecifiedParts, UnspecifiedRole>>,
     signers: Vec<Key<SecretParts, UnspecifiedRole>>,
+    agent_signers: Vec<(Option<Cert>, Key<PublicParts, UnspecifiedRole>)>,
     cipher: Option<SymmetricAlgorithm>,
     hash: Option<HashAlgorithm>,
     armor: bool,
     /// Disables wrapping data in a Literal Data Packet.
     no_wrap: bool,
+}
+
+impl RnpOpEncrypt<'_> {
+    /// Returns whether we have registered signers.
+    fn have_signers(&self) -> bool {
+        ! self.signers.is_empty() && ! self.agent_signers.is_empty()
+    }
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -66,6 +77,7 @@ fn rnp_op_encrypt_create<'a>(op: *mut *mut RnpOpEncrypt<'a>,
         output: &mut *output,
         recipients: Vec::new(),
         signers: Vec::new(),
+        agent_signers: Vec::new(),
         cipher: None,
         hash: None,
         armor: false,
@@ -92,7 +104,7 @@ fn rnp_op_encrypt_execute(op: *mut RnpOpEncrypt) -> RnpResult {
         // Currently, Thunderbird uses the RFC 1847 Encapsulation
         // method.  We detect that, and transparently replace it with
         // the combined method.
-        let cached_plaintext = if ! op.signers.is_empty()
+        let cached_plaintext = if op.have_signers()
         {
             // This is already a combined operation, therefore we
             // create signatures over existing signatures.
@@ -155,6 +167,28 @@ fn rnp_op_encrypt_execute(op: *mut RnpOpEncrypt) -> RnpResult {
                     .into_keypair()?;
                 signer = signer.add_signer(s);
             }
+
+            for (cert, key) in &op.agent_signers {
+                let s = gpg::agent_keypair(&*op.ctx.policy(), &cert, &key)?;
+                signer = signer.add_signer(s);
+            }
+
+            for r in &op.recipients {
+                if let Some(key) = op.ctx.cert_by_subkey_fp(&r.fingerprint()) {
+                    signer = signer.add_intended_recipient(&key);
+                }
+            }
+            message = signer.build()?;
+        } else if let Some((cert, key)) = op.agent_signers.get(0) {
+            let s = gpg::agent_keypair(&*op.ctx.policy(), &cert, &key)?;
+            let mut signer = Signer::new(message, s)
+                .hash_algo(op.hash.unwrap_or_default())?;
+
+            for (cert, key) in &op.agent_signers[1..] {
+                let s = gpg::agent_keypair(&*op.ctx.policy(), &cert, &key)?;
+                signer = signer.add_signer(s);
+            }
+
             for r in &op.recipients {
                 if let Some(key) = op.ctx.cert_by_subkey_fp(&r.fingerprint()) {
                     signer = signer.add_intended_recipient(&key);
@@ -232,15 +266,20 @@ fn rnp_op_encrypt_add_signature(op: *mut RnpOpEncrypt,
                                 -> RnpResult {
     rnp_function!(rnp_op_encrypt_add_signature, crate::TRACE);
     use std::ops::Deref;
-    assert_ptr!(op);
-    assert_ptr!(key);
+    let op = assert_ptr_mut!(op);
+    let key = assert_ptr_ref!(key);
     if ! sig.is_null() {
         warn!("changing signature parameters not implemented");
         return RNP_ERROR_NOT_IMPLEMENTED;
     }
 
-    if let Ok(k) = (*key).deref().clone().parts_into_secret() {
-        (*op).signers.push(k);
+    if let Ok(k) = key.deref().clone().parts_into_secret() {
+        op.signers.push(k);
+        RNP_SUCCESS
+    } else if (*key.ctx).certs.key_on_agent(&key.fingerprint()) {
+        let cert = key.try_cert().map(|c| c.deref().clone());
+        let key = key.deref().clone().parts_into_public();
+        op.agent_signers.push((cert, key));
         RNP_SUCCESS
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
