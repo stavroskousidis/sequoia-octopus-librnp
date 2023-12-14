@@ -20,8 +20,11 @@ use csv::StringRecord;
 
 use sequoia_openpgp as openpgp;
 use openpgp::{
-    crypto::hash::Digest,
+    Cert,
     Fingerprint,
+    crypto::hash::Digest,
+    packet::{Key, key::PublicParts, key::UnspecifiedRole},
+    policy::Policy,
     types::HashAlgorithm,
 };
 
@@ -134,6 +137,24 @@ pub fn make_context() -> Result<Ctx> {
     )?;
 
     Ok(ctx)
+}
+
+/// Creates a KeyPair and makes it prompt for a password using the
+/// context provided by the given cert.
+pub fn agent_keypair(policy: &dyn Policy,
+                     cert: &Option<Cert>,
+                     key: &Key<PublicParts, UnspecifiedRole>)
+                     -> openpgp::Result<sequoia_ipc::gnupg::KeyPair>
+{
+    use sequoia_ipc::gnupg;
+    let agent = gnupg::Context::new()?;
+    let mut s = gnupg::KeyPair::new(&agent, key)?;
+    if let Some(cert) = cert.as_ref() {
+        if let Ok(vcert) = cert.with_policy(policy, None) {
+            s = s.with_cert(&vcert);
+        }
+    }
+    Ok(s)
 }
 
 /// A GnuPG context.
