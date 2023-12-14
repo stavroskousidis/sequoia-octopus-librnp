@@ -66,12 +66,6 @@ deny:
     - linux
   stage: pre-check
   image: 192.168.122.1:5000/sequoia-pgp/build-docker-image/rust-stable:latest
-  rules:
-    - if: '$CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH'
-      when: manual
-      allow_failure: true
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-      allow_failure: false
   before_script:
     - cargo deny --version
   script:
