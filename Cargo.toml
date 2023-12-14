@@ -31,18 +31,18 @@ configparser = ">=2, <4"
 csv = "1.1"
 enumber = "0.3"
 num_cpus = "1"
-rand = { version = "0.8", default-features = false, features = ["std", "std_rng"], optional = true }
-rand_distr = { version = "0.4", default-features = false, optional = true }
+rand = { version = "0.8", default-features = false, features = ["std", "std_rng"] }
+rand_distr = { version = "0.4", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sequoia-openpgp = { version = "1.17", default-features = false }
 sequoia-openpgp-mt = "0.1"
 sequoia-autocrypt = { version = ">=0.24, <0.26", default-features = false }
-sequoia-net = { version = "0.28", default-features = false, optional = true }
+sequoia-net = { version = "0.28", default-features = false }
 sequoia-wot = "0.9"
 tempfile = "3.0"
 thiserror = "1"
-tokio = { version = "1", optional = true }
+tokio = { version = "1" }
 sequoia-ipc = { version = ">=0.28, <0.32", default-features = false }
 
 [dependencies.rusqlite]
@@ -58,7 +58,6 @@ crate-type = ["cdylib"]
 [features]
 default = [
     "sequoia-openpgp/default",
-    "net",
 ]
 crypto-openssl = [
     "sequoia-openpgp/compression",
@@ -80,4 +79,3 @@ crypto-cng = [
     "sequoia-openpgp/compression",
     "sequoia-openpgp/crypto-cng",
 ]
-net = ["sequoia-net", "tokio", "rand", "rand_distr" ]

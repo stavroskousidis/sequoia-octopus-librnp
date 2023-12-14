@@ -85,8 +85,8 @@ windows-gnu:
     - rustc --version --verbose
     - cargo --version
   script:
-    - cargo build --no-default-features --features crypto-cng,net
-    - cargo test --no-default-features --features crypto-cng,net
+    - cargo build --no-default-features --features crypto-cng
+    - cargo test --no-default-features --features crypto-cng
   after_script: []
   variables:
     CFLAGS: "" # Silence some C warnings when compiling under Windows
@@ -103,8 +103,8 @@ windows-msvc:
     - rustc --version --verbose
     - cargo --version
   script:
-    - cargo build --no-default-features --features crypto-cng,net
-    - cargo test --no-default-features --features crypto-cng,net
+    - cargo build --no-default-features --features crypto-cng
+    - cargo test --no-default-features --features crypto-cng
   after_script: []
   variables:
     CFLAGS: "" # Silence some C warnings when compiling with MSVC
@@ -130,8 +130,8 @@ windows-msvc-32:
     - rustc --version --verbose
     - cargo --version
   script:
-    - cargo build --no-default-features --features crypto-cng,net --target i686-pc-windows-msvc
-    - cargo test --no-default-features --features crypto-cng,net --target i686-pc-windows-msvc
+    - cargo build --no-default-features --features crypto-cng --target i686-pc-windows-msvc
+    - cargo test --no-default-features --features crypto-cng --target i686-pc-windows-msvc
   after_script: []
   variables:
     CFLAGS: "" # Silence some C warnings when compiling with MSVC
@@ -152,7 +152,7 @@ windows-msvc-release:
     - rustc --version --verbose
     - cargo --version
   script:
-    - cargo build --release --no-default-features --features crypto-cng,net
+    - cargo build --release --no-default-features --features crypto-cng
   after_script:
     - Get-childItem target\release
     - Rename-Item target\release\sequoia_octopus_librnp.dll rnp.dll
@@ -179,7 +179,7 @@ debug-windows-msvc-release:
     - rustc --version --verbose
     - cargo --version
   script:
-    - cargo build --no-default-features --features crypto-cng,net
+    - cargo build --no-default-features --features crypto-cng
   after_script:
     - Get-childItem target\debug
     - Rename-Item target\debug\sequoia_octopus_librnp.dll rnp.dll
@@ -209,7 +209,7 @@ windows-msvc-release-32:
     - rustc --version --verbose
     - cargo --version
   script:
-    - cargo build --release --no-default-features --features crypto-cng,net --target i686-pc-windows-msvc
+    - cargo build --release --no-default-features --features crypto-cng --target i686-pc-windows-msvc
   after_script:
     - Get-childItem -Path target\i686-pc-windows-msvc\
     - Rename-Item target\i686-pc-windows-msvc\release\sequoia_octopus_librnp.dll rnp.dll

@@ -124,12 +124,7 @@ pub mod gpg;
 
 pub mod tbprofile;
 pub mod wot;
-#[cfg(feature="net")]
 pub mod parcimonie;
-#[cfg(not(feature="net"))]
-pub mod parcimonie_stub;
-#[cfg(not(feature="net"))]
-use parcimonie_stub as parcimonie;
 
 pub const NP: &NullPolicy = &NullPolicy::new();
 

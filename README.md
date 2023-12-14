@@ -160,14 +160,14 @@ To select a different cryptographic backend, OpenSSL in this example,
 and create a debug build, do the following:
 
 ```sh
-cargo build --no-default-features --features crypto-openssl
+cargo build --no-default-features --features crypto-openssl,net
 cp target/debug/libsequoia_octopus_librnp.so path/to/thunderbird/obj-x86_64-pc-linux-gnu/dist/bin/librnp.so
 ```
 
 To use a release build, do the following:
 
 ```sh
-cargo build --no-default-features --features crypto-openssl --release
+cargo build --no-default-features --features crypto-openssl,net --release
 cp target/release/libsequoia_octopus_librnp.so path/to/thunderbird/obj-x86_64-pc-linux-gnu/dist/bin/librnp.so
 ```
 
@@ -189,7 +189,7 @@ For a 64-bit build, run:
 
 ```sh
 rustup target add x86_64-pc-windows-msvc
-cargo build --no-default-features --features crypto-cng --target x86_64-pc-windows-msvc
+cargo build --no-default-features --features crypto-cng,net --target x86_64-pc-windows-msvc
 cp target/x86_64-pc-windows-msvc/debug/sequoia_octopus_librnp.dll "C:\Program Files\Mozilla Thunderbird\rnp.dll"
 
 ```
@@ -216,7 +216,7 @@ For a 64-bit build with CNG, run:
 
 ```sh
 rustup target add x86_64-pc-windows-gnu
-cargo build --no-default-features --features crypto-cng --target x86_64-pc-windows-gnu
+cargo build --no-default-features --features crypto-cng,net --target x86_64-pc-windows-gnu
 cp target/x86_64-pc-windows-gnu/debug/sequoia_octopus_librnp.dll "C:\Program Files\Mozilla Thunderbird\rnp.dll"
 
 ```
@@ -431,14 +431,6 @@ we don't have a certificate for as those certifications are
 effectively useless.
 
   [flooded]: https://dkg.fifthhorseman.net/blog/openpgp-certificate-flooding.html
-
-This feature is controlled by the `net` feature, which is enabled by
-default.  To disable it (and elide the dependencies on `sequoia-net`
-and `tokio`), build as follows:
-
-```sh
-cargo build --no-default-features --features sequoia-openpgp/default
-```
 
 ## Weak Cryptography
 
