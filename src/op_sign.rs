@@ -157,11 +157,9 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
                 signer = signer.add_signer(s);
             }
 
-            if op.agent_keys.len() > 0 {
-                for (cert, key) in &op.agent_keys {
-                    let s = gpgagent_keypair(&*op.ctx.policy(), &cert, &key)?;
-                    signer = signer.add_signer(s);
-                }
+            for (cert, key) in &op.agent_keys {
+                let s = gpgagent_keypair(&*op.ctx.policy(), &cert, &key)?;
+                signer = signer.add_signer(s);
             }
 
             message = signer.build()?;
@@ -211,11 +209,9 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
                 signer = signer.add_signer(s);
             }
 
-            if op.agent_keys.len() > 0 {
-                for (cert, key) in &op.agent_keys {
-                    let s = gpgagent_keypair(&*op.ctx.policy(), &cert, &key)?;
-                    signer = signer.add_signer(s);
-                }
+            for (cert, key) in &op.agent_keys {
+                let s = gpgagent_keypair(&*op.ctx.policy(), &cert, &key)?;
+                signer = signer.add_signer(s);
             }
 
             message = signer.build()?;
