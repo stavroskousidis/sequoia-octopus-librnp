@@ -2,11 +2,10 @@
 
 ### General
 
-On debian bullseye it is not possible to build versions >= v1.2.1. This is because cargo is shipped in version 0.47 by debian stable. You will get the following error when trying to build:
-
-`this version of Cargo is older than the 2021 edition, and only supports 2015 and 2018 editions.`
-
-The build of <= v1.1.0 is possible, but not compatible with thunderbird 91. You will not be able to receive your keys from the keychain in thunderbird.
+On Debian stable it is not possible to build versions >= v1.2.1.  We
+target Debian testing while developing, and thus the Rust toolchain
+shipped by Debian stable is often too old to compile current releases
+of the Octopus.
 
 You have two options to fix this. Either you install cargo and rustc in a current version from source [rust-lang.org](https://rust-lang.org/ "Rust Programming Language")
 
@@ -18,7 +17,7 @@ Copy your `sources.list` file to `/etc/apt/sources.list.d/testing.list` and edit
 
 ```
 sudo cp /etc/apt/sources.list /etc/sources.list.d/testing.list
-sudo sed -i 's/bullseye/bookworm/g' /etc/apt/sources.list.d/testing.list
+sudo sed -i 's/stable/testing/g' /etc/apt/sources.list.d/testing.list
 ```
 
 Add apt preferences (as root):
@@ -45,6 +44,6 @@ Now, update sources lists and install cargo and rustc from testing.
 
 ```
 sudo apt update
-sudo apt -t bookworm install rustc cargo
+sudo apt -t testing install rustc cargo
 ```
 You're done. Now you can continue [here](https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp#building-on-linux "Building on Linux")

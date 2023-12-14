@@ -54,14 +54,19 @@ Thunderbird profile and production keys (at least `pubring.gpg`,
 
 # Support
 
-The Octopus is actively maintained by the [Sequoia PGP] team.  We will respond
-to issues and support requests, but we are not actively developing new features
-(however, the Octopus should have feature parity with Thunderbird's default
-backend).  We are primarily financed by the [pep foundation].  Our mandate is
-specifically to improve the OpenPGP ecosystem, and more generally to improve
-internet freedom tools.
+The Octopus is actively maintained by the [Sequoia PGP] team.  We will
+respond to issues and support requests, but we are not actively
+developing new features (however, the Octopus should have feature
+parity with Thunderbird's default backend).  Our mandate is
+specifically to improve the OpenPGP ecosystem, and more generally to
+improve internet freedom tools.  If you want to contribute financially
+to the Octopus development, or the Sequoia PGP project in general,
+please do get in touch.
 
   [Sequoia PGP]: https://sequoia-pgp.org/
+
+In the past, we were primarily financed by the [pep foundation].
+
   [pep foundation]: https://pep.foundation/
 
 Currently, the Octopus is developed outside of Thunderbird.  The
@@ -124,7 +129,7 @@ e.g. by replacing it.  The details are dependent on your deployment,
 and this is something distributors need to figure out.  This document
 will demonstrate how to replace RNP in a local build of Thunderbird.
 
-[install Sequoia's build dependencies]: https://gitlab.com/sequoia-pgp/sequoia#requirements
+[install Sequoia's build dependencies]: https://gitlab.com/sequoia-pgp/sequoia#requirements-and-msrv
 [Windows CNG]: https://docs.microsoft.com/en-us/windows/win32/seccng/cng-portal
 [Nettle]: http://www.lysator.liu.se/~nisse/nettle/
 
@@ -152,7 +157,8 @@ cargo build --release
 cp target/release/libsequoia_octopus_librnp.so path/to/thunderbird/obj-x86_64-pc-linux-gnu/dist/bin/librnp.so
 ```
 
-On debian bullseye it is not possible to build versions >= v1.2.1. You can follow these instructions: [Debian Bullseye](README-Debian.md)
+On Debian stable it is not possible to build contemporary versions of
+the Octopus.  You can follow [these instructions](README-Debian.md).
 
 #### Selecting a different cryptographic backend
 
@@ -248,8 +254,8 @@ cp target/i686-pc-windows-gnu/debug/sequoia_octopus_librnp.dll "C:\Program Files
 
 ### Using Debian's Thunderbird
 
-The following recipe was tested with version `1:78.9.0-1~deb10u1` of
-Thunderbird (from Debian Bullseye).  This uses `dpkg`'s diversion
+The following recipe was tested with version `1:115.5.0-1~deb12u1` of
+Thunderbird (from Debian Bookworm).  This uses `dpkg`'s diversion
 mechanism to move `librnp.so` out of the way.
 
 ```sh
@@ -283,31 +289,26 @@ $ ls -l /usr/lib/thunderbird/*rnp*
 -rwxr-xr-x 1 root root 129988280 Apr  7 14:01 /usr/lib/thunderbird/libsequoia_octopus_librnp.so
 ```
 
-### Precompiled Binaries for 64-bit Windows
+### Precompiled Binaries for Windows
 
 If you are feeling particularly daring, you can download a precompiled
-[`rnp.dll`] for Windows.  This binary is created by our CI.  It
-corresponds to the current version of the `main` branch.  Before code
-is checked into the `main` branch, it must first pass our unit tests
-on both Debian and Windows, and it must past the Thunderbird unit
-tests on Debian.
+`rnp.dll` for Windows:
 
-  [`rnp.dll`]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/jobs/artifacts/main/download?job=windows-msvc-release
+  - [Octopus for 64-bit Thunderbird](https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/jobs/artifacts/main/download?job=windows-msvc-release)
+  - [Octopus for 64-bit Thunderbird, debug version](https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/jobs/artifacts/main/download?job=debug-windows-msvc-release)
+  - [Octopus for 32-bit Thunderbird](https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/jobs/artifacts/main/download?job=windows-msvc-release-32)
+
+These binaries are created by our CI.  They correspond to the current
+version of the `main` branch.  Before code is checked into the `main`
+branch, it must first pass our unit tests on both Debian and Windows,
+and it must past the Thunderbird unit tests on Debian.
 
 To use the Octopus, replace the `rnp.dll` binary in your Thunderbird
 installation.  Thunderbird is usually installed to `C:\Program
 Files\Mozilla Thunderbird`.
 
-Note: this will only work with a 64-bit build of Thunderbird.  If you
-are using a 32-bit build (you can tell as your Thunderbird would be
-installed in `C:\Program Files (x86)`), then you need to either switch
-to a 64-bit version of Thunderbird or compile a 32-bit version of the
-Octopus yourself.
-
-If you encounter any errors and wish to investigate, there is also a [debug
-build] available.
-
-  [debug build]: https://gitlab.com/sequoia-pgp/sequoia-octopus-librnp/-/jobs/artifacts/main/download?job=debug-windows-msvc-release
+If you encounter any errors and wish to investigate, there is also a
+debug build available for 64-bit Thunderbird.
 
 Before starting Thunderbird with the Octopus, be sure to backup the
 files `pubring.gpg`, `secring.gpg`, and `openpgp.sqlite` in your
@@ -415,13 +416,17 @@ removed when Enigmail was integrated into Thunderbird.
   [memoryless distribution]: https://en.wikipedia.org/wiki/Memorylessness
 
 The Parcimonie feature in the Octopus currently checks for updates on
-[keys.openpgp.org] and in the appropriate Web Key Directories ([WKDs])
-using the aforementioned privacy preserving mechanisms.  It checks for
-updates for all non-revoked, valid certificates about once a week, on
-average.  It also supports merging updates from [User ID-less
-certificates].
+various OpenPGP key servers ([keys.openpgp.org], the [Proton
+keyserver], the [Mailvelope keyserver], and [keyserver.ubuntu.com]),
+and in the appropriate Web Key Directories ([WKDs]) using the
+aforementioned privacy preserving mechanisms.  It checks for updates
+for all non-revoked, valid certificates about once a week, on average.
+It also supports merging updates from [User ID-less certificates].
 
   [keys.openpgp.org]: https://keys.openpgp.org
+  [Proton keyserver]: https://proton.me/blog/address-verification-pgp-support#:~:text=public%20key%20server
+  [Mailvelope keyserver]: https://keys.mailvelope.com/
+  [keyserver.ubuntu.com]: https://keyserver.ubuntu.com/
   [WKDs]: https://wiki.gnupg.org/WKD
   [User ID-less certificates]: https://bugzilla.mozilla.org/show_bug.cgi?id=1634524
 
@@ -435,44 +440,13 @@ effectively useless.
 ## Weak Cryptography
 
 The Octopus uses Sequoia, which [rejects cryptographic algorithms that
-are known to be weak by default].  Unfortunately, [RNP still accepts
-MD5], among other vulnerable algorithms, without warning.  Thunderbird
-has patched MD5 out of the version of RNP that they distribute,
-however, Thunderbird continues to support unlimited use of SHA-1,
-which is known to be [vulnerable to collision attacks].  Sequoia, and
-by extension, the Octopus, rejects certificates and messages that use
-weak cryptographic primitives.  Because RNP does not have a mechanism
-to indicate that a certificate or component should not be used, the
-Octopus reports these keys as having expired one second after their
-creation time.
+are known to be weak by default].  Sequoia, and by extension, the
+Octopus, rejects certificates and messages that use weak cryptographic
+primitives.  Because RNP does not have a mechanism to indicate that a
+certificate or component should not be used, the Octopus reports these
+keys as having expired one second after their creation time.
 
   [rejects cryptographic algorithms that are known to be weak by default]: https://docs.sequoia-pgp.org/sequoia_openpgp/policy/struct.StandardPolicy.html
-  [RNP still accepts MD5]: https://bugzilla.mozilla.org/show_bug.cgi?id=1641720
-  [vulnerable to collision attacks]: https://sha-mbles.github.io/
-
-## Protection from Surreptitious Forwarding
-
-When Thunderbird creates an email it uses the RFC 1847 Encapsulation
-method [construct], which has been [known to be broken] for over 20
-years.  The issue is that if Alice signs a message and sends it to
-Bob, Bob can use the signature in a different context.
-
-This security issue can be fixed by using OpenPGP's intended recipient
-feature.  Then, if Bob forwards the signed message (e.g., "I owe you
-100 Euros") to Carol, Carol's MUA will mark the signature as invalid
-as she is not the intended recipient of the message.
-
-In the Octopus, we detect the use of the encapsulation method and
-automatically and transparently replace it with the safer [combined
-method] whenever possible.  Specifically, when we encrypt a message,
-we check whether we just generated the signed part.  If so, we fix it.
-Because this generates another signature, if you are using a key
-managed by gpg's agent, you may be prompted to authorize a second
-signature.
-
-  [construct]: https://bugzilla.mozilla.org/show_bug.cgi?id=1688863
-  [known to be broken]: https://theworld.com/~dtd/sign_encrypt/sign_encrypt7.html
-  [combined method]: https://tools.ietf.org/html/rfc3156#section-4
 
 # Non-Functional Advantages
 
@@ -502,28 +476,10 @@ deal with this Sequoia implements a number of countermeasures:
     mitigates collision attacks.  This protection is also used by
     [GitHub], among others.
 
-  - Sequoia only accepts SHA-1 in [safer contexts].  For instance,
-    SHA-1 over messages, and its use in third-party certifications are
-    rejected by default.  But, SHA-1 self-signatures that are not
-    suspicious are allowed.
-
-  - Sequoia has announced a timeline to completely [deprecate the
-    use of SHA-1]: in 2023 SHA-1 will no longer be accepted for
-    digital signatures.
-
   [SHA-1 is broken]: https://sha-mbles.github.io/
   [SHA-1 is still widely used]: https://gitlab.com/sequoia-pgp/sequoia/-/issues/595
   [SHA1-CD]: https://github.com/cr-marcstevens/sha1collisiondetection
   [GitHub]: https://github.blog/2017-03-20-sha-1-collision-detection-on-github-com/
-  [safer contexts]: https://docs.sequoia-pgp.org/sequoia_openpgp/policy/enum.HashAlgoSecurity.html
-  [deprecate the use of SHA-1]: https://docs.sequoia-pgp.org/sequoia_openpgp/policy/struct.StandardPolicy.html#method.reject_hash_property_at
-
-RNP accepts SHA-1 everywhere without any additional protections.  By
-default, it even [accepts] [MD5].  Happily, Thunderbird carries a
-patch to disable MD5 support.
-
-  [accepts]: https://tests.sequoia-pgp.org/#Detached_Sign-Verify_roundtrip_with_key__Bob___MD5
-  [MD5]: https://github.com/rnpgp/rnp/issues/1281
 
 ## Collision Protection
 
@@ -568,15 +524,11 @@ bits are either obsolete or insecure.
    [nearly all]: https://sequoia-pgp.org/status/
    [of the OpenPGP RFC]: https://tests.sequoia-pgp.org/
 
-RNP doesn't implement a number of important parts.  For instance, it
-does not reject [unknown critical subpackets] and notations.  This is
-a security problem.  RNP doesn't handle [unknown packet versions].
-This is a future compatibility problem.  RNP also doesn't handle
-"esoteric" keys, like [shared keys] where only the encryption subkey's
-secret key material is shared.  This is a compatibility problem.  More
-examples can be found in the [OpenPGP interoperability test suite].
+RNP doesn't implement a number of important parts.  For example, RNP
+doesn't handle "esoteric" keys, like [shared keys] where only the
+encryption subkey's secret key material is shared.  This is a
+compatibility problem.  More examples can be found in the [OpenPGP
+interoperability test suite].
 
-  [unknown packet versions]: https://github.com/rnpgp/rnp/issues/1257
-  [unknown critical subpackets]: https://github.com/rnpgp/rnp/issues/1234
   [shared keys]: https://bugzilla.mozilla.org/show_bug.cgi?id=1703368
   [OpenPGP interoperability test suite]: https://tests.sequoia-pgp.org/
