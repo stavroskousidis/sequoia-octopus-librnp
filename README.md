@@ -448,6 +448,16 @@ keys as having expired one second after their creation time.
 
   [rejects cryptographic algorithms that are known to be weak by default]: https://docs.sequoia-pgp.org/sequoia_openpgp/policy/struct.StandardPolicy.html
 
+## Honors system-wide crypto policy
+
+The Octopus reads a configuration file (by default
+`/etc/crypto-policies/back-ends/sequoia.config`) to configure its
+cryptographic policy.  The file to load can be overridden using the
+`SEQUOIA_CRYPTO_POLICY` environment variable.  For more information on
+the format, see [this document].
+
+  [this document]: https://docs.rs/sequoia-policy-config/latest/sequoia_policy_config/#format
+
 # Non-Functional Advantages
 
 Sequoia has a number of non-functional advantages relative to RNP.

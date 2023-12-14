@@ -251,7 +251,16 @@ fn rnp_ffi_create(ctx: *mut *mut RnpContext,
         maybe_create_keyring(profile.join("secring.gpg"));
     }
 
-    *ctx = Box::into_raw(Box::new(RnpContext::default()));
+    let mut policy = sequoia_policy_config::ConfiguredStandardPolicy::new();
+    if let Err(e) = policy.parse_default_config() {
+        global_warn!("Reading crypto policy: {}", e);
+    }
+    let policy = policy.build();
+
+    *ctx = Box::into_raw(Box::new(RnpContext {
+        policy: Arc::new(RwLock::new(policy)),
+        ..Default::default()
+    }));
     RNP_SUCCESS
 }
 
