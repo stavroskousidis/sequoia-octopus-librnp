@@ -1105,6 +1105,11 @@ fn rnp_key_protect(rnp_key: *mut RnpKey,
     let mut key =
         if let Ok(key) = rnp_key.key.clone().parts_into_secret() {
             key
+        } else if ctx.certs.key_on_agent(&fp) {
+            // The secret key material is managed by the gpg-agent, we
+            // cannot change the password, nor should we try to.  Just
+            // turn this into a NOP.
+            return RNP_SUCCESS;
         } else {
             return RNP_ERROR_NO_SUITABLE_KEY;
         };
@@ -1161,6 +1166,11 @@ fn rnp_key_unprotect(rnp_key: *mut RnpKey,
     let mut key =
         if let Ok(key) = rnp_key.key.clone().parts_into_secret() {
             key
+        } else if ctx.certs.key_on_agent(&fp) {
+            // The secret key material is managed by the gpg-agent, we
+            // cannot change the password, nor should we try to.  Just
+            // turn this into a NOP.
+            return RNP_SUCCESS;
         } else {
             return RNP_ERROR_NO_SUITABLE_KEY;
         };
