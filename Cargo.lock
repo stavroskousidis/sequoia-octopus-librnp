@@ -1845,9 +1845,9 @@ checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
 
 [[package]]
 name = "openpgp-cert-d"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9697d17dfc2c9c0adc61a13ecb5029f8bbc56ffcc37e345729a1a7f38de6ef1"
+checksum = "0c2c3b55a1bd2b7b15b1d969fcde543bf6b679294f9efd3c2360459d49ae62ce"
 dependencies = [
  "anyhow",
  "dirs",
