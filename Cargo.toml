@@ -30,6 +30,7 @@ chrono = "0.4"
 configparser = ">=2, <4"
 csv = "1.1"
 enumber = "0.3"
+humantime = "2"
 num_cpus = "1"
 rand = { version = "0.8", default-features = false, features = ["std", "std_rng"] }
 rand_distr = { version = "0.4", default-features = false }
