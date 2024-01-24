@@ -220,6 +220,12 @@ impl std::ops::Deref for RnpKey {
     }
 }
 
+impl From<RnpKey> for Key<UnspecifiedParts, UnspecifiedRole> {
+    fn from(k: RnpKey) -> Self {
+        k.key
+    }
+}
+
 #[no_mangle] pub unsafe extern "C"
 fn rnp_locate_key(ctx: *mut RnpContext,
                   identifier_type: *const c_char,

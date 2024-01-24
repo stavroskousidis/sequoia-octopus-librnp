@@ -173,7 +173,7 @@ pub struct RnpContext {
 
 type RnpPasswordCb = unsafe extern fn(*mut RnpContext,
                                       *mut c_void,
-                                      *const Cert,
+                                      *const RnpKey,
                                       *const c_char,
                                       *mut c_char,
                                       size_t) -> bool;
@@ -487,10 +487,10 @@ impl RnpPasswordFor {
 
 impl RnpContext {
     pub fn request_password(&mut self,
-                            cert: Option<&Cert>,
+                            key: Option<&RnpKey>,
                             reason: RnpPasswordFor) -> Option<Password> {
         rnp_function!(RnpContext::request_password, TRACE);
-        t!("cert = {:?}, reason = {:?}", cert.map(|c| c.fingerprint()), reason);
+        t!("key = {:?}, reason = {:?}", key.map(|k| k.fingerprint()), reason);
 
         if let Some((f, cookie)) = self.password_cb {
             let mut buf: Protected = vec![0; 128].into();
@@ -498,7 +498,7 @@ impl RnpContext {
             let ok = unsafe {
                 f(self,
                   cookie,
-                  cert.map(|c| c as *const _).unwrap_or(std::ptr::null()),
+                  key.map(|k| k as *const _).unwrap_or(std::ptr::null()),
                   reason.pgp_context(),
                   buf.as_mut().as_mut_ptr() as *mut c_char,
                   len)
@@ -544,7 +544,15 @@ impl RnpContext {
             }
 
             let pk_algo = key.pk_algo();
-            if let Some(pw) = self.request_password(cert, reason) {
+            let rnp_key = if let Some(cert) = cert {
+                RnpKey::new(self, key.into(), cert)
+            } else {
+                RnpKey::without_cert(self, key.into())
+            };
+
+            if let Some(pw) = self.request_password(Some(&rnp_key), reason) {
+                key = Key::<UnspecifiedParts, UnspecifiedRole>::from(rnp_key)
+                    .parts_into_secret()?;
                 key.secret_mut().decrypt_in_place(pk_algo, &pw)
                     .map_err(|_| Error::BadPassword)?;
                 t!("Key decrypted successfully")
