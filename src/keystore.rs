@@ -1099,7 +1099,8 @@ impl KeystoreData {
                 let known_keys: HashSet<Fingerprint> =
                     cert_ref.keys().map(|k| k.fingerprint()).collect();
                 let cert_update = cert_ref.clone()
-                    .insert_packets(cert.into_packets().filter(|p| match p {
+                    .insert_packets(cert.into_tsk().into_packets()
+                                    .filter(|p| match p {
                         // Insert only unknown public keys.
                         Packet::PublicKey(k) =>
                             ! known_keys.contains(&k.fingerprint()),
@@ -1338,9 +1339,10 @@ impl KeystoreData {
                 // to packets, strip the secret key material, and then
                 // convert it back.
                 let mut cert_ref = e.cert_mut();
+                let packets = cert_ref.clone().into_tsk().into_packets()
+                    .collect::<Vec<_>>();
                 *cert_ref = Cert::from_packets(
-                    cert_ref.clone()
-                        .into_packets()
+                    packets.into_iter()
                         .map(|packet| {
                             match packet {
                                 Packet::SecretSubkey(k)
