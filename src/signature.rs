@@ -170,6 +170,28 @@ fn rnp_signature_is_valid(sig: *const RnpSignature,
     RNP_ERROR_SIGNATURE_INVALID
 }
 
+#[no_mangle] pub unsafe extern "C"
+fn rnp_signature_get_features(sig: *const RnpSignature,
+                              features: *mut u32)
+                              -> RnpResult {
+    rnp_function!(rnp_signature_get_features, crate::TRACE);
+    let sig = assert_ptr_ref!(sig);
+    let features = assert_ptr_mut!(features);
+
+    // Note: as of now, RNP only considers the first 8 bits, which is
+    // hopefully enough for the time being, but we consider the first
+    // 32 bits, in the hope that we'll never use as many.
+    *features = sig.sig.features()
+        .map(|f| 0
+             | (*f.as_bitfield().as_ref().get(0).unwrap_or(&0) as u32) << 0
+             | (*f.as_bitfield().as_ref().get(1).unwrap_or(&0) as u32) << 8
+             | (*f.as_bitfield().as_ref().get(2).unwrap_or(&0) as u32) << 16
+             | (*f.as_bitfield().as_ref().get(3).unwrap_or(&0) as u32) << 24)
+        .unwrap_or(0);
+
+    RNP_SUCCESS
+}
+
 /// Replacement for ComponentAmalgamation::signatures.
 ///
 /// This started out as a replacement for a function that was not
