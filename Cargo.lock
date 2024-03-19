@@ -2371,9 +2371,9 @@ dependencies = [
 
 [[package]]
 name = "sequoia-ipc"
-version = "0.33.0"
+version = "0.34.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "218f799a7e3b06b08952927c2efaea09ba89bd76e290bd2231396553cb318b40"
+checksum = "d67c3c28da4a3483fa969e6a6cde9e5487fe44632b5f285224d79df05bd99dd4"
 dependencies = [
  "anyhow",
  "buffered-reader",
