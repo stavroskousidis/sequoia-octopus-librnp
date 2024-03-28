@@ -85,6 +85,8 @@ Debian.
 
 ### Using official Linux distribution packages
 
+#### Fedora
+
 The Octopus is available from the standard **Fedora** repositories since
 Fedora 34. The official Thunderbird package has also been adapted to allow
 users to choose which of the available PGP backends is used.
@@ -109,6 +111,37 @@ specified at install time, as well:
 
 ```sh
 sudo dnf install thunderbird sequoia-octopus-librnp
+```
+
+#### openSUSE
+
+The package `sequoia-octopus-librnp` is available in openSUSE Tumbleweed.
+Like in Fedora, this package is replacing the default library shipped in
+`MozillaThunderbird-openpgp-librnp`.
+
+To install `sequoia-octopus-librnp` run the command
+
+```sh
+sudo zypper install sequoia-octopus-librnp
+```
+
+and resolve the conflict by selecting to uninstall
+`MozillaThunderbird-openpgp-librnp`.
+
+Switching back is done in a similar way:
+
+```sh
+sudo zypper install MozillaThunderbird-openpgp-librnp
+```
+
+and resolve the conflict by selecting to uninstall
+`sequoia-octopus-librnp`.
+
+If Thunderbird is not yet installed, then the preferred OpenPGP backend can be
+specified at install time, as well:
+
+```sh
+sudo zypper install MozillaThunderbird sequoia-octopus-librnp
 ```
 
 ### Building manually
