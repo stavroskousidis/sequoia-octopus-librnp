@@ -841,7 +841,10 @@ impl KeystoreData {
             // perform WoT update
             if let Some(ref mut wot) = wot {
                 let p = policy.read().unwrap();
-                wot.update(ks.clone(), &*p).expect("foo");
+                if let Err(err) = wot.update(ks.clone(), &*p) {
+                    eprintln!("Updating web of trust judgments from gpg: {}",
+                              err);
+                }
             }
 
             last_check = SystemTime::now();
