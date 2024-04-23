@@ -182,7 +182,7 @@ pub struct Keystore {
     // Whether the keystore is in the process of loading a keyring.
     // See Keystore::load_keyring_in_background and
     // Keystore::block_on_load.
-    in_init: Arc<(Mutex<usize>, Condvar)>,
+    background_busy: Arc<(Mutex<usize>, Condvar)>,
 }
 
 enum BackgroundCommand {
@@ -205,7 +205,7 @@ impl Default for Keystore {
             wot: None,
 
             background_sender: None,
-            in_init: Arc::new((Mutex::new(0), Condvar::new())),
+            background_busy: Arc::new((Mutex::new(0), Condvar::new())),
         }
     }
 }
@@ -322,18 +322,18 @@ impl Keystore {
         let ks_ref = self.create_ref();
         let (sender, receiver) = mpsc::channel();
 
-        let in_init = Arc::clone(&self.in_init);
+        let background_busy = Arc::clone(&self.background_busy);
 
         // Cause block_on_load to wait until the gpg keyring is
         // loaded.
-        let mut in_init_ = self.in_init.0.lock().unwrap();
-        assert_eq!(*in_init_, 0);
-        *in_init_ += 1;
-        drop(in_init_);
+        let mut background_busy_ = self.background_busy.0.lock().unwrap();
+        assert_eq!(*background_busy_, 0);
+        *background_busy_ += 1;
+        drop(background_busy_);
 
         ks.background_thread
             = Some(thread::spawn(move || {
-                KeystoreData::background_thread(ks_ref, receiver, in_init, policy);
+                KeystoreData::background_thread(ks_ref, receiver, background_busy, policy);
             }));
 
         self.background_sender = Some(Arc::new(Mutex::new(sender)));
@@ -382,7 +382,7 @@ impl Keystore {
             KeystoreData::load_keyring(
                 &mut self.data, &keyring, import_secret_keys, false)?;
         } else {
-            *self.in_init.0.lock().unwrap() += 1;
+            *self.background_busy.0.lock().unwrap() += 1;
 
             self.background_sender.as_ref().expect("started thread")
                 .lock().unwrap()
@@ -407,8 +407,8 @@ impl Keystore {
         // running.  This must only be done by rnp_load_keys.
         rnp_function!(Keystore::block_on_load, super::TRACE);
 
-        let in_init = self.in_init.0.lock().unwrap();
-        if *in_init == 0 {
+        let background_busy = self.background_busy.0.lock().unwrap();
+        if *background_busy == 0 {
             return Ok(false);
         }
 
@@ -457,8 +457,8 @@ impl Keystore {
 
         assert!(self.background_sender.is_some());
 
-        drop(self.in_init.1
-             .wait_while(in_init, |in_init| *in_init > 0)
+        drop(self.background_busy.1
+             .wait_while(background_busy, |background_busy| *background_busy > 0)
              .unwrap());
 
         if let Some(mut child) = child {
@@ -719,7 +719,7 @@ impl KeystoreData {
     /// Web-of-Trust calculations.
     fn background_thread(ks: Arc<RwLock<Self>>,
                          receiver: mpsc::Receiver<BackgroundCommand>,
-                         in_init: Arc<(Mutex<usize>, Condvar)>,
+                         background_busy: Arc<(Mutex<usize>, Condvar)>,
                          policy: Arc<RwLock<StandardPolicy<'static>>>) {
         rnp_function!(KeystoreData::background_thread, super::TRACE);
 
@@ -773,13 +773,13 @@ impl KeystoreData {
                         warn!("Loading keyring: {}", err);
                     }
 
-                    let mut in_init_ = in_init.0.lock().unwrap();
-                    assert!(*in_init_ > 0);
-                    *in_init_ -= 1;
-                    if *in_init_ == 0 {
-                        in_init.1.notify_all();
+                    let mut background_busy_ = background_busy.0.lock().unwrap();
+                    assert!(*background_busy_ > 0);
+                    *background_busy_ -= 1;
+                    if *background_busy_ == 0 {
+                        background_busy.1.notify_all();
                     }
-                    drop(in_init_);
+                    drop(background_busy_);
 
                     continue;
                 }
@@ -847,13 +847,13 @@ impl KeystoreData {
             if first_time {
                 first_time = false;
 
-                let mut in_init_ = in_init.0.lock().unwrap();
-                assert!(*in_init_ > 0);
-                *in_init_ -= 1;
-                if *in_init_ == 0 {
-                    in_init.1.notify_all();
+                let mut background_busy_ = background_busy.0.lock().unwrap();
+                assert!(*background_busy_ > 0);
+                *background_busy_ -= 1;
+                if *background_busy_ == 0 {
+                    background_busy.1.notify_all();
                 }
-                drop(in_init_);
+                drop(background_busy_);
             }
 
             // perform WoT update
