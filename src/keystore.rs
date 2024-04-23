@@ -177,12 +177,23 @@ pub struct Keystore {
 
     /// Write-side of a channel to send commands to the background thread.
     background_sender:
-    Option<Arc<Mutex<mpsc::Sender<Option<(Vec<u8>, bool)>>>>>,
+    Option<Arc<Mutex<mpsc::Sender<BackgroundCommand>>>>,
 
     // Whether the keystore is in the process of loading a keyring.
     // See Keystore::load_keyring_in_background and
     // Keystore::block_on_load.
     in_init: Arc<(Mutex<usize>, Condvar)>,
+}
+
+enum BackgroundCommand {
+    /// Update the GnuPG keyring.
+    LoadGnuPGKeyring,
+
+    /// Import a keyring in the background.
+    LoadKeyring {
+        keyring: Vec<u8>,
+        import_secret_keys: bool,
+    },
 }
 
 impl Default for Keystore {
@@ -350,7 +361,7 @@ impl Keystore {
             // should reread it now.
             self.background_sender.as_ref().expect("started thread")
                 .lock().unwrap()
-                .send(None)?;
+                .send(BackgroundCommand::LoadGnuPGKeyring)?;
         }
         Ok(())
     }
@@ -375,7 +386,10 @@ impl Keystore {
 
             self.background_sender.as_ref().expect("started thread")
                 .lock().unwrap()
-                .send(Some((keyring, import_secret_keys)))?;
+                .send(BackgroundCommand::LoadKeyring {
+                    keyring,
+                    import_secret_keys,
+                })?;
         }
 
         Ok(())
@@ -704,7 +718,7 @@ impl KeystoreData {
     /// updates, reads certificates in the background, and updates the
     /// Web-of-Trust calculations.
     fn background_thread(ks: Arc<RwLock<Self>>,
-                         receiver: mpsc::Receiver<Option<(Vec<u8>, bool)>>,
+                         receiver: mpsc::Receiver<BackgroundCommand>,
                          in_init: Arc<(Mutex<usize>, Condvar)>,
                          policy: Arc<RwLock<StandardPolicy<'static>>>) {
         rnp_function!(KeystoreData::background_thread, super::TRACE);
@@ -749,8 +763,10 @@ impl KeystoreData {
 
             let r = receiver.recv_timeout(timeout);
             match r {
-                // Import a keyring in the background.
-                Ok(Some((keyring, import_secret_keys))) => {
+                Ok(BackgroundCommand::LoadKeyring {
+                    keyring,
+                    import_secret_keys,
+                }) => {
                     if let Err(err) = KeystoreData::load_keyring(
                         &ks, &keyring, import_secret_keys, false)
                     {
@@ -767,8 +783,8 @@ impl KeystoreData {
 
                     continue;
                 }
-                // Update the keyring now.
-                Ok(None) => {
+
+                Ok(BackgroundCommand::LoadGnuPGKeyring) => {
                     check_now = true;
                     // We loop to drain the message queue.
                     continue;
