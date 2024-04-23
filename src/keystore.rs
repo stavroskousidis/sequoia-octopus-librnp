@@ -134,7 +134,7 @@ pub struct KeystoreData {
     directory: Option<PathBuf>,
     flush_thread: Option<thread::JoinHandle<()>>,
 
-    gpg_thread: Option<thread::JoinHandle<()>>,
+    background_thread: Option<thread::JoinHandle<()>>,
 }
 
 impl Default for KeystoreData {
@@ -158,7 +158,7 @@ impl Default for KeystoreData {
             directory: None,
             flush_thread: None,
 
-            gpg_thread: None,
+            background_thread: None,
         }
     }
 }
@@ -175,9 +175,9 @@ pub struct Keystore {
     // gets initialized there.
     wot : Option<WoT>,
 
-    // A sender to ping the thread and tell it to check for updates
-    // now.
-    gpg_sender: Option<Arc<Mutex<mpsc::Sender<Option<(Vec<u8>, bool)>>>>>,
+    /// Write-side of a channel to send commands to the background thread.
+    background_sender:
+    Option<Arc<Mutex<mpsc::Sender<Option<(Vec<u8>, bool)>>>>>,
 
     // Whether the keystore is in the process of loading a keyring.
     // See Keystore::load_keyring_in_background and
@@ -193,7 +193,7 @@ impl Default for Keystore {
 
             wot: None,
 
-            gpg_sender: None,
+            background_sender: None,
             in_init: Arc::new((Mutex::new(0), Condvar::new())),
         }
     }
@@ -290,23 +290,23 @@ impl Keystore {
     //
     // Returns whether or not a thread was started.  That is, if the
     // thread was already running, this returns false.
-    fn gpg_thread_start(&mut self,
+    fn background_thread_start(&mut self,
                         policy: Arc<RwLock<StandardPolicy<'static>>>)
         -> openpgp::Result<bool>
     {
-        if self.gpg_sender.is_some() {
+        if self.background_sender.is_some() {
             // Already started.
             return Ok(false);
         }
 
         let mut ks = self.data.write().unwrap();
-        if self.gpg_sender.is_some() {
+        if self.background_sender.is_some() {
             // Someone else already started the thread while we were
             // blocked on self.data.
-            assert!(ks.gpg_thread.is_some());
+            assert!(ks.background_thread.is_some());
             return Ok(false);
         }
-        assert!(ks.gpg_thread.is_none());
+        assert!(ks.background_thread.is_none());
 
         let ks_ref = self.create_ref();
         let (sender, receiver) = mpsc::channel();
@@ -320,12 +320,12 @@ impl Keystore {
         *in_init_ += 1;
         drop(in_init_);
 
-        ks.gpg_thread
+        ks.background_thread
             = Some(thread::spawn(move || {
-                KeystoreData::gpg_thread(ks_ref, receiver, in_init, policy);
+                KeystoreData::background_thread(ks_ref, receiver, in_init, policy);
             }));
 
-        self.gpg_sender = Some(Arc::new(Mutex::new(sender)));
+        self.background_sender = Some(Arc::new(Mutex::new(sender)));
 
         Ok(true)
     }
@@ -344,11 +344,11 @@ impl Keystore {
     {
         rnp_function!(Keystore::load_gpg_keyring, super::TRACE);
 
-        if !self.gpg_thread_start(policy)? {
+        if !self.background_thread_start(policy)? {
             // If we just started the thread, then it will read the
             // gpg keyring on its own.  Otherwise, signal that it
             // should reread it now.
-            self.gpg_sender.as_ref().expect("started thread")
+            self.background_sender.as_ref().expect("started thread")
                 .lock().unwrap()
                 .send(None)?;
         }
@@ -366,14 +366,14 @@ impl Keystore {
     {
         rnp_function!(Keystore::load_keyring_in_background, super::TRACE);
 
-        if let Err(err) = self.gpg_thread_start(policy) {
+        if let Err(err) = self.background_thread_start(policy) {
             warn!("Failed to start gpg thread: {}", err);
             KeystoreData::load_keyring(
                 &mut self.data, &keyring, import_secret_keys, false)?;
         } else {
             *self.in_init.0.lock().unwrap() += 1;
 
-            self.gpg_sender.as_ref().expect("started thread")
+            self.background_sender.as_ref().expect("started thread")
                 .lock().unwrap()
                 .send(Some((keyring, import_secret_keys)))?;
         }
@@ -441,7 +441,7 @@ impl Keystore {
             }
         };
 
-        assert!(self.gpg_sender.is_some());
+        assert!(self.background_sender.is_some());
 
         drop(self.in_init.1
              .wait_while(in_init, |in_init| *in_init > 0)
@@ -698,14 +698,16 @@ impl KeystoreData {
         Ok(())
     }
 
-    // Monitor gpg for updates.
-    //
-    // This checks for updates to the keyring.
-    fn gpg_thread(ks: Arc<RwLock<Self>>,
-                  receiver: mpsc::Receiver<Option<(Vec<u8>, bool)>>,
-                  in_init: Arc<(Mutex<usize>, Condvar)>,
-                  policy: Arc<RwLock<StandardPolicy<'static>>>) {
-        rnp_function!(KeystoreData::gpg_thread, super::TRACE);
+    /// The background worker thread.
+    ///
+    /// Monitor certificate stores (like the GnuPG keyring) for
+    /// updates, reads certificates in the background, and updates the
+    /// Web-of-Trust calculations.
+    fn background_thread(ks: Arc<RwLock<Self>>,
+                         receiver: mpsc::Receiver<Option<(Vec<u8>, bool)>>,
+                         in_init: Arc<(Mutex<usize>, Condvar)>,
+                         policy: Arc<RwLock<StandardPolicy<'static>>>) {
+        rnp_function!(KeystoreData::background_thread, super::TRACE);
 
         let mut keyring_tag: Option<gpg::CacheTag> = None;
         let mut gpg_ctx: Option<gpg::Ctx> = None;
@@ -791,7 +793,7 @@ impl KeystoreData {
                 },
                 Ok(elapsed) => {
                     if elapsed < Duration::new(90, 0) {
-                        t!("Throttling gpg_thread.");
+                        t!("Throttling background_thread.");
                         continue;
                     }
                 }
