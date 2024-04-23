@@ -454,9 +454,9 @@ pub fn import(ctx: &Ctx, what: &[u8]) -> Result<()> {
 }
 
 pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&CacheTag>)
-    -> Result<(String, CacheTag)>
+    -> Result<(Vec<u8>, CacheTag)>
 {
-    let doit = || -> Result<(String, CacheTag)> {
+    let doit = || -> Result<(Vec<u8>, CacheTag)> {
         let tag = CacheTag::new(ctx)?;
         if let Some(if_changed) = if_changed {
             if tag.metadata_eq(if_changed) {
@@ -473,7 +473,6 @@ pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&CacheTag>)
             .stderr(Stdio::null())
             .arg("--homedir")
             .arg(ctx.directory("homedir")?)
-            .arg("--armor")
             .arg("--export-options")
             .arg("export-local-sigs")
             .arg("--export");
@@ -491,7 +490,7 @@ pub fn export(ctx: &Ctx, search: Option<&str>, if_changed: Option<&CacheTag>)
             }
         }
 
-        Ok((String::from_utf8_lossy(&gpg.stdout).into_owned(), tag))
+        Ok((gpg.stdout, tag))
     };
 
     Ok(doit()?)

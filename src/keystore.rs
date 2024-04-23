@@ -833,7 +833,7 @@ impl KeystoreData {
 
 
                         if let Err(err) = KeystoreData::load_keyring(
-                            &ks, keyring.as_bytes(), false, true)
+                            &ks, &keyring, false, true)
                         {
                             warn!("Loading keyring: {}", err);
                         }
