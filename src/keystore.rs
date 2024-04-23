@@ -723,31 +723,40 @@ impl KeystoreData {
                          policy: Arc<RwLock<StandardPolicy<'static>>>) {
         rnp_function!(KeystoreData::background_thread, super::TRACE);
 
-        let mut keyring_tag: Option<gpg::CacheTag> = None;
-        let mut gpg_ctx: Option<gpg::Ctx> = None;
-
         let mut wot = match WoT::new() {
             Ok(wot) => Some(wot),
             Err(_e) => None, // FIXME
         };
 
-        let mut last_check = std::time::UNIX_EPOCH;
-        let mut first_time = true;
-        let mut check_now = true;
+        struct GpgState {
+            last_check: std::time::SystemTime,
+            first_time: bool,
+            check_now: bool,
+            keyring_tag: Option<gpg::CacheTag>,
+            ctx: Option<gpg::Ctx>,
+        }
+
+        let mut gpg = GpgState {
+            last_check: std::time::UNIX_EPOCH,
+            first_time: true,
+            check_now: true,
+            keyring_tag: None,
+            ctx: None,
+        };
         loop {
             // About once an hour (but not quite to avoid possible
             // resonance).  The first time through, we don't import
             // the keyring.  We did that from the main thread, because
             // reasons.
-            let timeout = if check_now {
+            let timeout = if gpg.check_now {
                 Duration::new(0, 0)
             } else {
                 let threshold = Duration::new(61 * 60, 0);
-                let elapsed = SystemTime::now().duration_since(last_check)
+                let elapsed = SystemTime::now().duration_since(gpg.last_check)
                     .unwrap_or_else(|_| {
                         // Clock skew?  Who knows.  Just wait a bit
                         // and try again.
-                        last_check = SystemTime::now();
+                        gpg.last_check = SystemTime::now();
                         Duration::new(0, 0)
                     });
                 if elapsed > threshold {
@@ -785,7 +794,7 @@ impl KeystoreData {
                 }
 
                 Ok(BackgroundCommand::LoadGnuPGKeyring) => {
-                    check_now = true;
+                    gpg.check_now = true;
                     // We loop to drain the message queue.
                     continue;
                 },
@@ -798,10 +807,10 @@ impl KeystoreData {
                 }
             }
 
-            check_now = false;
+            gpg.check_now = false;
 
             let now = SystemTime::now();
-            let elapsed = now.duration_since(last_check);
+            let elapsed = now.duration_since(gpg.last_check);
             match elapsed {
                 Err(err) => {
                     t!("Error computing time since last update: {}", err);
@@ -809,27 +818,27 @@ impl KeystoreData {
                 },
                 Ok(elapsed) => {
                     if elapsed < Duration::new(90, 0) {
-                        t!("Throttling background_thread.");
+                        t!("Throttling GnuPG certstore updates.");
                         continue;
                     }
                 }
             }
 
-            if gpg_ctx.is_none() {
+            if gpg.ctx.is_none() {
                 // See if the user install gpg in the meantime.
-                gpg_ctx = gpg::Ctx::new().ok();
+                gpg.ctx = gpg::Ctx::new().ok();
             }
-            if let Some(gpg_ctx) = gpg_ctx.as_ref() {
+            if let Some(gpg_ctx) = gpg.ctx.as_ref() {
                 t!("Checking for gpg updates (last check was: {:?} ago)...",
                    elapsed);
 
                 // Import the gpg keyring.
                 match gpg::export(
-                    gpg_ctx, None, keyring_tag.as_ref())
+                    gpg_ctx, None, gpg.keyring_tag.as_ref())
                 {
                     Ok((keyring, keyring_tag_tmp)) => {
                         t!("Got {} bytes", keyring.len());
-                        keyring_tag = Some(keyring_tag_tmp);
+                        gpg.keyring_tag = Some(keyring_tag_tmp);
 
 
                         if let Err(err) = KeystoreData::load_keyring(
@@ -844,8 +853,8 @@ impl KeystoreData {
                 }
             }
 
-            if first_time {
-                first_time = false;
+            if gpg.first_time {
+                gpg.first_time = false;
 
                 let mut background_busy_ = background_busy.0.lock().unwrap();
                 assert!(*background_busy_ > 0);
@@ -865,7 +874,7 @@ impl KeystoreData {
                 }
             }
 
-            last_check = SystemTime::now();
+            gpg.last_check = SystemTime::now();
         }
     }
 
