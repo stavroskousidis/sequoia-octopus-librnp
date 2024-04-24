@@ -127,7 +127,7 @@ pub struct KeystoreData {
     // store a reference.  Right now that function is only used
     // outside of the Keystore to lock and unlock secret key material.
     // But, since this is just a safety measure, this is good enough.
-    last_update: Arc<AtomicUsize>,
+    last_update: AtomicUsize,
 
     // The location of the keystore.  If set, the keystore is
     // periodically flushed to disk in the background.
@@ -153,7 +153,7 @@ impl Default for KeystoreData {
             keys_on_agent_last_refresh: std::time::UNIX_EPOCH,
             keys_on_agent_tag: None,
 
-            last_update: Arc::new(AtomicUsize::new(0)),
+            last_update: AtomicUsize::new(0),
 
             directory: None,
             flush_thread: None,
