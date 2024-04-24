@@ -29,6 +29,13 @@ pub struct WoT {
     conn: rusqlite::Connection,
     _gpg_ctx: gpg::Ctx,
     last_update: SystemTime,
+
+    /// Known last_update stamp from the KeyStore.
+    last_keystore_update: usize,
+
+    /// Time at which our WoT calculation possibly go stale and need
+    /// to be recomputed, provided the KeyStore wasn't modified.
+    next_wot_change_at: Option<SystemTime>,
 }
 
 impl WoT {
@@ -125,6 +132,8 @@ impl WoT {
             _gpg_ctx: gpg_ctx,
             conn,
             last_update: std::time::UNIX_EPOCH,
+            last_keystore_update: 0,
+            next_wot_change_at: None,
         })
     }
 
@@ -150,16 +159,79 @@ impl WoT {
             }
         }
 
-        t!("Checking for WoT updates...");
+        // Read lock the key store, do a scan across the certs, and
+        // release it as soon as possible.
+        let keystore_data = ksd.read().unwrap();
+
+        // Check the stored key store timestamp.
+        let last_keystore_update = keystore_data.last_update();
+        if self.last_keystore_update == last_keystore_update
+            && self.next_wot_change_at.map(|t| now < t).unwrap_or(false)
+        {
+            t!("Keystore has not changed, and no known cert component \
+                or signature could have possibly changed, skipping.");
+            return Ok(());
+        }
+
+        // We compute the next time at which a cert component or
+        // signature is valid or invalid.
+        let mut next_wot_change_at: SystemTime =
+            openpgp::types::Timestamp::from(u32::MAX).into();
 
         // We clone the certificates in the key store to be able to drop the
         // keystore lock as soon as possible.
-        let keystore_data = ksd.read().unwrap();
         let certs: Vec<Cert> = keystore_data.iter()
-            .map(|c| (*c).clone())
+            .map(|c| {
+                // Considers time `t`.
+                let mut consider = |t| {
+                    if t > now && t < next_wot_change_at {
+                        next_wot_change_at = t;
+                    }
+                };
+
+                // All possible certification (sub)keys.
+                for skb in c.keys().filter(|k| k.pk_algo().for_signing()) {
+                    for sig in skb.signatures() {
+                        consider(sig.signature_creation_time().unwrap());
+                        if let Some(t) = sig.signature_expiration_time() {
+                            consider(t);
+                        }
+                        if let Some(t) = sig.key_expiration_time(skb.key()) {
+                            consider(t);
+                        }
+                    }
+                }
+
+                // All possible certification user IDs.
+                for sig in c.userids().flat_map(|u| u.signatures()) {
+                    consider(sig.signature_creation_time().unwrap());
+                    if let Some(t) = sig.signature_expiration_time() {
+                        consider(t);
+                    }
+                    if let Some(t) = sig.key_expiration_time(&c.primary_key()) {
+                        consider(t);
+                    }
+                }
+
+                // All possible certification user attributes.
+                for sig in c.user_attributes().flat_map(|u| u.signatures()) {
+                    consider(sig.signature_creation_time().unwrap());
+                    if let Some(t) = sig.signature_expiration_time() {
+                        consider(t);
+                    }
+                    if let Some(t) = sig.key_expiration_time(&c.primary_key()) {
+                        consider(t);
+                    }
+                }
+
+                (*c).clone()
+            })
             .collect();
+
+        // Drop the lock.
         drop(keystore_data);
 
+        t!("Checking for WoT updates...");
         t!("Keystore size: {}", certs.len());
 
         let reference_time = SystemTime::now();
@@ -325,6 +397,8 @@ impl WoT {
         tx.commit()?;
 
         self.last_update = SystemTime::now();
+        self.last_keystore_update = last_keystore_update;
+        self.next_wot_change_at = Some(next_wot_change_at);
 
         Ok(())
     }
