@@ -28,6 +28,9 @@ use openpgp::{
     types::HashAlgorithm,
 };
 
+/// Controls tracing in this module.
+const TRACE: bool = crate::TRACE;
+
 // Setting this to false will cause the creation of a context to fail.
 const ENABLE_GPG: bool = true;
 
@@ -725,7 +728,7 @@ pub fn list_validity(ctx: &Ctx, filter: Option<String>,
                      if_changed: Option<&CacheTag>)
     -> Result<(Vec<(Fingerprint, Vec<(String, Validity)>)>, CacheTag)>
 {
-    rnp_function!(gpg::list_validity, super::TRACE);
+    rnp_function!(gpg::list_validity, TRACE);
 
     let (res, tag) = list_keys_raw(&ctx, false, filter, if_changed)?;
 
@@ -806,7 +809,7 @@ pub fn list_secret_keys(ctx: &Ctx, filter: Option<String>,
                         if_changed: Option<&CacheTag>)
     -> Result<(Vec<(Fingerprint, Fingerprint)>, CacheTag)>
 {
-    rnp_function!(gpg::list_secret_keys, super::TRACE);
+    rnp_function!(gpg::list_secret_keys, TRACE);
 
     let (res, tag) = list_keys_raw(&ctx, true, filter, if_changed)?;
     let secret_keys = list_secret_keys_parse(res)?;
@@ -817,7 +820,7 @@ pub fn list_secret_keys(ctx: &Ctx, filter: Option<String>,
 pub fn list_secret_keys_parse(res: Vec<csv::StringRecord>)
     -> Result<Vec<(Fingerprint, Fingerprint)>>
 {
-    rnp_function!(gpg::list_secret_keys_parse, super::TRACE);
+    rnp_function!(gpg::list_secret_keys_parse, TRACE);
 
     let mut secret_keys: Vec<(Fingerprint, Fingerprint)> = Vec::new();
 

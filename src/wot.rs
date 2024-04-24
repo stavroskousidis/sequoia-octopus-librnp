@@ -22,6 +22,9 @@ use crate::gpg::Validity;
 use crate::keystore::KeystoreData;
 use crate::tbprofile::TBProfile;
 
+/// Controls tracing in this module.
+const TRACE: bool = crate::TRACE;
+
 pub struct WoT {
     conn: rusqlite::Connection,
     _gpg_ctx: gpg::Ctx,
@@ -130,7 +133,7 @@ impl WoT {
     // Carefully update TB's acceptance DB with GPG's validity.
     pub fn update(&mut self, ksd: Arc<RwLock<KeystoreData>>, p: &dyn Policy) -> openpgp::Result<()>
     {
-        rnp_function!(WoT::update, super::TRACE);
+        rnp_function!(WoT::update, TRACE);
 
         let now = SystemTime::now();
         let elapsed = now.duration_since(self.last_update);
@@ -334,7 +337,7 @@ impl WoT {
                        validity: Vec<(Fingerprint, Vec<(String, gpg::Validity)>)>)
                        -> openpgp::Result<()>
     {
-        rnp_function!(WoT::import_validity, super::TRACE);
+        rnp_function!(WoT::import_validity, TRACE);
 
         // First, remove all assertions managed by sequoia
         // (they will get re-added below, if they are still valid).

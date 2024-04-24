@@ -11,6 +11,9 @@ use std::time::{SystemTime, Duration, UNIX_EPOCH};
 
 use sequoia_openpgp as openpgp;
 
+/// Controls tracing in this module.
+const TRACE: bool = crate::TRACE;
+
 // https://docs.rs/app_dirs/1.2.1/app_dirs/
 
 const PROFILES_INI: &[&'static str] = &[
@@ -147,7 +150,7 @@ impl TBProfile {
     fn find(mut tbprofile: MutexGuard<Option<TBProfile>>)
         -> openpgp::Result<Option<PathBuf>>
     {
-        rnp_function!(TBProfile::path, super::TRACE);
+        rnp_function!(TBProfile::path, TRACE);
         assert!(tbprofile.is_none());
 
         let prefix = if cfg!(windows) {
@@ -302,7 +305,7 @@ impl TBProfile {
                                      Option<SystemTime>)>)
         -> Self
     {
-        rnp_function!(TBProfile::select_profile, super::TRACE);
+        rnp_function!(TBProfile::select_profile, TRACE);
 
         // XXX: What's the format of the lock file on windows?
         #[cfg(windows)]

@@ -47,6 +47,9 @@ use crate::{
     wot::WoT,
 };
 
+/// Controls tracing in this module.
+const TRACE: bool = crate::TRACE;
+
 #[derive(Debug)]
 struct MapEntry<E: std::fmt::Debug> {
     cert: Arc<RwLock<Cert>>,
@@ -362,7 +365,7 @@ impl Keystore {
                             policy: Arc<RwLock<StandardPolicy<'static>>>)
         -> openpgp::Result<()>
     {
-        rnp_function!(Keystore::load_gpg_keyring, super::TRACE);
+        rnp_function!(Keystore::load_gpg_keyring, TRACE);
 
         if !self.background_thread_start(policy)? {
             // If we just started the thread, then it will read the
@@ -384,7 +387,7 @@ impl Keystore {
                                       policy: Arc<RwLock<StandardPolicy<'static>>>)
         -> openpgp::Result<()>
     {
-        rnp_function!(Keystore::load_keyring_in_background, super::TRACE);
+        rnp_function!(Keystore::load_keyring_in_background, TRACE);
 
         if let Err(err) = self.background_thread_start(policy) {
             warn!("Failed to start gpg thread: {}", err);
@@ -414,7 +417,7 @@ impl Keystore {
     pub fn block_on_load(&mut self) -> openpgp::Result<bool> {
         // We do *not* start the gpg thread if it is not already
         // running.  This must only be done by rnp_load_keys.
-        rnp_function!(Keystore::block_on_load, super::TRACE);
+        rnp_function!(Keystore::block_on_load, TRACE);
 
         let background_busy = self.background_busy.0.lock().unwrap();
         if *background_busy == 0 {
@@ -558,7 +561,7 @@ impl fmt::Debug for KeystoreData {
 impl KeystoreData {
     // Periodically flush the key store to disk.
     fn flush_thread(ks: Arc<RwLock<Self>>) {
-        rnp_function!(KeystoreData::flush_thread, super::TRACE);
+        rnp_function!(KeystoreData::flush_thread, TRACE);
         let mut last_flush = 0;
 
         loop {
@@ -678,7 +681,7 @@ impl KeystoreData {
                     keyring: &[u8], import_secret_keys: bool, external: bool)
         -> openpgp::Result<()>
     {
-        rnp_function!(KeystoreData::load_keyring, super::TRACE);
+        rnp_function!(KeystoreData::load_keyring, TRACE);
 
         // Parse the keyring without the lock.
         use sequoia_openpgp_mt::keyring;
@@ -730,7 +733,7 @@ impl KeystoreData {
                          receiver: mpsc::Receiver<BackgroundCommand>,
                          background_busy: Arc<(Mutex<usize>, Condvar)>,
                          policy: Arc<RwLock<StandardPolicy<'static>>>) {
-        rnp_function!(KeystoreData::background_thread, super::TRACE);
+        rnp_function!(KeystoreData::background_thread, TRACE);
 
         let mut wot = match WoT::new() {
             Ok(wot) => Some(wot),
@@ -889,7 +892,7 @@ impl KeystoreData {
 
     /// Returns a reference to a gpg::Ctx.
     fn gpg_ctx(&mut self) -> Option<&gpg::Ctx> {
-        rnp_function!(KeystoreData::gpg_ctx, super::TRACE);
+        rnp_function!(KeystoreData::gpg_ctx, TRACE);
 
         if self.gpg_ctx.is_none() {
             match gpg::Ctx::new() {
@@ -905,7 +908,7 @@ impl KeystoreData {
     ///
     /// This always tries to refresh the cache first.
     pub fn key_on_agent_hard(&mut self, key: &Fingerprint) -> bool {
-        rnp_function!(KeystoreData::key_on_agent_hard, super::TRACE);
+        rnp_function!(KeystoreData::key_on_agent_hard, TRACE);
 
         self.gpg_ctx();
         if let Some(ctx) = self.gpg_ctx.as_ref() {
@@ -949,7 +952,7 @@ impl KeystoreData {
     /// The calls are split so that this function doesn't need a write
     /// lock.
     pub fn key_on_agent(&self, key: &Fingerprint) -> (bool, bool) {
-        rnp_function!(KeystoreData::key_on_agent, super::TRACE);
+        rnp_function!(KeystoreData::key_on_agent, TRACE);
 
         let now = SystemTime::now();
         let elapsed = now.duration_since(self.keys_on_agent_last_refresh);
@@ -1104,7 +1107,7 @@ impl KeystoreData {
     /// This function prefers secret key material in the cert that is
     /// being merged.
     fn insert_(&mut self, cert: Cert, is_external: bool) {
-        rnp_function!(Keystore::insert_, super::TRACE);
+        rnp_function!(Keystore::insert_, TRACE);
 
         let fp = cert.fingerprint();
         let id = KeyID::from(&fp);

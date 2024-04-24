@@ -52,6 +52,9 @@ use crate::{
     error::*,
 };
 
+/// Controls tracing in this module.
+const TRACE: bool = crate::TRACE;
+
 pub struct RnpOpVerify<'a> {
     ctx: &'a mut RnpContext,
     input: &'a mut RnpInput,
@@ -555,7 +558,7 @@ impl<'a> VerificationHelper for Helper<'a> {
     }
 
     fn check(&mut self, structure: MessageStructure) -> openpgp::Result<()> {
-        rnp_function!(Helper::check, super::TRACE);
+        rnp_function!(Helper::check, TRACE);
 
         use self::VerificationError::*;
 

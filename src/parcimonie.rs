@@ -79,6 +79,9 @@ use rand_distr::{Poisson, Distribution};
 use crate::Keystore;
 use crate::keystore::KeystoreData;
 
+/// Controls tracing in this module.
+const TRACE: bool = crate::TRACE;
+
 // This is a simple heuristic to check whether a certificate might be
 // flooded.  If a User ID or attribute has more than this number of
 // third-party certificates that we prune ones that are not useful.
@@ -126,10 +129,10 @@ impl<P: Policy + 'static> ParcimonieServer<P> {
     }
 
     fn run(mut self) {
-        rnp_function!(ParcimonieServer::run, super::TRACE);
+        rnp_function!(ParcimonieServer::run, TRACE);
 
         // Sleep for a while to avoid interfering with TB's startup.
-        let delay = if super::TRACE { 30 } else { 5 * 60 };
+        let delay = if TRACE { 30 } else { 5 * 60 };
         thread::sleep(Duration::new(delay, 0));
 
         let rt = tokio::runtime::Runtime::new()
@@ -145,7 +148,7 @@ impl<P: Policy + 'static> ParcimonieServer<P> {
     }
 
     async fn worker(&mut self) -> openpgp::Result<()> {
-        rnp_function!(Parcimonie::woker, super::TRACE);
+        rnp_function!(Parcimonie::woker, TRACE);
 
         let mut rng = rand::thread_rng();
 
@@ -389,7 +392,7 @@ impl<P: Policy + 'static> ParcimonieServer<P> {
     ///
     /// This function takes a read lock on the keystore.
     fn clean(&self, cert: Cert) -> Option<Cert> {
-        rnp_function!(Parcimonie::clean, super::TRACE);
+        rnp_function!(Parcimonie::clean, TRACE);
         use std::collections::HashMap;
         use std::collections::hash_map::Entry;
 
