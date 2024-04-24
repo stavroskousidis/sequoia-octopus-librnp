@@ -413,7 +413,6 @@ macro_rules! rnp_function {
                 crate::THUNDERBIRD_WORKAROUND
             }};
         }
-        t!("Entering function");
     };
 }
 
