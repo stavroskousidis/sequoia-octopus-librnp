@@ -683,11 +683,6 @@ fn rnp_load_keys(ctx: *mut RnpContext,
                 warn!("Import gpg's keyring: {}", err);
             }
 
-            // Enable the WoT functionality.
-            if let Err(err) = (*ctx).certs.enable_wot(&(*ctx).policy()) {
-                warn!("Enabling the WoT functionality: {}", err);
-            }
-
             rnp_try_or!((*ctx).certs.start_parcimonie((*ctx).policy().clone()),
                         RNP_ERROR_GENERIC);
         }

@@ -419,7 +419,7 @@ macro_rules! rnp_function {
 macro_rules! global_warn {
     ( $fmt: expr $(, $a: expr )* ) => {
         log!(concat!("sequoia-octopus: ", $fmt)
-             $(, $a )*);
+             $(, $a )*)
     };
 }
 

@@ -1,7 +1,9 @@
 use std::collections::HashSet;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::time::Duration;
 use std::time::SystemTime;
+
+use anyhow::Result;
 
 use rusqlite::{
     Connection,
@@ -13,7 +15,7 @@ use rusqlite::{
 use sequoia_openpgp as openpgp;
 use openpgp::{Cert, Fingerprint};
 use openpgp::packet::UserID;
-use sequoia_openpgp::policy::Policy;
+use sequoia_openpgp::policy::StandardPolicy;
 use sequoia_wot::{Root, Roots, store::Store};
 
 
@@ -25,7 +27,49 @@ use crate::tbprofile::TBProfile;
 /// Controls tracing in this module.
 const TRACE: bool = crate::TRACE;
 
+/// Handle for communication with the background thread.
+#[derive(Clone)]
+pub struct WoTWorkerHandle {
+    cond: Arc<(Mutex<bool>, Condvar)>,
+}
+
+impl WoTWorkerHandle {
+    /// Constructs a new handle.
+    fn new() -> Self {
+        Self {
+            cond: Arc::new((Mutex::new(false), Condvar::new())),
+        }
+    }
+
+    /// Blocks the current thread until it is notified, or the given
+    /// timeout elapsed.
+    fn wait_for(&self, timeout: Duration) {
+        let (mut notified, _) = self.cond.1.wait_timeout_while(
+            self.cond.0.lock().unwrap(), timeout,
+            |notified| ! *notified).unwrap();
+        *notified = false;
+    }
+
+    /// Wakes the background thread to do a WoT update.
+    ///
+    /// If the background thread is currently doing an update, it
+    /// will, after completing the current update, immediately
+    /// consider doing an update again, unless the result could not
+    /// possibly have changed.
+    pub fn notify(&self) {
+        let mut notified = self.cond.0.lock().unwrap();
+        *notified = true;
+        self.cond.1.notify_one();
+    }
+}
+
 pub struct WoT {
+    /// Handle for communication with the background thread.
+    handle: WoTWorkerHandle,
+
+    ksd: Arc<RwLock<KeystoreData>>,
+    policy: Arc<RwLock<StandardPolicy<'static>>>,
+
     conn: rusqlite::Connection,
     _gpg_ctx: gpg::Ctx,
 
@@ -38,10 +82,38 @@ pub struct WoT {
 }
 
 impl WoT {
+    /// Starts the Web-of-Trust background thread.
+    ///
+    /// If we don't have or don't find a Profile directory, or if the
+    /// acceptance database doesn't match our expectations, we will
+    /// emit a warning, ignore the error, and still return a
+    /// `WoTWorkerHandle` which can be notified, but that will have no
+    /// effect.
+    pub fn background_thread_start(ksd: Arc<RwLock<KeystoreData>>,
+                                   policy: Arc<RwLock<StandardPolicy<'static>>>)
+                                   -> Result<WoTWorkerHandle>
+    {
+        let handle = WoTWorkerHandle::new();
+
+        match Self::new(handle.clone(), ksd, policy) {
+            Ok(mut wot) => {
+                std::thread::Builder::new().name("sq wot".to_string())
+                    .spawn(move || wot.background_thread())?;
+            },
+            Err(e) => global_warn!("{}", e),
+        }
+
+        Ok(handle)
+    }
+
     // Return a locked WoTData.
     //
     // If WoT hasn't been initialized, do it now.
-    pub(crate) fn new() -> openpgp::Result<WoT> {
+    fn new(handle: WoTWorkerHandle,
+           ksd: Arc<RwLock<KeystoreData>>,
+           policy: Arc<RwLock<StandardPolicy<'static>>>)
+           -> Result<WoT>
+    {
         let gpg_ctx = gpg::Ctx::new()?;
 
         let path = TBProfile::path()
@@ -66,7 +138,6 @@ impl WoT {
                 let err = err.context(
                     "openpgp.sqlite: \
                      Unexpected schema (querying acceptance_email)");
-                global_warn!("openpgp.sqlite: {}", err);
                 err
             })?;
         conn.query_row("SELECT fpr, decision FROM acceptance_decision LIMIT 1",
@@ -77,7 +148,6 @@ impl WoT {
                 let err = err.context(
                     "openpgp.sqlite:\
                      Unexpected schema (querying acceptance_decision)");
-                global_warn!("openpgp.sqlite: {}", err);
                 err
             })?;
 
@@ -128,6 +198,9 @@ impl WoT {
         tx.commit()?;
 
         Ok(WoT {
+            handle,
+            ksd,
+            policy,
             _gpg_ctx: gpg_ctx,
             conn,
             last_keystore_update: 0,
@@ -135,16 +208,32 @@ impl WoT {
         })
     }
 
+    fn background_thread(&mut self) -> ! {
+        rnp_function!(WoT::background_thread, TRACE);
+        loop {
+            let now = SystemTime::now();
+            let t = self.next_wot_change_at.as_ref()
+                .and_then(|t| t.duration_since(now).ok())
+                .unwrap_or(Duration::new(0, 0));
+            t!("Blocking for {:?}", t);
+            self.handle.wait_for(t);
+
+            if let Err(e) = self.update(now) {
+                eprintln!(
+                    "sequoia-octopus: error in WoT background thread: {}", e);
+            }
+        }
+    }
+
     // Do an update of the WoT validities.
     //
     // Carefully update TB's acceptance DB with GPG's validity.
-    pub fn update(&mut self, ksd: Arc<RwLock<KeystoreData>>, p: &dyn Policy) -> openpgp::Result<()>
-    {
+    fn update(&mut self, now: SystemTime) -> Result<()> {
         rnp_function!(WoT::update, TRACE);
 
         // Read lock the key store, do a scan across the certs, and
         // release it as soon as possible.
-        let keystore_data = ksd.read().unwrap();
+        let keystore_data = self.ksd.read().unwrap();
 
         // Check the stored key store timestamp.
         let last_keystore_update = keystore_data.last_update();
@@ -248,8 +337,9 @@ impl WoT {
         let roots = Roots::new(trust_roots.clone());
         t!("Trust roots (ultimate ownertrust): {:?}", roots);
 
+        let policy = (*self.policy.read().unwrap()).clone();
         let network = sequoia_wot::Network::from_cert_refs(
-            &certs, &*p, reference_time).unwrap();
+            &certs, &policy, reference_time).unwrap();
         let mut query =
             sequoia_wot::Query::new(&network, roots);
 
@@ -323,11 +413,12 @@ impl WoT {
             }
         }
 
+        let start = SystemTime::now();
         let validity: Vec<(Fingerprint, Vec<(String, Validity)>)> =
             certs.iter().map(|c| {
                 let fp = c.fingerprint();
                 let userids: Vec<(String, Validity)> =
-                    c.with_policy(&*p, reference_time).map(|vc| {
+                    c.with_policy(&policy, reference_time).map(|vc| {
                         vc.userids().filter_map(|uid| {
                             if let Ok(s) = String::from_utf8(uid.value().to_vec()) {
                                 let paths = query.authenticate(
@@ -350,8 +441,11 @@ impl WoT {
                     }).unwrap_or(vec![]);
                 (fp, userids)
             }).collect();
-
-        t!("sequoia-wot validities: {:#?}", validity);
+        if let Ok(elapsed) = start.elapsed() {
+            t!("processed {} certs in {:?}, {:?} per cert",
+               validity.len(), elapsed,
+               elapsed.checked_div(validity.len() as u32).unwrap_or(Duration::new(0, 0)));
+        }
 
         let mut tx = self.conn.transaction()?;
 
@@ -382,6 +476,8 @@ impl WoT {
         self.last_keystore_update = last_keystore_update;
         self.next_wot_change_at = Some(next_wot_change_at);
 
+        t!("last_keystore_update: {}, next_wot_change_at: {:?}",
+           self.last_keystore_update, self.next_wot_change_at);
         Ok(())
     }
 

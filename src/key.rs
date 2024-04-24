@@ -247,10 +247,11 @@ fn rnp_locate_key(ctx: *mut RnpContext,
     t!("Locating key by {:?}", id);
 
     // Thunderbird is looking up an identifier.  Now is a good time to
-    // check for WoT updates.
-    if let Err(err) = (*ctx).certs.update_wot(&(*ctx).policy()) {
-        t!("Performed wot update: {}", err);
-    }
+    // check for WoT updates.  However, we cannot stall our caller,
+    // hence we schedule a background job and wait for a little while.
+    rnp_try_or!(
+        (*ctx).certs.update_wot_in_background((*ctx).policy.clone()),
+        Error::Generic.into());
 
     // (*ctx).cert also takes a read lock.  But we need to keep the
     // key store locked for when we look up the matching certificate's

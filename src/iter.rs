@@ -31,18 +31,18 @@ fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
     let typ = rnp_try!(RnpIdentifierType::from_rnp_id(typ));
     t!("type = {:?}", typ);
 
-    // Thunderbird is doing a scan.  Now is a good time to check for
-    // WoT updates.
-    let policy = (*ctx).policy().clone();
-    if let Err(err) = (*ctx).certs.update_wot(&policy) {
-        t!("Performed wot update: {}", err);
-    }
-
     // We load the keyrings in the background.  But, once TB tries to
     // do a scan, we have to wait: it creates an index, which it never
     // updates on its own, and we want it to include all known
     // certificates.
     let _ = ctx.certs.block_on_load();
+
+    // Thunderbird is doing a scan.  Now is a good time to check for
+    // WoT updates.  However, we cannot stall our caller, hence we
+    // schedule a background job and wait for a little while.
+    rnp_try_or!(
+        (*ctx).certs.update_wot_in_background((*ctx).policy.clone()),
+        Error::Generic.into());
 
     // There are a few good reasons why we eagerly evaluate the
     // iterator:

@@ -44,7 +44,7 @@ use crate::{
     gpg,
     Keygrip,
     parcimonie::Parcimonie,
-    wot::WoT,
+    wot::{WoT, WoTWorkerHandle},
 };
 
 /// Controls tracing in this module.
@@ -172,14 +172,6 @@ pub struct Keystore {
     data: Arc<RwLock<KeystoreData>>,
     parcimonie: Option<Parcimonie>,
 
-    // The wot functionality gets enabled for the 'main' context, not for
-    // ephemeral RnpContexts. Wot calculations are only done for the 'main'
-    // context.
-    //
-    // We assume rnp_load_keys() is only used by the 'main' context, so wot
-    // gets initialized there.
-    wot : Option<WoT>,
-
     /// Write-side of a channel to send commands to the background thread.
     background_sender:
     Option<Arc<Mutex<mpsc::Sender<BackgroundCommand>>>>,
@@ -188,6 +180,9 @@ pub struct Keystore {
     // See Keystore::load_keyring_in_background and
     // Keystore::block_on_load.
     background_busy: Arc<(Mutex<usize>, Condvar)>,
+
+    /// Controls the WoT worker thread.
+    wot_handle: Option<WoTWorkerHandle>,
 }
 
 enum BackgroundCommand {
@@ -207,10 +202,9 @@ impl Default for Keystore {
             data: Arc::new(RwLock::new(Default::default())),
             parcimonie: None,
 
-            wot: None,
-
             background_sender: None,
             background_busy: Arc::new((Mutex::new(0), Condvar::new())),
+            wot_handle: None,
         }
     }
 }
@@ -235,29 +229,6 @@ impl Keystore {
         if self.parcimonie.is_none() {
             self.parcimonie = Some(Parcimonie::new(policy, self)?);
         }
-        Ok(())
-    }
-
-    pub fn enable_wot(&mut self, policy: &StandardPolicy<'static>)
-        -> openpgp::Result<()>
-    {
-        let mut wot = WoT::new()?;
-        wot.update(self.create_ref(), policy)?;
-
-        self.wot = Some(wot);
-
-        Ok(())
-    }
-
-    pub fn update_wot(&mut self, policy: &StandardPolicy<'static>)
-        -> openpgp::Result<()>
-    {
-        let ksd = self.create_ref();
-
-        if let Some(ref mut wot) = self.wot {
-            wot.update(ksd, policy)?;
-        }
-
         Ok(())
     }
 
@@ -329,6 +300,11 @@ impl Keystore {
             return Ok(false);
         }
         assert!(ks.background_thread.is_none());
+        assert!(self.background_sender.is_none());
+        assert!(self.wot_handle.is_none());
+
+        let wot_handle =
+            WoT::background_thread_start(self.create_ref(), policy.clone())?;
 
         let ks_ref = self.create_ref();
         let (sender, receiver) = mpsc::channel();
@@ -342,13 +318,14 @@ impl Keystore {
         *background_busy_ += 1;
         drop(background_busy_);
 
+        let wh = wot_handle.clone();
         ks.background_thread
             = Some(thread::Builder::new().name("sq loader".to_string())
-                   .spawn(move || {
-                KeystoreData::background_thread(ks_ref, receiver, background_busy, policy);
-            })?);
+                   .spawn(move || KeystoreData::background_thread(
+                       ks_ref, wh,receiver, background_busy))?);
 
         self.background_sender = Some(Arc::new(Mutex::new(sender)));
+        self.wot_handle = Some(wot_handle);
 
         Ok(true)
     }
@@ -403,6 +380,18 @@ impl Keystore {
                     import_secret_keys,
                 })?;
         }
+
+        Ok(())
+    }
+
+    /// Updates the Web-of-Trust information in the background.
+    pub fn update_wot_in_background(&mut self,
+                                    policy: Arc<RwLock<StandardPolicy<'static>>>)
+                                    -> openpgp::Result<()> {
+        rnp_function!(Keystore::update_wot_in_background, super::TRACE);
+
+        self.background_thread_start(policy)?;
+        self.wot_handle.as_ref().expect("started thread").notify();
 
         Ok(())
     }
@@ -741,15 +730,10 @@ impl KeystoreData {
     /// updates, reads certificates in the background, and updates the
     /// Web-of-Trust calculations.
     fn background_thread(ks: Arc<RwLock<Self>>,
+                         wot_handle: WoTWorkerHandle,
                          receiver: mpsc::Receiver<BackgroundCommand>,
-                         background_busy: Arc<(Mutex<usize>, Condvar)>,
-                         policy: Arc<RwLock<StandardPolicy<'static>>>) {
+                         background_busy: Arc<(Mutex<usize>, Condvar)>) {
         rnp_function!(KeystoreData::background_thread, TRACE);
-
-        let mut wot = match WoT::new() {
-            Ok(wot) => Some(wot),
-            Err(_e) => None, // FIXME
-        };
 
         struct GpgState {
             last_check: std::time::SystemTime,
@@ -888,14 +872,8 @@ impl KeystoreData {
                 drop(background_busy_);
             }
 
-            // perform WoT update
-            if let Some(ref mut wot) = wot {
-                let p = policy.read().unwrap();
-                if let Err(err) = wot.update(ks.clone(), &*p) {
-                    eprintln!("Updating web of trust judgments from gpg: {}",
-                              err);
-                }
-            }
+            // Trigger a WoT update.
+            wot_handle.notify();
 
             gpg.last_check = SystemTime::now();
         }
