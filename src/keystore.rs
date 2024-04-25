@@ -349,7 +349,7 @@ impl Keystore {
     ///
     /// This also starts a thread to monitor the gpg store.  This
     /// imports updates from the gpg keyring (XXX: but not removals!).
-    pub fn load_gpg_keyring(&mut self,
+    pub fn load_gpg_keyring_in_background(&mut self,
                             policy: Arc<RwLock<StandardPolicy<'static>>>)
         -> openpgp::Result<()>
     {

@@ -676,7 +676,9 @@ fn rnp_load_keys(ctx: *mut RnpContext,
             }
 
             // Also load GPG's public key database.
-            if let Err(err) = (*ctx).certs.load_gpg_keyring((*ctx).policy.clone()) {
+            if let Err(err) = (*ctx).certs.load_gpg_keyring_in_background(
+                (*ctx).policy.clone())
+            {
                 warn!("Import gpg's keyring: {}", err);
             }
 
