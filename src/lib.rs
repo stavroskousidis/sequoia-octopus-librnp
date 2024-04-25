@@ -665,7 +665,8 @@ fn rnp_load_keys(ctx: *mut RnpContext,
                         if input_size == file_size {
                             t!("Looks like a match.  Periodically flushing \
                                 the keystore to disk.");
-                            (*ctx).certs.set_directory(profile);
+                            rnp_try_or!((*ctx).certs.set_directory(profile),
+                                        RNP_ERROR_GENERIC);
                         } else {
                             t!("pubring.gpg does not match input.  \
                                 Conservatively disabling flushing the \
@@ -687,7 +688,8 @@ fn rnp_load_keys(ctx: *mut RnpContext,
                 warn!("Enabling the WoT functionality: {}", err);
             }
 
-            (*ctx).certs.start_parcimonie((*ctx).policy().clone());
+            rnp_try_or!((*ctx).certs.start_parcimonie((*ctx).policy().clone()),
+                        RNP_ERROR_GENERIC);
         }
         RNP_LOAD_SAVE_SECRET_KEYS => (),
         f => {

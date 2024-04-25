@@ -28,6 +28,8 @@ use std::{
     },
 };
 
+use anyhow::Result;
+
 use sequoia_openpgp as openpgp;
 use openpgp::{
     Fingerprint,
@@ -224,10 +226,13 @@ impl Keystore {
     //
     // If there is already parcimonie instance running, this does
     // nothing.
-    pub fn start_parcimonie(&mut self, policy: StandardPolicy<'static>) {
+    pub fn start_parcimonie(&mut self, policy: StandardPolicy<'static>)
+                            -> Result<()>
+    {
         if self.parcimonie.is_none() {
-            self.parcimonie = Some(Parcimonie::new(policy, self));
+            self.parcimonie = Some(Parcimonie::new(policy, self)?);
         }
+        Ok(())
     }
 
     pub fn enable_wot(&mut self, policy: &StandardPolicy<'static>)
@@ -281,7 +286,7 @@ impl Keystore {
     // The location of the keystore (where the pubring.gpg and
     // secring.gpg files are).  If set, the keystore is periodically
     // flushed to disk in the background.
-    pub fn set_directory(&mut self, directory: PathBuf) {
+    pub fn set_directory(&mut self, directory: PathBuf) -> Result<()> {
         let mut ks = self.data.write().unwrap();
 
         ks.directory = Some(directory);
@@ -291,10 +296,13 @@ impl Keystore {
             // disk.
             let ks_ref = self.create_ref();
             ks.flush_thread
-                = Some(thread::spawn(move || {
+                = Some(thread::Builder::new()
+                       .name("sq flusher".to_string())
+                       .spawn(move || {
                     KeystoreData::flush_thread(ks_ref);
-                }));
+                })?);
         }
+        Ok(())
     }
 
     // Start the thread that checks for updates to the gpg key store.
@@ -332,9 +340,10 @@ impl Keystore {
         drop(background_busy_);
 
         ks.background_thread
-            = Some(thread::spawn(move || {
+            = Some(thread::Builder::new().name("sq loader".to_string())
+                   .spawn(move || {
                 KeystoreData::background_thread(ks_ref, receiver, background_busy, policy);
-            }));
+            })?);
 
         self.background_sender = Some(Arc::new(Mutex::new(sender)));
 

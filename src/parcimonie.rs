@@ -61,6 +61,7 @@ use std::sync::RwLockReadGuard;
 use std::thread;
 use std::time::Duration;
 
+use anyhow::Result;
 use tokio::task::JoinSet;
 
 use sequoia_openpgp as openpgp;
@@ -94,12 +95,12 @@ impl Parcimonie {
     ///
     /// You can poll for updates using `Parcimonie::updates`.  To
     /// watch additional certificates, use `Parcimonie::monitor`.
-    pub fn new<P>(policy: P, ks: &Keystore) -> Self
+    pub fn new<P>(policy: P, ks: &Keystore) -> Result<Self>
     where P: Policy + 'static
     {
-        ParcimonieServer::new(policy, ks.create_ref());
-        Parcimonie {
-        }
+        ParcimonieServer::new(policy, ks.create_ref())?;
+        Ok(Parcimonie {
+        })
     }
 }
 
@@ -112,13 +113,16 @@ impl<P: Policy + 'static> ParcimonieServer<P> {
     // Instantiates a new parcimonie server, which keeps the key store
     // up to date.
     fn new(policy: P, ks: Arc<RwLock<KeystoreData>>)
+           -> Result<()>
     {
         let pdata = ParcimonieServer {
             ks: ks,
             policy,
         };
 
-        thread::spawn(move || ParcimonieServer::run(pdata));
+        thread::Builder::new().name("sq parcimonie".to_string())
+            .spawn(move || ParcimonieServer::run(pdata))?;
+        Ok(())
     }
 
     fn run(mut self) {
