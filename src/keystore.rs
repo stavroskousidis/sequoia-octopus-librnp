@@ -797,6 +797,8 @@ impl KeystoreData {
                     }
                     drop(background_busy_);
 
+                    // Trigger a WoT update.
+                    wot_handle.notify();
                     continue;
                 }
 
