@@ -208,6 +208,8 @@ impl RnpKey {
         self.try_cert_mut()
     }
     fn try_cert_mut(&self) -> Option<RwLockWriteGuard<Cert>> {
+        let ctx = unsafe { &*self.ctx };
+        ctx.certs.read().mark_updated();
         self.cert.as_ref().map(|c| c.write().unwrap())
     }
 }

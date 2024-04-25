@@ -559,6 +559,17 @@ impl fmt::Debug for KeystoreData {
 }
 
 impl KeystoreData {
+    /// Returns the time (in ticks) where the keystore could have
+    /// possibly been modified.
+    pub fn last_update(&self) -> usize {
+        self.last_update.load(atomic::Ordering::Relaxed)
+    }
+
+    /// Marks the keystore as updated.
+    pub fn mark_updated(&self) {
+        self.last_update.fetch_add(1, atomic::Ordering::Relaxed);
+    }
+
     // Periodically flush the key store to disk.
     fn flush_thread(ks: Arc<RwLock<Self>>) {
         rnp_function!(KeystoreData::flush_thread, TRACE);
@@ -571,7 +582,7 @@ impl KeystoreData {
 
             let ks = ks.read().unwrap();
 
-            let last_update = ks.last_update.load(atomic::Ordering::Relaxed);
+            let last_update = ks.last_update();
             if last_flush == last_update {
                 t!("Not flushing keystore to disk: no changes");
                 continue;
@@ -1001,7 +1012,6 @@ impl KeystoreData {
     ///
     /// fp is the certificate's fingerprint.
     pub fn cert_cell(&self, fp: &Fingerprint) -> Option<Arc<RwLock<Cert>>> {
-        self.last_update.fetch_add(1, atomic::Ordering::Relaxed);
         self.by_primary_fp.get(fp).map(|e| e.cert_cell())
     }
 
@@ -1180,7 +1190,7 @@ impl KeystoreData {
             }
         };
 
-        self.last_update.fetch_add(1, atomic::Ordering::Relaxed);
+        self.mark_updated();
 
         // If this is an update, then the primary key id and primary
         // key grip mapping exist and are correct.
@@ -1351,7 +1361,7 @@ impl KeystoreData {
         }
 
         if removed_one {
-            self.last_update.fetch_add(1, atomic::Ordering::Relaxed);
+            self.mark_updated();
         }
 
         removed_one
@@ -1401,7 +1411,7 @@ impl KeystoreData {
         }
 
         if removed_one {
-            self.last_update.fetch_add(1, atomic::Ordering::Relaxed);
+            self.mark_updated();
         }
 
         removed_one

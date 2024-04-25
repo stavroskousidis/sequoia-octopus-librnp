@@ -379,6 +379,7 @@ impl<P: Policy + 'static> ParcimonieServer<P> {
                 for cert in certs.into_iter() {
                     ks.insert(cert);
                 }
+                ks.mark_updated();
             }
         }
     }
