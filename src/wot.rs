@@ -28,7 +28,6 @@ const TRACE: bool = crate::TRACE;
 pub struct WoT {
     conn: rusqlite::Connection,
     _gpg_ctx: gpg::Ctx,
-    last_update: SystemTime,
 
     /// Known last_update stamp from the KeyStore.
     last_keystore_update: usize,
@@ -131,7 +130,6 @@ impl WoT {
         Ok(WoT {
             _gpg_ctx: gpg_ctx,
             conn,
-            last_update: std::time::UNIX_EPOCH,
             last_keystore_update: 0,
             next_wot_change_at: None,
         })
@@ -143,21 +141,6 @@ impl WoT {
     pub fn update(&mut self, ksd: Arc<RwLock<KeystoreData>>, p: &dyn Policy) -> openpgp::Result<()>
     {
         rnp_function!(WoT::update, TRACE);
-
-        let now = SystemTime::now();
-        let elapsed = now.duration_since(self.last_update);
-        match elapsed {
-            Err(err) => {
-                t!("Error computing time since last update: {}", err);
-                return Ok(());
-            }
-            Ok(elapsed) => {
-                if elapsed < Duration::new(10, 0) {
-                    t!("Throttling updates.");
-                    return Ok(());
-                }
-            }
-        }
 
         // Read lock the key store, do a scan across the certs, and
         // release it as soon as possible.
@@ -396,7 +379,6 @@ impl WoT {
 
         tx.commit()?;
 
-        self.last_update = SystemTime::now();
         self.last_keystore_update = last_keystore_update;
         self.next_wot_change_at = Some(next_wot_change_at);
 
