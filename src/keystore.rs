@@ -283,7 +283,7 @@ impl Keystore {
     //
     // Returns whether or not a thread was started.  That is, if the
     // thread was already running, this returns false.
-    fn background_thread_start(&mut self,
+    fn background_threads_start(&mut self,
                         policy: Arc<RwLock<StandardPolicy<'static>>>)
         -> openpgp::Result<bool>
     {
@@ -344,7 +344,7 @@ impl Keystore {
     {
         rnp_function!(Keystore::load_gpg_keyring, TRACE);
 
-        if !self.background_thread_start(policy)? {
+        if !self.background_threads_start(policy)? {
             // If we just started the thread, then it will read the
             // gpg keyring on its own.  Otherwise, signal that it
             // should reread it now.
@@ -366,7 +366,7 @@ impl Keystore {
     {
         rnp_function!(Keystore::load_keyring_in_background, TRACE);
 
-        if let Err(err) = self.background_thread_start(policy) {
+        if let Err(err) = self.background_threads_start(policy) {
             warn!("Failed to start gpg thread: {}", err);
             KeystoreData::load_keyring(
                 &mut self.data, &keyring, import_secret_keys, false)?;
@@ -390,7 +390,7 @@ impl Keystore {
                                     -> openpgp::Result<()> {
         rnp_function!(Keystore::update_wot_in_background, super::TRACE);
 
-        self.background_thread_start(policy)?;
+        self.background_threads_start(policy)?;
         self.wot_handle.as_ref().expect("started thread").notify();
 
         Ok(())
