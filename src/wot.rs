@@ -447,7 +447,31 @@ impl WoT {
                elapsed.checked_div(validity.len() as u32).unwrap_or(Duration::new(0, 0)));
         }
 
-        let mut tx = self.conn.transaction()?;
+        // The global authentication was hard to compute, make some
+        // effort to actually write it to the database.  Eagerly start
+        // an immediate transaction (i.e. acquire the write lock right
+        // now) so that we can do all the updates, or fail here, where
+        // we can retry with exponential backoff.
+        let mut tx = {
+            let mut tries = 0;
+            loop {
+                match self.conn.transaction_with_behavior(
+                    rusqlite::TransactionBehavior::Immediate)
+                {
+                    Ok(t) => break t,
+                    Err(e) => {
+                        // Sleep for 3ms, 30ms, 300ms, then fail.
+                        if tries > 2 {
+                            return Err(e.into());
+                        } else {
+                            std::thread::sleep(
+                                Duration::new(0, 3 * 1000 * 10u32.pow(tries)));
+                            tries += 1;
+                        }
+                    },
+                }
+            }
+        };
 
         // See comment in `WoT::new` regarding what exactly is
         // considered managed by sequoia.
