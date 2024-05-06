@@ -159,7 +159,7 @@ impl RnpKey {
             let fp = self.key.fingerprint();
 
             let mut candidates = Vec::new();
-            if let Some(cell) = ctx.certs.read().cert_cell_by_primary_fp(&fp) {
+            for cell in ctx.certs.read().cert_cell_by_fp(&fp) {
                 let cert = cell.read().unwrap();
                 for k in cert.keys().key_handle(&fp) {
                     // Eq compares the secret parts when parts is
@@ -1853,6 +1853,8 @@ mod tests {
     use libc::c_char;
     use std::ffi::CString;
 
+    use sequoia_openpgp::serialize::SerializeInto;
+
     use crate::rnp_ffi_create;
     use crate::io::RnpInput;
     use crate::import::rnp_import_keys;
@@ -2233,5 +2235,77 @@ Pnn+We1aTBhaGa86AQ==
 =Txnk
 -----END PGP PRIVATE KEY BLOCK-----
 ");
+    }
+
+    #[test]
+    fn find_cert() -> anyhow::Result<()> {
+        // Create a key.
+        let (alice, _) = openpgp::cert::CertBuilder::new()
+            .add_userid("alice")
+            .add_signing_subkey()
+            .generate()?;
+
+        // Import it into the context.
+        let buffer = alice.to_vec()?;
+
+        for strip_secrets in [false, true] {
+            eprintln!("stripping secrets {:?}", strip_secrets);
+
+            let mut ctx: *mut RnpContext = std::ptr::null_mut();
+            let r = unsafe {
+                rnp_ffi_create(
+                    &mut ctx as *mut *mut _,
+                    b"GPG\x00".as_ptr() as *const c_char,
+                    b"GPG\x00".as_ptr() as *const c_char)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let mut input: *mut RnpInput = std::ptr::null_mut();
+            let r = unsafe {
+                rnp_input_from_memory(
+                    &mut input as *mut *mut _,
+                    buffer.as_ptr(), buffer.len(), false)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            // And load the certificate.
+            let r = unsafe {
+                rnp_import_keys(
+                    ctx, input,
+                    RNP_LOAD_SAVE_PUBLIC_KEYS
+                        | RNP_LOAD_SAVE_SECRET_KEYS,
+                    std::ptr::null_mut() as *mut *mut _)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let r = unsafe {
+                rnp_input_destroy(input)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            log!("ctx: keystore: {:?}", unsafe { &mut *ctx }.certs);
+
+            for (i, key) in alice.keys().enumerate() {
+                eprintln!("{}. {}...", i, key.fingerprint());
+                let key = key.key().clone();
+                let key = if strip_secrets {
+                    key.take_secret().0
+                        .parts_into_unspecified().role_into_unspecified()
+                } else {
+                    key.parts_into_unspecified().role_into_unspecified()
+                };
+
+                let rnp_key = RnpKey::without_cert(ctx, key);
+                assert_eq!(rnp_key.cert.unwrap().read().unwrap().fingerprint(),
+                           alice.fingerprint());
+            }
+
+            let r = unsafe {
+                rnp_ffi_destroy(ctx)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+
+        Ok(())
     }
 }

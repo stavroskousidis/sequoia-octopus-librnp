@@ -997,6 +997,20 @@ impl KeystoreData {
         self.by_primary_fp.get(fp).map(|e| e.cert_cell())
     }
 
+    /// Returns a clone of the specified certificates' storage cells.
+    ///
+    /// `fp` is a certificate or subkey fingerprint.
+    pub fn cert_cell_by_fp<'a>(&'a self, fp: &Fingerprint)
+                               -> impl Iterator<Item = Arc<RwLock<Cert>>> + 'a
+    {
+        std::iter::once(fp.clone())
+            .chain(self.by_subkey_fp.get(fp)
+                   .unwrap_or(VEC_MAP_ENTRY_EMPTY_REF)
+                   .iter()
+                   .map(|e| e.fingerprint().clone()))
+            .filter_map(|fp| self.by_primary_fp.get(&fp).map(|e| e.cert_cell()))
+    }
+
     /// Returns a reference to the cert with the given fingerprint, if
     /// any.
     pub fn by_primary_fp(&self, fp: &Fingerprint)
