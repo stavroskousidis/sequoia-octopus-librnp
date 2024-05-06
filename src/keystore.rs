@@ -991,7 +991,9 @@ impl KeystoreData {
     /// Returns a clone of the specified certificate's RefCell.
     ///
     /// fp is the certificate's fingerprint.
-    pub fn cert_cell(&self, fp: &Fingerprint) -> Option<Arc<RwLock<Cert>>> {
+    pub fn cert_cell_by_primary_fp(&self, fp: &Fingerprint)
+                                   -> Option<Arc<RwLock<Cert>>>
+    {
         self.by_primary_fp.get(fp).map(|e| e.cert_cell())
     }
 
@@ -1724,7 +1726,8 @@ mod tests {
 
         // Merge the revocation certificate.
         {
-            let cell = ks.cert_cell(&alice.fingerprint()).unwrap();
+            let cell =
+                ks.cert_cell_by_primary_fp(&alice.fingerprint()).unwrap();
             let mut cert = cell.write().unwrap();
             *cert = cert.clone().insert_packets(Some(revocation))?;
         }

@@ -120,7 +120,7 @@ impl RnpKey {
         let ctx = unsafe { &mut *ctx };
 
         let cert_cell = if let Some(cert_cell)
-            = ctx.certs.read().cert_cell(&cert.fingerprint())
+            = ctx.certs.read().cert_cell_by_primary_fp(&cert.fingerprint())
         {
             Arc::clone(&cert_cell)
         } else {
@@ -159,7 +159,7 @@ impl RnpKey {
             let fp = self.key.fingerprint();
 
             let mut candidates = Vec::new();
-            if let Some(cell) = ctx.certs.read().cert_cell(&fp) {
+            if let Some(cell) = ctx.certs.read().cert_cell_by_primary_fp(&fp) {
                 let cert = cell.read().unwrap();
                 for k in cert.keys().key_handle(&fp) {
                     // Eq compares the secret parts when parts is
@@ -278,7 +278,7 @@ fn rnp_locate_key(ctx: *mut RnpContext,
             // XXX: (*ctx).cert() already found the cell.  If that
             // function returned the cell instead, then we could avoid
             // this lock and look up.
-            cert: Some(ks.cert_cell(&cert.fingerprint())
+            cert: Some(ks.cert_cell_by_primary_fp(&cert.fingerprint())
                        .expect("just looked it up")),
         }));
     } else {
