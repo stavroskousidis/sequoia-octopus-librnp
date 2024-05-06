@@ -11,8 +11,11 @@ fn vergen() {
     // In our case that is okay, because do not care for vergen variables other
     // than VERGEN_GIT_SHA and only use it if it is set (see
     // rnp_version_string_full in src/version.rs).
-    // Upstream issue: https://github.com/rustyhorde/vergen/issues/124
+    //
+    // Upstream issue: https://github.com/rustyhorde/vergen/issues/299#issuecomment-2095609569
     let _ = vergen::EmitBuilder::builder()
+        // Fail instead of setting vars to VERGEN_IDEMPOTENT_OUTPUT.
+        .fail_on_error()
         .git_sha(/* short */ true)
         .emit();
 }
