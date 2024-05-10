@@ -164,7 +164,33 @@ impl TBProfile {
         let mut base: PathBuf = PathBuf::new();
         base.push(&prefix);
 
-        let dirs: Vec<_> = PROFILES_INI.iter().flat_map(|suffix| {
+        let mut profile_args = Vec::new();
+        t!("Considering arguments: {}",
+           std::env::args()
+           .map(|a| format!("{:?}", a))
+           .collect::<Vec<String>>()
+           .join(" "));
+        for args in std::env::args().collect::<Vec<_>>().windows(2) {
+            if args[0] == "-profile" {
+                t!("Found -profile argument: {:?}", args[1]);
+
+                let path = PathBuf::from(&args[1]);
+                if path.is_relative() {
+                    if let Ok(cwd) = std::env::current_dir() {
+                        let mut abspath = cwd;
+                        abspath.push(path);
+
+                        t!("Adding {} to search", abspath.display());
+                        profile_args.push(abspath);
+                    }
+                } else {
+                    t!("Adding {} to search", path.display());
+                    profile_args.push(path);
+                }
+            }
+        }
+
+        let dirs: Vec<_> = PROFILES_INI.iter().map(PathBuf::from).chain(profile_args).flat_map(|suffix| {
             let mut profiles_ini = base.clone();
             profiles_ini.push(&suffix);
             profiles_ini.push("profiles.ini");
