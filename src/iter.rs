@@ -25,8 +25,8 @@ fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
                                   -> RnpResult {
     rnp_function!(rnp_identifier_iterator_create, crate::TRACE);
     let ctx = assert_ptr_mut!(ctx);
-    assert_ptr!(iter);
-    assert_ptr!(typ);
+    let iter = assert_ptr_mut!(iter);
+    assert_str!(typ); // XXX
 
     let typ = rnp_try!(RnpIdentifierType::from_rnp_id(typ));
     t!("type = {:?}", typ);
@@ -125,6 +125,8 @@ fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
 fn rnp_identifier_iterator_destroy(iter: *mut RnpIdentifierIterator)
                                    -> RnpResult {
     rnp_function!(rnp_identifier_iterator_destroy, crate::TRACE);
+    arg!(iter);
+
     if ! iter.is_null() {
         drop(Box::from_raw(iter));
     }

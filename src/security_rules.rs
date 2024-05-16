@@ -8,7 +8,6 @@
 
 use std::{
     convert::TryFrom,
-    ffi::CStr,
     time::{Duration, UNIX_EPOCH},
 };
 
@@ -52,9 +51,12 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
                          -> RnpResult {
     rnp_function!(rnp_get_security_rule, crate::TRACE);
     let ctx = assert_ptr_ref!(ctx);
-    assert_ptr!(typ);
-    assert_ptr!(name);
-    assert_ptr!(level_out);
+    let typ = assert_str!(typ);
+    let name_ = assert_str!(name);
+    arg!(time);
+    arg!(flags_inout);
+    arg!(from_out);
+    let level_out = assert_ptr_mut!(level_out);
 
     let query_flags = if flags_inout.is_null() {
         None
@@ -67,13 +69,9 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
     let mut from = 0;
     let mut level = RNP_SECURITY_DEFAULT;
 
-
-    let typ =
-        rnp_try_or!(CStr::from_ptr(typ).to_str(), RNP_ERROR_BAD_PARAMETERS);
     let time = UNIX_EPOCH + Duration::new(time, 0);
     t!("typ: {}, name: {}, time: {:?}, query flags: {:?}",
-       typ, CStr::from_ptr(name).to_str().unwrap_or("invalid str"), time,
-       query_flags);
+       typ, name_, time, query_flags);
 
     match typ {
         RNP_FEATURE_PK_ALG => {
@@ -179,15 +177,15 @@ fn rnp_add_security_rule(ctx: *mut RnpContext,
                          -> RnpResult {
     rnp_function!(rnp_add_security_rule, crate::TRACE);
     let ctx = assert_ptr_mut!(ctx);
-    assert_ptr!(typ);
-    assert_ptr!(name);
+    let typ = assert_str!(typ);
+    let name_ = assert_str!(name);
+    arg!(flags);
+    arg!(time);
+    arg!(level);
 
-    let typ =
-        rnp_try_or!(CStr::from_ptr(typ).to_str(), RNP_ERROR_BAD_PARAMETERS);
     let time = UNIX_EPOCH + Duration::new(time, 0);
     t!("typ: {}, name: {}, flags: {:?}, time: {:?}, level: {:?}",
-       typ, CStr::from_ptr(name).to_str().unwrap_or("invalid str"),
-       flags, time, level);
+       typ, name_, flags, time, level);
 
     match typ {
         RNP_FEATURE_PK_ALG => {

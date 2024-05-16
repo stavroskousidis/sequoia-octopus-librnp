@@ -185,15 +185,15 @@ fn rnp_op_verify_create<'a>(op: *mut *mut RnpOpVerify<'a>,
                             -> RnpResult
 {
     rnp_function!(rnp_op_verify_create, crate::TRACE);
-    assert_ptr!(op);
-    assert_ptr!(ctx);
-    assert_ptr!(input);
-    assert_ptr!(output);
+    let op = assert_ptr_mut!(op);
+    let ctx = assert_ptr_mut!(ctx);
+    let input = assert_ptr_mut!(input);
+    let output = assert_ptr_mut!(output);
 
     *op = Box::into_raw(Box::new(RnpOpVerify {
-        ctx: &mut *ctx,
-        input: &mut *input,
-        mode: SignatureMode::Inline(&mut *output),
+        ctx,
+        input,
+        mode: SignatureMode::Inline(output),
         result: Default::default(),
     }));
     rnp_success!()
@@ -207,15 +207,15 @@ fn rnp_op_verify_detached_create<'a>(op: *mut *mut RnpOpVerify<'a>,
                                      -> RnpResult
 {
     rnp_function!(rnp_op_verify_detached_create, crate::TRACE);
-    assert_ptr!(op);
-    assert_ptr!(ctx);
-    assert_ptr!(input);
-    assert_ptr!(signature);
+    let op = assert_ptr_mut!(op);
+    let ctx = assert_ptr_mut!(ctx);
+    let input = assert_ptr_mut!(input);
+    let signature = assert_ptr_mut!(signature);
 
     *op = Box::into_raw(Box::new(RnpOpVerify {
-        ctx: &mut *ctx,
-        input: &mut *input,
-        mode: SignatureMode::Detached(&mut *signature),
+        ctx,
+        input,
+        mode: SignatureMode::Detached(signature),
         result: Default::default(),
     }));
     rnp_success!()
@@ -224,6 +224,8 @@ fn rnp_op_verify_detached_create<'a>(op: *mut *mut RnpOpVerify<'a>,
 #[no_mangle] pub unsafe extern "C"
 fn rnp_op_verify_destroy(op: *mut RnpOpVerify) -> RnpResult {
     rnp_function!(rnp_op_verify_destroy, crate::TRACE);
+    arg!(op);
+
     if ! op.is_null() {
         drop(Box::from_raw(op));
     }
@@ -317,7 +319,8 @@ fn rnp_op_verify_get_signature_at(op: *mut RnpOpVerify,
                                   -> RnpResult {
     rnp_function!(rnp_op_verify_get_signature_at, crate::TRACE);
     let op = assert_ptr_ref!(op);
-    assert_ptr!(signature);
+    arg!(idx);
+    let signature = assert_ptr_mut!(signature);
 
     rnp_return_status!(if let Some(s) = op.result.signatures.get(idx) {
         *signature = s as *const _;
@@ -333,19 +336,19 @@ fn rnp_op_verify_get_signature_count(op: *mut RnpOpVerify,
                                      -> RnpResult {
     rnp_function!(rnp_op_verify_get_signature_count, crate::TRACE);
     let op = assert_ptr_ref!(op);
-    assert_ptr!(count);
+    let count = assert_ptr_mut!(count);
     *count = op.result.signatures.len();
     rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
-fn rnp_op_verify_signature_get_handle(sig: *mut RnpOpVerifySignature,
+fn rnp_op_verify_signature_get_handle(sig: *const RnpOpVerifySignature,
                                       handle: *mut *mut RnpSignature)
                                       -> RnpResult {
     rnp_function!(rnp_op_verify_signature_get_handle, crate::TRACE);
-    assert_ptr!(sig);
-    assert_ptr!(handle);
-    let sig = &*sig;
+    let sig = assert_ptr_ref!(sig);
+    let handle = assert_ptr_mut!(handle);
+
     *handle =
         Box::into_raw(Box::new(
             RnpSignature::new(sig.ctx, sig.sig.clone(),
@@ -354,7 +357,7 @@ fn rnp_op_verify_signature_get_handle(sig: *mut RnpOpVerifySignature,
 }
 
 #[no_mangle] pub unsafe extern "C"
-fn rnp_op_verify_signature_get_status(sig: *mut RnpOpVerifySignature)
+fn rnp_op_verify_signature_get_status(sig: *const RnpOpVerifySignature)
                                       -> RnpResult {
     rnp_function!(rnp_op_verify_signature_get_status, crate::TRACE);
     assert_ptr!(sig);
@@ -362,12 +365,12 @@ fn rnp_op_verify_signature_get_status(sig: *mut RnpOpVerifySignature)
 }
 
 #[no_mangle] pub unsafe extern "C"
-fn rnp_op_verify_signature_get_key(sig: *mut RnpOpVerifySignature,
+fn rnp_op_verify_signature_get_key(sig: *const RnpOpVerifySignature,
                                    key_out: *mut *mut RnpKey)
                                    -> RnpResult {
     rnp_function!(rnp_op_verify_signature_get_key, crate::TRACE);
-    assert_ptr!(sig);
-    assert_ptr!(key_out);
+    let sig = assert_ptr_ref!(sig);
+    let key_out = assert_ptr_mut!(key_out);
 
     rnp_return_status!(if let Some(key) = (*sig).key.as_ref().cloned() {
         *key_out =
@@ -380,13 +383,16 @@ fn rnp_op_verify_signature_get_key(sig: *mut RnpOpVerifySignature,
 }
 
 #[no_mangle] pub unsafe extern "C"
-fn rnp_op_verify_signature_get_times(sig: *mut RnpOpVerifySignature,
+fn rnp_op_verify_signature_get_times(sig: *const RnpOpVerifySignature,
                                      created: *mut u32,
                                      expires: *mut u32)
                                      -> RnpResult {
     rnp_function!(rnp_op_verify_signature_get_times, crate::TRACE);
     use std::time::UNIX_EPOCH;
-    assert_ptr!(sig);
+    let sig = assert_ptr_ref!(sig);
+    arg!(created);
+    arg!(expires);
+
     if ! created.is_null() {
         *created = (*sig).sig.signature_creation_time().unwrap_or(UNIX_EPOCH)
             .duration_since(UNIX_EPOCH).unwrap().as_secs()
@@ -402,13 +408,16 @@ fn rnp_op_verify_signature_get_times(sig: *mut RnpOpVerifySignature,
 }
 
 #[no_mangle] pub unsafe extern "C"
-fn rnp_op_verify_get_protection_info(op: *mut RnpOpVerify,
+fn rnp_op_verify_get_protection_info(op: *const RnpOpVerify,
                                      mode: *mut *mut c_char,
                                      cipher: *mut *mut c_char,
                                      valid: *mut bool)
                                      -> RnpResult {
     rnp_function!(rnp_op_verify_get_protection_info, crate::TRACE);
     let op = assert_ptr_ref!(op);
+    arg!(mode);
+    arg!(cipher);
+    arg!(valid);
 
     if ! mode.is_null() {
         *mode = str_to_rnp_buffer(op.result.mode.to_rnp_id());
@@ -433,12 +442,12 @@ fn rnp_op_verify_get_protection_info(op: *mut RnpOpVerify,
 }
 
 #[no_mangle] pub unsafe extern "C"
-fn rnp_op_verify_get_used_recipient(op: *mut RnpOpVerify,
+fn rnp_op_verify_get_used_recipient(op: *const RnpOpVerify,
                                     pkesk: *mut *const PKESK)
                                     -> RnpResult {
     rnp_function!(rnp_op_verify_get_used_recipient, crate::TRACE);
     let op = assert_ptr_ref!(op);
-    assert_ptr!(pkesk);
+    let pkesk = assert_ptr_mut!(pkesk);
 
     *pkesk = op.result.pkesk_used.as_ref().map(|p| p as *const _)
         .unwrap_or(std::ptr::null());
@@ -446,13 +455,14 @@ fn rnp_op_verify_get_used_recipient(op: *mut RnpOpVerify,
 }
 
 #[no_mangle] pub unsafe extern "C"
-fn rnp_op_verify_get_recipient_at(op: *mut RnpOpVerify,
+fn rnp_op_verify_get_recipient_at(op: *const RnpOpVerify,
                                   idx: size_t,
                                   pkesk: *mut *const PKESK)
                                   -> RnpResult {
     rnp_function!(rnp_op_verify_get_recipient_at, crate::TRACE);
     let op = assert_ptr_ref!(op);
-    assert_ptr!(pkesk);
+    arg!(idx);
+    let pkesk = assert_ptr_mut!(pkesk);
 
     rnp_return_status!(if let Some(p) = op.result.pkesks.get(idx) {
         *pkesk = p as *const _;
@@ -463,12 +473,12 @@ fn rnp_op_verify_get_recipient_at(op: *mut RnpOpVerify,
 }
 
 #[no_mangle] pub unsafe extern "C"
-fn rnp_op_verify_get_recipient_count(op: *mut RnpOpVerify,
+fn rnp_op_verify_get_recipient_count(op: *const RnpOpVerify,
                                      count: *mut size_t)
                                      -> RnpResult {
     rnp_function!(rnp_op_verify_get_recipient_count, crate::TRACE);
     let op = assert_ptr_ref!(op);
-    assert_ptr!(count);
+    let count = assert_ptr_mut!(count);
     *count = op.result.pkesks.len();
     rnp_success!()
 }
@@ -478,8 +488,8 @@ fn rnp_recipient_get_keyid(recipient: *const PKESK,
                            keyid: *mut *mut c_char)
                            -> RnpResult {
     rnp_function!(rnp_recipient_get_keyid, crate::TRACE);
-    assert_ptr!(recipient);
-    assert_ptr!(keyid);
+    let recipient = assert_ptr_ref!(recipient);
+    let keyid = assert_ptr_mut!(keyid);
     *keyid = str_to_rnp_buffer(format!("{:X}", (*recipient).recipient()));
     rnp_success!()
 }
@@ -489,32 +499,33 @@ fn rnp_recipient_get_alg(recipient: *const PKESK,
                          alg: *mut *mut c_char)
                          -> RnpResult {
     rnp_function!(rnp_recipient_get_alg, crate::TRACE);
-    assert_ptr!(recipient);
-    assert_ptr!(alg);
+    let recipient = assert_ptr_ref!(recipient);
+    let alg = assert_ptr_mut!(alg);
     *alg = str_to_rnp_buffer((*recipient).pk_algo().to_rnp_id());
     rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
-fn rnp_op_verify_get_used_symenc(op: *mut RnpOpVerify,
+fn rnp_op_verify_get_used_symenc(op: *const RnpOpVerify,
                                  skesk: *mut *const SKESK)
                                  -> RnpResult {
     rnp_function!(rnp_op_verify_get_used_symenc, crate::TRACE);
     let op = assert_ptr_ref!(op);
-    assert_ptr!(skesk);
+    let skesk = assert_ptr_mut!(skesk);
     *skesk = op.result.skesk_used.as_ref().map(|p| p as *const _)
         .unwrap_or(std::ptr::null());
     rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
-fn rnp_op_verify_get_symenc_at(op: *mut RnpOpVerify,
+fn rnp_op_verify_get_symenc_at(op: *const RnpOpVerify,
                                idx: size_t,
                                skesk: *mut *const SKESK)
                                -> RnpResult {
     rnp_function!(rnp_op_verify_get_symenc_at, crate::TRACE);
     let op = assert_ptr_ref!(op);
-    assert_ptr!(skesk);
+    arg!(idx);
+    let skesk = assert_ptr_mut!(skesk);
 
     rnp_return_status!(if let Some(p) = op.result.skesks.get(idx) {
         *skesk = p as *const _;
@@ -525,12 +536,12 @@ fn rnp_op_verify_get_symenc_at(op: *mut RnpOpVerify,
 }
 
 #[no_mangle] pub unsafe extern "C"
-fn rnp_op_verify_get_symenc_count(op: *mut RnpOpVerify,
+fn rnp_op_verify_get_symenc_count(op: *const RnpOpVerify,
                                   count: *mut size_t)
                                   -> RnpResult {
     rnp_function!(rnp_op_verify_get_symenc_count, crate::TRACE);
     let op = assert_ptr_ref!(op);
-    assert_ptr!(count);
+    let count = assert_ptr_mut!(count);
     *count = op.result.skesks.len();
     rnp_success!()
 }

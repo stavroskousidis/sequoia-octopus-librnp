@@ -236,10 +236,10 @@ fn rnp_locate_key(ctx: *mut RnpContext,
                   -> RnpResult {
     rnp_function!(rnp_locate_key, crate::TRACE);
 
-    assert_ptr!(ctx);
-    assert_ptr!(identifier_type);
-    assert_ptr!(identifier);
-    assert_ptr!(key);
+    let ctx = assert_ptr_mut!(ctx);
+    assert_str!(identifier_type);
+    assert_str!(identifier);
+    let key = assert_ptr_mut!(key);
 
     let id = rnp_try!(
         rnp_try!(RnpIdentifierType::from_rnp_id(identifier_type))
@@ -272,14 +272,16 @@ fn rnp_locate_key(ctx: *mut RnpContext,
                 .nth(0).expect("must exist in cert").key().clone(),
         }.parts_into_unspecified();
 
+        let cert = Some(ks.cert_cell_by_primary_fp(&cert.fingerprint())
+                        .expect("just looked it up"));
+        drop(ks);
         *key = Box::into_raw(Box::new(RnpKey {
             ctx,
             key: k,
             // XXX: (*ctx).cert() already found the cell.  If that
             // function returned the cell instead, then we could avoid
             // this lock and look up.
-            cert: Some(ks.cert_cell_by_primary_fp(&cert.fingerprint())
-                       .expect("just looked it up")),
+            cert,
         }));
     } else {
         *key = std::ptr::null_mut();
@@ -291,6 +293,8 @@ fn rnp_locate_key(ctx: *mut RnpContext,
 fn rnp_key_handle_destroy(key: *mut RnpKey)
                           -> RnpResult {
     rnp_function!(rnp_key_handle_destroy, crate::TRACE);
+    arg!(key);
+
     if ! key.is_null() {
         drop(Box::from_raw(key));
     }
@@ -302,8 +306,8 @@ fn rnp_key_get_keyid(key: *const RnpKey,
                      keyid: *mut *mut c_char)
                      -> RnpResult {
     rnp_function!(rnp_key_get_keyid, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(keyid);
+    let key = assert_ptr_ref!(key);
+    let keyid = assert_ptr_mut!(keyid);
 
     *keyid = str_to_rnp_buffer(format!("{:X}", (*key).keyid()));
     rnp_success!()
@@ -314,8 +318,8 @@ fn rnp_key_get_fprint(key: *const RnpKey,
                      fprint: *mut *mut c_char)
                      -> RnpResult {
     rnp_function!(rnp_key_get_fprint, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(fprint);
+    let key = assert_ptr_ref!(key);
+    let fprint = assert_ptr_mut!(fprint);
 
     *fprint = str_to_rnp_buffer(format!("{:X}", (*key).fingerprint()));
     rnp_success!()
@@ -326,8 +330,8 @@ fn rnp_key_get_alg(key: *const RnpKey,
                    alg: *mut *mut c_char)
                    -> RnpResult {
     rnp_function!(rnp_key_get_alg, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(alg);
+    let key = assert_ptr_ref!(key);
+    let alg = assert_ptr_mut!(alg);
 
     *alg = str_to_rnp_buffer((*key).pk_algo().to_rnp_id());
     rnp_success!()
@@ -338,7 +342,7 @@ fn rnp_key_get_curve(key: *mut RnpKey, curve_out: *mut *mut c_char)
                      -> RnpResult {
     rnp_function!(rnp_key_get_curve, crate::TRACE);
     let key = assert_ptr_ref!(key);
-    assert_ptr!(curve_out);
+    let curve_out = assert_ptr_mut!(curve_out);
 
     use openpgp::crypto::mpi::PublicKey;
     match key.key.mpis() {
@@ -385,8 +389,8 @@ fn rnp_key_is_primary(key: *mut RnpKey,
                       result: *mut bool)
                       -> RnpResult {
     rnp_function!(rnp_key_is_primary, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(result);
+    let key = assert_ptr_mut!(key);
+    let result = assert_ptr_mut!(result);
     *result = rnp_try!((*key).is_primary());
     rnp_success!()
 }
@@ -399,8 +403,8 @@ fn rnp_key_is_sub(key: *mut RnpKey,
                   result: *mut bool)
                   -> RnpResult {
     rnp_function!(rnp_key_is_sub, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(result);
+    let key = assert_ptr_mut!(key);
+    let result = assert_ptr_mut!(result);
     *result = ! rnp_try!((*key).is_primary());
     rnp_success!()
 }
@@ -410,8 +414,8 @@ fn rnp_key_get_grip(key: *const RnpKey,
                     grip: *mut *mut c_char)
                    -> RnpResult {
     rnp_function!(rnp_key_get_grip, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(grip);
+    let key = assert_ptr_ref!(key);
+    let grip = assert_ptr_mut!(grip);
 
     rnp_return_status!(if let Ok(keygrip) = Keygrip::of((*key).mpis()) {
         *grip = str_to_rnp_buffer(keygrip.to_string());
@@ -426,8 +430,8 @@ fn rnp_key_get_primary_grip(key: *mut RnpKey,
                             grip: *mut *mut c_char)
                             -> RnpResult {
     rnp_function!(rnp_key_get_primary_grip, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(grip);
+    let key = assert_ptr_mut!(key);
+    let grip = assert_ptr_mut!(grip);
 
     rnp_return_status!(if let Some(cert) = (*key).cert() {
         if let Ok(keygrip) = Keygrip::of(cert.primary_key().mpis()) {
@@ -448,8 +452,8 @@ fn rnp_key_have_public(key: *const RnpKey,
                        result: *mut bool)
                        -> RnpResult {
     rnp_function!(rnp_key_have_public, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(result);
+    let _ = assert_ptr_ref!(key);
+    let result = assert_ptr_mut!(result);
 
     *result = true;
     rnp_success!()
@@ -460,8 +464,8 @@ fn rnp_key_have_secret(key: *const RnpKey,
                        result: *mut bool)
                        -> RnpResult {
     rnp_function!(rnp_key_have_secret, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(result);
+    let key = assert_ptr_ref!(key);
+    let result = assert_ptr_mut!(result);
 
     let mut has_secret = (*key).has_secret();
     if ! has_secret {
@@ -478,8 +482,8 @@ fn rnp_key_get_bits(key: *const RnpKey,
                     bits: *mut u32)
                     -> RnpResult {
     rnp_function!(rnp_key_get_bits, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(bits);
+    let key = assert_ptr_ref!(key);
+    let bits = assert_ptr_mut!(bits);
 
     rnp_return_status!(if let Some(b) = (*key).mpis().bits() {
         *bits = b as u32;
@@ -494,8 +498,8 @@ fn rnp_key_get_creation(key: *const RnpKey,
                         creation: *mut u32)
                     -> RnpResult {
     rnp_function!(rnp_key_get_creation, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(creation);
+    let key = assert_ptr_ref!(key);
+    let creation = assert_ptr_mut!(creation);
 
     *creation =
         (*key).creation_time().duration_since(UNIX_EPOCH)
@@ -510,7 +514,7 @@ fn rnp_key_get_expiration(key: *mut RnpKey,
                           -> RnpResult {
     rnp_function!(rnp_key_get_expiration, crate::TRACE);
     let key = assert_ptr_mut!(key);
-    assert_ptr!(expiration);
+    let expiration = assert_ptr_mut!(expiration);
     let fp = key.fingerprint();
     let policy = (*(key.ctx)).policy().clone();
 
@@ -552,7 +556,7 @@ fn rnp_key_get_primary_uid(key: *mut RnpKey,
                            -> RnpResult {
     rnp_function!(rnp_key_get_primary_uid, crate::TRACE);
     let key = assert_ptr_mut!(key);
-    assert_ptr!(uid);
+    let uid = assert_ptr_mut!(uid);
     let policy = (*(key.ctx)).policy().clone();
 
     // If we fail to find a primary userid using the standard policy,
@@ -581,8 +585,9 @@ fn rnp_key_get_uid_at(key: *mut RnpKey,
                       uid: *mut *mut c_char)
                       -> RnpResult {
     rnp_function!(rnp_key_get_uid_at, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(uid);
+    let key = assert_ptr_mut!(key);
+    arg!(idx);
+    let uid = assert_ptr_mut!(uid);
 
     rnp_return_status!(if let Some(cert) = (*key).cert() {
         if let Some(u) = cert.userids().nth(idx) {
@@ -607,12 +612,13 @@ fn rnp_key_get_uid_handle_at(key: *mut RnpKey,
                              uid: *mut *mut RnpUserID)
                              -> RnpResult {
     rnp_function!(rnp_key_get_uid_handle_at, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(uid);
+    let key = assert_ptr_mut!(key);
+    let uid = assert_ptr_mut!(uid);
 
+    let ctx = (*key).ctx;
     rnp_return_status!(if let Some(cert) = (*key).cert() {
         if let Some(u) = cert.userids().nth(idx) {
-            if let Some(u) = RnpUserID::new((*key).ctx,
+            if let Some(u) = RnpUserID::new(ctx,
                                             u.userid().clone(),
                                             cert.clone()) {
                 *uid = Box::into_raw(Box::new(u));
@@ -634,8 +640,8 @@ fn rnp_key_get_uid_count(key: *mut RnpKey,
                          count: *mut size_t)
                          -> RnpResult {
     rnp_function!(rnp_key_get_uid_count, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(count);
+    let key = assert_ptr_mut!(key);
+    let count = assert_ptr_mut!(count);
 
     rnp_return_status!(if let Some(cert) = (*key).cert() {
         *count = cert.userids().count();
@@ -652,8 +658,8 @@ fn rnp_key_get_subkey_at(key: *mut RnpKey,
                          subkey: *mut *mut RnpKey)
                          -> RnpResult {
     rnp_function!(rnp_key_get_subkey_at, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(subkey);
+    let key = assert_ptr_mut!(key);
+    let subkey = assert_ptr_mut!(subkey);
 
     rnp_return_status!(if let Some(cell) = (*key).cert.as_ref() {
         let cert = cell.read().unwrap();
@@ -681,8 +687,8 @@ fn rnp_key_get_subkey_count(key: *mut RnpKey,
                             count: *mut size_t)
                             -> RnpResult {
     rnp_function!(rnp_key_get_subkey_count, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(count);
+    let key = assert_ptr_mut!(key);
+    let count = assert_ptr_mut!(count);
 
     rnp_return_status!(if let Some(cert) = (*key).cert() {
         *count = cert.keys().subkeys().count();
@@ -698,8 +704,9 @@ fn rnp_key_get_signature_at(key: *mut RnpKey,
                             sig: *mut *mut RnpSignature)
                             -> RnpResult {
     rnp_function!(rnp_key_get_signature_at, crate::TRACE);
-    let key = assert_ptr_ref!(key);
-    assert_ptr!(sig);
+    let key = assert_ptr_mut!(key);
+    arg!(idx);
+    let sig = assert_ptr_mut!(sig);
 
     rnp_return_status!(if let Some(cert) = key.try_cert() {
         if let Some(subkey) = cert.keys().key_handle(key.fingerprint()).next() {
@@ -725,8 +732,8 @@ fn rnp_key_get_signature_count(key: *mut RnpKey,
                                count: *mut size_t)
                                -> RnpResult {
     rnp_function!(rnp_key_get_signature_count, crate::TRACE);
-    let key = assert_ptr_ref!(key);
-    assert_ptr!(count);
+    let key = assert_ptr_mut!(key);
+    let count = assert_ptr_mut!(count);
 
     rnp_return_status!(if let Some(cert) = key.try_cert() {
         if let Some(subkey) = cert.keys().key_handle(key.fingerprint()).next() {
@@ -746,18 +753,19 @@ fn rnp_key_allows_usage(key: *mut RnpKey,
                         result: *mut bool)
                         -> RnpResult {
     rnp_function!(rnp_key_allows_usage, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(usage);
-    assert_ptr!(result);
+    let key = assert_ptr_mut!(key);
+    let _usage = assert_str!(usage);
+    let result = assert_ptr_mut!(result);
     let policy = (*((*key).ctx)).policy().clone();
 
     let usage = rnp_try!(RnpKeyUsage::from_rnp_id(usage));
 
+    let fp = key.fingerprint();
     if let Some(cert) = (*key).cert().as_ref()
         .and_then(|c| c.with_policy(&policy, None).ok())
     {
         if let Some(vka) = cert
-            .keys().key_handle((*key).fingerprint())
+            .keys().key_handle(fp)
             .nth(0)
         {
             *result = vka.has_any_key_flag(usage.to_keyflags());
@@ -779,15 +787,16 @@ fn rnp_key_is_revoked(key: *mut RnpKey,
                       result: *mut bool)
                       -> RnpResult {
     rnp_function!(rnp_key_is_revoked, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(result);
+    let key = assert_ptr_mut!(key);
+    let result = assert_ptr_mut!(result);
     let policy = (*((*key).ctx)).policy().clone();
 
+    let fp = key.fingerprint();
     if let Some(cert) = (*key).cert().as_ref()
         .and_then(|c| c.with_policy(&policy, None).ok())
     {
         if let Some(vka) = cert
-            .keys().key_handle((*key).fingerprint())
+            .keys().key_handle(fp)
             .nth(0)
         {
             use openpgp::types::RevocationStatus::*;
@@ -810,16 +819,18 @@ fn rnp_key_is_revoked(key: *mut RnpKey,
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_key_export_autocrypt(key: *mut RnpKey,
-                            _subkey: *mut RnpKey,
+                            subkey: *mut RnpKey,
                             uid: *const c_char,
                             output: *mut RnpOutput,
-                            _flags: u32)
+                            flags: u32)
                             -> RnpResult {
     rnp_function!(rnp_key_export_autocrypt, crate::TRACE);
     let key = assert_ptr_mut!(key);
-    assert_ptr!(uid);
-    assert_ptr!(output);
-    let uid = rnp_try!(cstr_to_str(uid));
+    arg!(subkey);
+    let uid = assert_str!(uid); // XXX: Could be NULL.
+    let output = assert_ptr_mut!(output);
+    arg!(flags);
+
     let policy = (*((*key).ctx)).policy().clone();
 
     fn f(policy: &dyn Policy, cert: RwLockReadGuard<Cert>, uid: &str,
@@ -859,8 +870,8 @@ fn rnp_key_remove(key: *mut RnpKey,
                   flags: RnpKeyRemoveFlags)
                   -> RnpResult {
     rnp_function!(rnp_key_remove, crate::TRACE);
-    assert_ptr!(key);
-    let key = &mut *key;
+    let key = assert_ptr_mut!(key);
+    arg!(flags);
     let ctx = &mut *key.ctx;
 
     let is_subkey = ! rnp_try!((*key).is_primary());
@@ -906,10 +917,10 @@ fn rnp_key_export(key: *mut RnpKey,
                   flags: RnpKeyExportFlags)
                   -> RnpResult {
     rnp_function!(rnp_key_export, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(output);
+    let key = assert_ptr_mut!(key);
+    let output = assert_ptr_mut!(output);
+    arg!(flags);
     let key = &mut *key;
-    let output = &mut *output;
 
     let is_subkey = ! rnp_try!(key.is_primary());
     let armored = flags & RNP_KEY_EXPORT_ARMORED > 0;
@@ -965,9 +976,8 @@ fn rnp_key_is_locked(key: *mut RnpKey,
                      result: *mut bool)
                      -> RnpResult {
     rnp_function!(rnp_key_is_locked, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(result);
-    let key = &mut *key;
+    let key = assert_ptr_mut!(key);
+    let result = assert_ptr_mut!(result);
 
     rnp_return_status!(if let Some(k) = key.key.parts_as_secret().ok() {
         *result = (*key.ctx).key_is_locked(k);
@@ -991,8 +1001,7 @@ fn rnp_key_is_locked(key: *mut RnpKey,
 fn rnp_key_lock(key: *mut RnpKey)
                 -> RnpResult {
     rnp_function!(rnp_key_lock, crate::TRACE);
-    assert_ptr!(key);
-    let key = &mut *key;
+    let key = assert_ptr_mut!(key);
 
     rnp_return_status!(if let Some(k) = key.key.parts_as_secret().ok() {
         (*key.ctx).key_lock(k);
@@ -1007,14 +1016,16 @@ fn rnp_key_unlock(key: *mut RnpKey,
                   password: *const c_char)
                   -> RnpResult {
     rnp_function!(rnp_key_unlock, crate::TRACE);
-    assert_ptr!(key);
+    let key = assert_ptr_mut!(key);
+
     let password = if password.is_null() {
+        arg!(password);
         None
     } else {
+        arg!("<REDACTED>");
         Some(rnp_try!(cstr_to_str(password)).to_string().into())
     };
 
-    let key = &mut *key;
     rnp_return_status!(if let Some(k) = key.key.parts_as_secret().ok() {
         if let Err(e) = (*key.ctx).key_unlock(k.clone(), password) {
             warn!("rnp_key_unlock: {}: e", e);
@@ -1032,8 +1043,8 @@ fn rnp_key_is_protected(key: *mut RnpKey,
                         result: *mut bool)
                         -> RnpResult {
     rnp_function!(rnp_key_is_protected, crate::TRACE);
-    let key = assert_ptr_ref!(key);
-    assert_ptr!(result);
+    let key = assert_ptr_mut!(key);
+    let result = assert_ptr_mut!(result);
     *result = (key.has_secret() && ! key.has_unencrypted_secret())
         || (*key.ctx).certs.key_on_agent(&key.fingerprint());
     t!("Key {:X} is {}protected", key.fingerprint(),
@@ -1048,8 +1059,8 @@ fn rnp_key_get_protection_type(key: *mut RnpKey, typ: *mut *const c_char)
     use openpgp::packet::key::SecretKeyMaterial;
 
     rnp_function!(rnp_key_get_protection_type, crate::TRACE);
-    let key = assert_ptr_ref!(key);
-    assert_ptr!(typ);
+    let key = assert_ptr_mut!(key);
+    let typ = assert_ptr_mut!(typ);
 
     let r_typ = if (*(*key).ctx).certs.key_on_agent(&(*key).fingerprint()) {
         // The secret key material is available, but we have no idea
@@ -1102,16 +1113,19 @@ fn rnp_key_get_protection_type(key: *mut RnpKey, typ: *mut *const c_char)
 #[no_mangle] pub unsafe extern "C"
 fn rnp_key_protect(rnp_key: *mut RnpKey,
                    password: *const c_char,
-                   _cipher: *const c_char,
-                   _cipher_mode: *const c_char,
-                   _hash: *const c_char,
-                   _iterations: size_t)
+                   cipher: *const c_char,
+                   cipher_mode: *const c_char,
+                   hash: *const c_char,
+                   iterations: size_t)
                    -> RnpResult {
     rnp_function!(rnp_key_protect, crate::TRACE);
     let rnp_key = assert_ptr_mut!(rnp_key);
+    let password = assert_str!(confidential => password);
+    arg!(cipher);
+    arg!(cipher_mode);
+    arg!(hash);
+    arg!(iterations);
     let fp = rnp_key.fingerprint();
-    assert_ptr!(password);
-    let password = rnp_try!(cstr_to_str(password));
 
     let ctx = &mut *rnp_key.ctx;
     let mut key =
@@ -1167,8 +1181,10 @@ fn rnp_key_unprotect(rnp_key: *mut RnpKey,
     let rnp_key = assert_ptr_mut!(rnp_key);
     let fp = rnp_key.fingerprint();
     let password = if password.is_null() {
+        arg!(password);
         None
     } else {
+        arg!("<REDACTED>");
         Some(rnp_try!(cstr_to_str(password)))
     };
     t!("password = {:?}",
@@ -1228,16 +1244,38 @@ fn rnp_key_unprotect(rnp_key: *mut RnpKey,
 #[no_mangle] pub unsafe extern "C"
 fn rnp_key_export_revocation(key: *mut RnpKey,
                              output: *mut RnpOutput,
-                             _flags: u32,
+                             flags: u32,
                              hash: *const c_char,
                              code: *const c_char,
                              reason: *const c_char)
                              -> RnpResult {
     rnp_function!(rnp_key_export_revocation, crate::TRACE);
-    assert_ptr!(key);
-    assert_ptr!(output);
-    let key = &mut *key;
-    let output = &mut *output;
+    let key = assert_ptr_mut!(key);
+    let output = assert_ptr_mut!(output);
+    arg!(flags);
+
+    let hash = if hash.is_null() {
+        arg!(hash);
+        None
+    } else {
+        assert_str!(hash);
+        Some(rnp_try!(HashAlgorithm::from_rnp_id(hash)))
+    };
+
+    let code = if code.is_null() {
+        arg!(code);
+        ReasonForRevocation::Unspecified
+    } else {
+        assert_str!(code);
+        rnp_try!(ReasonForRevocation::from_rnp_id(code))
+    };
+
+    let reason = if reason.is_null() {
+        b""
+    } else {
+        assert_str!(reason);
+        CStr::from_ptr(reason).to_bytes()
+    };
 
     if ! rnp_try!(key.is_primary()) {
         rnp_return_status!(RNP_ERROR_BAD_PARAMETERS);
@@ -1248,24 +1286,6 @@ fn rnp_key_export_revocation(key: *mut RnpKey,
                not implemented");
         rnp_return_status!(RNP_ERROR_NOT_IMPLEMENTED);
     }
-
-    let hash = if hash.is_null() {
-        None
-    } else {
-        Some(rnp_try!(HashAlgorithm::from_rnp_id(hash)))
-    };
-
-    let code = if code.is_null() {
-        ReasonForRevocation::Unspecified
-    } else {
-        rnp_try!(ReasonForRevocation::from_rnp_id(code))
-    };
-
-    let reason = if reason.is_null() {
-        b""
-    } else {
-        CStr::from_ptr(reason).to_bytes()
-    };
 
     fn f(key: &mut RnpKey, sink: &mut RnpOutput, hash: Option<HashAlgorithm>,
          code: ReasonForRevocation, reason: &[u8])
@@ -1310,14 +1330,38 @@ fn rnp_key_export_revocation(key: *mut RnpKey,
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_key_revoke(key: *mut RnpKey,
-                  _flags: u32,
+                  flags: u32,
                   hash: *const c_char,
                   code: *const c_char,
                   reason: *const c_char)
                   -> RnpResult {
     rnp_function!(rnp_key_revoke, crate::TRACE);
     let key = assert_ptr_mut!(key);
+    arg!(flags);
     let ctx = &mut *key.ctx;
+
+    let hash = if hash.is_null() {
+        arg!(hash);
+        None
+    } else {
+        assert_str!(hash);
+        Some(rnp_try!(HashAlgorithm::from_rnp_id(hash)))
+    };
+
+    let code = if code.is_null() {
+        arg!(code);
+        ReasonForRevocation::Unspecified
+    } else {
+        assert_str!(code);
+        rnp_try!(ReasonForRevocation::from_rnp_id(code))
+    };
+
+    let reason = if reason.is_null() {
+        b""
+    } else {
+        assert_str!(reason);
+        CStr::from_ptr(reason).to_bytes()
+    };
 
     let cert = if let Some(cert) = key.cert() {
         cert.clone()
@@ -1330,24 +1374,6 @@ fn rnp_key_revoke(key: *mut RnpKey,
                not implemented");
         rnp_return_status!(RNP_ERROR_NOT_IMPLEMENTED);
     }
-
-    let hash = if hash.is_null() {
-        None
-    } else {
-        Some(rnp_try!(HashAlgorithm::from_rnp_id(hash)))
-    };
-
-    let code = if code.is_null() {
-        ReasonForRevocation::Unspecified
-    } else {
-        rnp_try!(ReasonForRevocation::from_rnp_id(code))
-    };
-
-    let reason = if reason.is_null() {
-        b""
-    } else {
-        CStr::from_ptr(reason).to_bytes()
-    };
 
     fn f(ctx: &mut RnpContext, cert: Cert, key: &mut RnpKey,
          hash: Option<HashAlgorithm>, code: ReasonForRevocation, reason: &[u8])
@@ -1405,6 +1431,7 @@ fn rnp_key_set_expiration(key: *mut RnpKey,
                           -> RnpResult {
     rnp_function!(rnp_key_set_expiration, crate::TRACE);
     let key = assert_ptr_mut!(key);
+    arg!(expiry);
     let ctx = &mut *key.ctx;
 
     let expiry = if expiry == 0 {
@@ -1526,7 +1553,7 @@ fn rnp_key_valid_till64(key: *mut RnpKey,
                         -> RnpResult {
     rnp_function!(rnp_key_valid_till64, crate::TRACE);
     let key = assert_ptr_mut!(key);
-    assert_ptr!(result);
+    let result = assert_ptr_mut!(result);
 
     // We need to clone it, because key.cert() takes a &mut.
     let k = key.key.clone().parts_into_public();
@@ -1612,9 +1639,9 @@ fn rnp_key_valid_till64(key: *mut RnpKey,
 fn rnp_key_25519_bits_tweaked(key: *mut RnpKey, result_out: *mut bool)
                               -> RnpResult {
     rnp_function!(rnp_key_25519_bits_tweaked, crate::TRACE);
-    let key = assert_ptr_ref!(key);
+    let key = assert_ptr_mut!(key);
     let ctx = &mut *key.ctx;
-    assert_ptr!(result_out);
+    let result_out = assert_ptr_mut!(result_out);
 
     // First, check that we are a Curve25519 key.
     use openpgp::crypto::mpi::PublicKey;
@@ -1770,10 +1797,13 @@ type RnpKeySignaturesCB = fn(*mut RnpContext,
 fn rnp_key_remove_signatures(key: *mut RnpKey,
                              flags: RnpKeyRemoveSignatureFlags,
                              pred: *mut RnpKeySignaturesCB,
-                             _cookie: *mut c_void)
+                             cookie: *mut c_void)
                              -> RnpResult {
     rnp_function!(rnp_key_remove_signatures, crate::TRACE);
     let key = assert_ptr_mut!(key);
+    arg!(flags);
+    arg!(pred);
+    arg!(cookie);
 
     let remove_invalid = flags & RNP_KEY_SIGNATURE_INVALID > 0;
     if remove_invalid {

@@ -4,9 +4,6 @@ use std::{
     collections::{
         HashMap,
     },
-    ffi::{
-        CStr,
-    },
     sync::atomic,
 };
 use std::sync::{Arc, RwLock, RwLockReadGuard};
@@ -186,11 +183,9 @@ fn rnp_ffi_create(ctx: *mut *mut RnpContext,
 {
     rnp_function!(rnp_ffi_create, crate::TRACE);
     assert_ptr!(ctx);
-    assert_ptr!(pub_fmt);
-    assert_ptr!(sec_fmt);
-    if CStr::from_ptr(pub_fmt).to_bytes() != b"GPG"
-        || CStr::from_ptr(sec_fmt).to_bytes() != b"GPG"
-    {
+    let pub_fmt = assert_str!(pub_fmt);
+    let sec_fmt = assert_str!(sec_fmt);
+    if pub_fmt != "GPG" || sec_fmt != "GPG" {
         rnp_return_status!(RNP_ERROR_BAD_FORMAT);
     }
 
@@ -268,6 +263,7 @@ fn rnp_ffi_create(ctx: *mut *mut RnpContext,
 #[no_mangle] pub unsafe extern "C"
 fn rnp_ffi_destroy(ctx: *mut RnpContext) -> RnpResult {
     rnp_function!(rnp_ffi_destroy, crate::TRACE);
+    arg!(ctx);
     if ! ctx.is_null() {
         drop(Box::from_raw(ctx));
     }
@@ -277,7 +273,7 @@ fn rnp_ffi_destroy(ctx: *mut RnpContext) -> RnpResult {
 #[no_mangle] pub unsafe extern "C"
 fn rnp_ffi_set_log_fd(ctx: *mut RnpContext, _fd: c_int) -> RnpResult {
     rnp_function!(rnp_ffi_set_log_fd, crate::TRACE);
-    assert_ptr!(ctx);
+    let _ = assert_ptr_mut!(ctx);
     rnp_success!()
 }
 
@@ -287,8 +283,10 @@ fn rnp_ffi_set_pass_provider(ctx: *mut RnpContext,
                              cookie: *mut c_void)
                              -> RnpResult {
     rnp_function!(rnp_ffi_set_pass_provider, crate::TRACE);
-    assert_ptr!(ctx);
-    (*ctx).password_cb = Some((cb, cookie));
+    let ctx = assert_ptr_mut!(ctx);
+    arg!(cb);
+    arg!(cookie);
+    ctx.password_cb = Some((cb, cookie));
     rnp_success!()
 }
 
@@ -627,9 +625,10 @@ fn rnp_load_keys(ctx: *mut RnpContext,
                  -> RnpResult {
     rnp_function!(rnp_load_keys, TRACE);
 
-    assert_ptr!(ctx);
-    assert_ptr!(format);
-    assert_ptr!(input);
+    let ctx = assert_ptr_mut!(ctx);
+    let format = assert_str!(format);
+    let input = assert_ptr_mut!(input);
+    arg!(flags);
 
     static BANNER_SHOWN: atomic::AtomicBool = atomic::AtomicBool::new(false);
     if ! BANNER_SHOWN.load(atomic::Ordering::Relaxed) {
@@ -646,12 +645,10 @@ fn rnp_load_keys(ctx: *mut RnpContext,
         BANNER_SHOWN.store(true, atomic::Ordering::Relaxed);
     }
 
-
-    if CStr::from_ptr(format).to_bytes() != b"GPG" {
+    if format != "GPG" {
         rnp_return_status!(RNP_ERROR_BAD_FORMAT);
     }
 
-    let input = &mut *input;
     let input_size = input.size();
 
     match flags {
@@ -684,8 +681,8 @@ fn rnp_load_keys(ctx: *mut RnpContext,
                 warn!("Import gpg's keyring: {}", err);
             }
 
-            rnp_try_or!((*ctx).certs.start_parcimonie((*ctx).policy().clone()),
-                        RNP_ERROR_GENERIC);
+            let policy = ctx.policy().clone();
+            rnp_try_or!(ctx.certs.start_parcimonie(policy), RNP_ERROR_GENERIC);
         }
         RNP_LOAD_SAVE_SECRET_KEYS => (),
         f => {
@@ -721,14 +718,13 @@ fn rnp_save_keys(ctx: *mut RnpContext,
                  flags: RnpLoadSaveFlags)
                  -> RnpResult {
     rnp_function!(rnp_save_keys, TRACE);
-    assert_ptr!(ctx);
-    assert_ptr!(format);
-    assert_ptr!(output);
-    if CStr::from_ptr(format).to_bytes() != b"GPG" {
+    let ctx = assert_ptr_mut!(ctx);
+    let format = assert_str!(format);
+    let output = assert_ptr_mut!(output);
+    if format != "GPG" {
         rnp_return_status!(RNP_ERROR_BAD_FORMAT);
     }
 
-    let output = &mut *output;
     let mut r = Ok(());
     let mut count = 0;
     match flags {
@@ -789,6 +785,7 @@ fn rnp_get_public_key_count(ctx: *mut RnpContext,
                             -> RnpResult {
     rnp_function!(rnp_get_public_key_count, crate::TRACE);
     let ctx = assert_ptr_mut!(ctx);
+    let count = assert_ptr_mut!(count);
 
     // We load the keyrings in the background.  But, once TB tries to
     // get the number of certs, we have to wait on that process.
@@ -820,6 +817,7 @@ fn rnp_get_secret_key_count(ctx: *mut RnpContext,
                             -> RnpResult {
     rnp_function!(rnp_get_secret_key_count, TRACE);
     let ctx = assert_ptr_mut!(ctx);
+    let count = assert_ptr_mut!(count);
 
     // We load the keyrings in the background.  But, once TB tries to
     // get the number of certs, we have to wait on that process.

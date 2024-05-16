@@ -23,6 +23,8 @@ fn rnp_dump_packets_to_output(input: *mut RnpInput,
     rnp_function!(rnp_dump_packets_to_output, crate::TRACE);
     let input = assert_ptr_mut!(input);
     let output = assert_ptr_mut!(output);
+    arg!(flags);
+
     let dump_mpis = flags & RNP_DUMP_MPI > 0;
     let dump_hex = flags & RNP_DUMP_RAW > 0;
     // Key grips are a proprietary GnuPG extension.  No.

@@ -111,6 +111,8 @@ fn rnp_import_keys(ctx: *mut RnpContext,
 
     let ctx = assert_ptr_mut!(ctx);
     let input = assert_ptr_mut!(input);
+    arg!(flags);
+    arg!(results);
 
     let public = flags & RNP_LOAD_SAVE_PUBLIC_KEYS > 0;
     let secret = flags & RNP_LOAD_SAVE_SECRET_KEYS > 0;

@@ -100,6 +100,8 @@ impl RnpUserID {
 fn rnp_uid_handle_destroy(uid: *mut RnpUserID)
                           -> RnpResult {
     rnp_function!(rnp_uid_handle_destroy, crate::TRACE);
+    arg!(uid);
+
     if ! uid.is_null() {
         drop(Box::from_raw(uid));
     }
@@ -114,6 +116,7 @@ fn rnp_uid_get_signature_at(uid: *const RnpUserID,
                             -> RnpResult {
     rnp_function!(rnp_uid_get_signature_at, crate::TRACE);
     let uid = assert_ptr_ref!(uid);
+    arg!(idx);
     let sig = assert_ptr_mut!(sig);
 
     rnp_return_status!(if let Some((s, valid)) = ca_signatures(

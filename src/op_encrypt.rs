@@ -66,15 +66,15 @@ fn rnp_op_encrypt_create<'a>(op: *mut *mut RnpOpEncrypt<'a>,
                              -> RnpResult
 {
     rnp_function!(rnp_op_encrypt_create, crate::TRACE);
-    assert_ptr!(op);
-    assert_ptr!(ctx);
-    assert_ptr!(input);
-    assert_ptr!(output);
+    let op = assert_ptr_mut!(op);
+    let ctx = assert_ptr_mut!(ctx);
+    let input = assert_ptr_mut!(input);
+    let output = assert_ptr_mut!(output);
 
     *op = Box::into_raw(Box::new(RnpOpEncrypt {
-        ctx: &mut *ctx,
-        input: &mut *input,
-        output: &mut *output,
+        ctx,
+        input,
+        output,
         recipients: Vec::new(),
         signers: Vec::new(),
         agent_signers: Vec::new(),
@@ -89,6 +89,8 @@ fn rnp_op_encrypt_create<'a>(op: *mut *mut RnpOpEncrypt<'a>,
 #[no_mangle] pub unsafe extern "C"
 fn rnp_op_encrypt_destroy(op: *mut RnpOpEncrypt) -> RnpResult {
     rnp_function!(rnp_op_encrypt_destroy, crate::TRACE);
+    arg!(op);
+
     if ! op.is_null() {
         drop(Box::from_raw(op));
     }
@@ -269,6 +271,7 @@ fn rnp_op_encrypt_add_signature(op: *mut RnpOpEncrypt,
     use std::ops::Deref;
     let op = assert_ptr_mut!(op);
     let key = assert_ptr_ref!(key);
+    arg!(sig);
     if ! sig.is_null() {
         warn!("changing signature parameters not implemented");
         rnp_return_status!(RNP_ERROR_NOT_IMPLEMENTED);
@@ -292,8 +295,9 @@ fn rnp_op_encrypt_set_armor(op: *mut RnpOpEncrypt,
                             armored: bool)
                             -> RnpResult {
     rnp_function!(rnp_op_encrypt_set_armor, crate::TRACE);
-    assert_ptr!(op);
-    (*op).armor = armored;
+    let op = assert_ptr_mut!(op);
+    arg!(armored);
+    op.armor = armored;
     rnp_success!()
 }
 
@@ -302,8 +306,8 @@ fn rnp_op_encrypt_set_cipher(op: *mut RnpOpEncrypt,
                              cipher: *const c_char)
                              -> RnpResult {
     rnp_function!(rnp_op_encrypt_set_cipher, crate::TRACE);
-    assert_ptr!(op);
-    assert_ptr!(cipher);
+    let op = assert_ptr_mut!(op);
+    assert_str!(cipher);
     (*op).cipher = Some(rnp_try!(SymmetricAlgorithm::from_rnp_id(cipher)));
     rnp_success!()
 }
@@ -313,8 +317,8 @@ fn rnp_op_encrypt_set_aead(op: *mut RnpOpEncrypt,
                            algo: *const c_char)
                            -> RnpResult {
     rnp_function!(rnp_op_encrypt_set_aead, crate::TRACE);
-    assert_ptr!(op);
-    assert_ptr!(algo);
+    let _ = assert_ptr_mut!(op);
+    assert_str!(algo);
     let aead = rnp_try!(Option::<AEADAlgorithm>::from_rnp_id(algo));
 
     rnp_return_status!(match aead {
@@ -328,7 +332,8 @@ fn rnp_op_encrypt_set_aead_bits(op: *mut RnpOpEncrypt,
                                 encoded_bits: c_int)
                                 -> RnpResult {
     rnp_function!(rnp_op_encrypt_set_aead_bits, crate::TRACE);
-    assert_ptr!(op);
+    let _ = assert_ptr_mut!(op);
+    arg!(encoded_bits);
 
     // This sets the chunk size using the OpenPGP wire encoding.
     rnp_return_status!(if (0..=16).contains(&encoded_bits) {
@@ -344,8 +349,8 @@ fn rnp_op_encrypt_set_hash(op: *mut RnpOpEncrypt,
                            hash: *const c_char)
                            -> RnpResult {
     rnp_function!(rnp_op_encrypt_set_hash, crate::TRACE);
-    assert_ptr!(op);
-    assert_ptr!(hash);
+    let op = assert_ptr_mut!(op);
+    assert_str!(hash);
     (*op).hash = Some(rnp_try!(HashAlgorithm::from_rnp_id(hash)));
     rnp_success!()
 }
@@ -356,6 +361,7 @@ fn rnp_op_encrypt_set_flags(op: *mut RnpOpEncrypt,
                             -> RnpResult {
     rnp_function!(rnp_op_encrypt_set_flags, crate::TRACE);
     let op = assert_ptr_mut!(op);
+    arg!(flags);
 
     if flags & RNP_ENCRYPT_NOWRAP > 0 {
         t!("Disabling literal data wrapping.");

@@ -101,18 +101,16 @@ fn rnp_input_from_path(input: *mut *mut RnpInput,
                        path: *const c_char)
                        -> RnpResult {
     rnp_function!(rnp_input_from_path, crate::TRACE);
-    rnp_return_status!(match cstr_to_pathbuf(path) {
-        Ok(p) => {
-            if let Ok(f) = File::open(&p) {
-                *input = Box::into_raw(Box::new(
-                    RnpInput::File(p, f)
-                ));
-                RNP_SUCCESS
-            } else {
-                RNP_ERROR_ACCESS
-            }
-        },
-        Err(e) => e,
+    assert_ptr!(input);
+    let path = assert_str!(path).into();
+
+    rnp_return_status!(if let Ok(f) = File::open(&path) {
+        *input = Box::into_raw(Box::new(
+            RnpInput::File(path, f)
+        ));
+        RNP_SUCCESS
+    } else {
+        RNP_ERROR_ACCESS
     })
 }
 
@@ -123,6 +121,11 @@ fn rnp_input_from_memory(input: *mut *mut RnpInput,
                          do_copy: bool)
                          -> RnpResult {
     rnp_function!(rnp_input_from_memory, crate::TRACE);
+    assert_ptr!(input);
+    assert_ptr!(buf);
+    arg!(len);
+    arg!(do_copy);
+
     let data = std::slice::from_raw_parts(buf, len);
     *input = Box::into_raw(Box::new(if do_copy {
         RnpInput::Buf(io::Cursor::new(data.to_vec()))
@@ -135,6 +138,8 @@ fn rnp_input_from_memory(input: *mut *mut RnpInput,
 #[no_mangle] pub unsafe extern "C"
 fn rnp_input_destroy(input: *mut RnpInput) -> RnpResult {
     rnp_function!(rnp_input_destroy, crate::TRACE);
+    arg!(input);
+
     if ! input.is_null() {
         drop(Box::from_raw(input));
     }
@@ -178,6 +183,9 @@ fn rnp_output_to_memory(output: *mut *mut RnpOutput,
                         max_alloc: size_t)
                         -> RnpResult {
     rnp_function!(rnp_output_to_memory, crate::TRACE);
+    assert_ptr!(output);
+    arg!(max_alloc);
+
     *output = Box::into_raw(Box::new(
         RnpOutput::Buf((Vec::new(),
                         if max_alloc == 0 { None } else { Some(max_alloc) }))
@@ -192,7 +200,12 @@ fn rnp_output_memory_get_buf(output: *const RnpOutput,
                              do_copy: bool)
                              -> RnpResult {
     rnp_function!(rnp_output_memory_get_buf, crate::TRACE);
-    rnp_return_status!(if let RnpOutput::Buf((bytes, _)) = &*output {
+    let output = assert_ptr_ref!(output);
+    let buf = assert_ptr_mut!(buf);
+    let len = assert_ptr_mut!(len);
+    arg!(do_copy);
+
+    rnp_return_status!(if let RnpOutput::Buf((bytes, _)) = output {
         if do_copy {
             *buf = bytes_to_rnp_buffer(bytes);
             *len = bytes.len();
@@ -213,12 +226,15 @@ fn rnp_output_to_armor<'a>(sink: *mut RnpOutput<'a>,
                            kind: *const c_char)
                            -> RnpResult {
     rnp_function!(rnp_output_to_armor, crate::TRACE);
-    assert_ptr!(sink);
-    assert_ptr!(output);
+    let sink = assert_ptr_mut!(sink);
+    let output = assert_ptr_mut!(output);
+
     if kind.is_null() {
+        arg!(kind);
         warn!("rnp_output_to_armor: type detection not implemented");
         rnp_return_status!(RNP_ERROR_NOT_IMPLEMENTED); // XXX
     }
+    assert_str!(kind); // XXX
     let kind = rnp_try!(armor::Kind::from_rnp_id(kind));
 
     *output = match armor::Writer::new(&mut *sink, kind) {
@@ -233,10 +249,13 @@ fn rnp_output_to_armor<'a>(sink: *mut RnpOutput<'a>,
 }
 
 #[no_mangle] pub unsafe extern "C"
-fn rnp_output_armor_set_line_length<'a>(_: *mut RnpOutput<'a>,
+fn rnp_output_armor_set_line_length<'a>(output: *mut RnpOutput<'a>,
                                         llen: size_t)
                                         -> RnpResult {
     rnp_function!(rnp_output_armor_set_line_length, crate::TRACE);
+    assert_ptr!(output);
+    arg!(llen);
+
     if llen == 64 {
         // This is Sequoia's default line length, there is nothing to
         // do.  Another job well done.
@@ -253,6 +272,8 @@ fn rnp_output_armor_set_line_length<'a>(_: *mut RnpOutput<'a>,
 #[no_mangle] pub unsafe extern "C"
 fn rnp_output_destroy(output: *mut RnpOutput) -> RnpResult {
     rnp_function!(rnp_output_destroy, crate::TRACE);
+    arg!(output);
+
     if ! output.is_null() {
         drop(Box::from_raw(output));
     }
@@ -262,9 +283,9 @@ fn rnp_output_destroy(output: *mut RnpOutput) -> RnpResult {
 #[no_mangle] pub unsafe extern "C"
 fn rnp_output_finish(output: *mut RnpOutput) -> RnpResult {
     rnp_function!(rnp_output_finish, crate::TRACE);
-    assert_ptr!(output);
+    let output = assert_ptr_mut!(output);
 
-    match &mut *output {
+    match output {
         RnpOutput::Buf(_) => (),
         RnpOutput::File(_) => (),
         RnpOutput::Armorer(w) =>
@@ -328,10 +349,13 @@ fn rnp_enarmor(input: *mut RnpInput,
     rnp_function!(rnp_enarmor, crate::TRACE);
     assert_ptr!(input);
     assert_ptr!(output);
+
     if kind.is_null() {
+        arg!(kind);
         warn!("rnp_enarmor: type detection not implemented");
         rnp_return_status!(RNP_ERROR_NOT_IMPLEMENTED); // XXX
     }
+    assert_str!(kind); // XXX
     let kind = rnp_try!(armor::Kind::from_rnp_id(kind));
 
     fn f(input: &mut RnpInput, output: &mut RnpOutput, kind: armor::Kind)

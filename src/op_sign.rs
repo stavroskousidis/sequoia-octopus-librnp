@@ -53,15 +53,15 @@ fn rnp_op_sign_detached_create<'a>(op: *mut *mut RnpOpSign<'a>,
                                    -> RnpResult
 {
     rnp_function!(rnp_op_sign_detached_create, crate::TRACE);
-    assert_ptr!(op);
-    assert_ptr!(ctx);
-    assert_ptr!(input);
-    assert_ptr!(output);
+    let op = assert_ptr_mut!(op);
+    let ctx = assert_ptr_mut!(ctx);
+    let input = assert_ptr_mut!(input);
+    let output = assert_ptr_mut!(output);
 
     *op = Box::into_raw(Box::new(RnpOpSign {
-        ctx: &mut *ctx,
-        input: &mut *input,
-        output: &mut *output,
+        ctx,
+        input,
+        output,
         secret_keys: Vec::new(),
         agent_keys: Vec::new(),
         hash: None,
@@ -79,15 +79,15 @@ fn rnp_op_sign_cleartext_create<'a>(op: *mut *mut RnpOpSign<'a>,
                                     -> RnpResult
 {
     rnp_function!(rnp_op_sign_cleartext_create, crate::TRACE);
-    assert_ptr!(op);
-    assert_ptr!(ctx);
-    assert_ptr!(input);
-    assert_ptr!(output);
+    let op = assert_ptr_mut!(op);
+    let ctx = assert_ptr_mut!(ctx);
+    let input = assert_ptr_mut!(input);
+    let output = assert_ptr_mut!(output);
 
     *op = Box::into_raw(Box::new(RnpOpSign {
-        ctx: &mut *ctx,
-        input: &mut *input,
-        output: &mut *output,
+        ctx,
+        input,
+        output,
         secret_keys: Vec::new(),
         agent_keys: Vec::new(),
         hash: None,
@@ -100,6 +100,8 @@ fn rnp_op_sign_cleartext_create<'a>(op: *mut *mut RnpOpSign<'a>,
 #[no_mangle] pub unsafe extern "C"
 fn rnp_op_sign_destroy(op: *mut RnpOpSign) -> RnpResult {
     rnp_function!(rnp_op_sign_destroy, crate::TRACE);
+    arg!(op);
+
     if ! op.is_null() {
         drop(Box::from_raw(op));
     }
@@ -233,6 +235,7 @@ fn rnp_op_sign_add_signature(op: *mut RnpOpSign,
     use std::ops::Deref;
     let op = assert_ptr_mut!(op);
     let key = assert_ptr_ref!(key);
+    arg!(sig);
     if ! sig.is_null() {
         warn!("changing signature parameters not implemented");
         rnp_return_status!(RNP_ERROR_NOT_IMPLEMENTED);
@@ -256,7 +259,8 @@ fn rnp_op_sign_set_armor(op: *mut RnpOpSign,
                          armored: bool)
                          -> RnpResult {
     rnp_function!(rnp_op_sign_set_armor, crate::TRACE);
-    assert_ptr!(op);
+    let op = assert_ptr_mut!(op);
+    arg!(armored);
     (*op).armor = armored;
     rnp_success!()
 }
@@ -266,8 +270,8 @@ fn rnp_op_sign_set_hash(op: *mut RnpOpSign,
                         hash: *const c_char)
                         -> RnpResult {
     rnp_function!(rnp_op_sign_set_hash, crate::TRACE);
-    assert_ptr!(op);
-    assert_ptr!(hash);
+    let op = assert_ptr_mut!(op);
+    assert_str!(hash);
     (*op).hash = Some(rnp_try!(HashAlgorithm::from_rnp_id(hash)));
     rnp_success!()
 }

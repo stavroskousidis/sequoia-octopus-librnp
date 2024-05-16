@@ -56,6 +56,8 @@ impl RnpSignature {
 #[no_mangle] pub unsafe extern "C"
 fn rnp_signature_handle_destroy(sig: *mut RnpSignature) -> RnpResult {
     rnp_function!(rnp_signature_handle_destroy, crate::TRACE);
+    arg!(sig);
+
     if ! sig.is_null() {
         drop(Box::from_raw(sig));
     }
@@ -68,7 +70,7 @@ fn rnp_signature_get_hash_alg(sig: *const RnpSignature,
                            -> RnpResult {
     rnp_function!(rnp_signature_get_keyid, crate::TRACE);
     let sig = assert_ptr_ref!(sig);
-    assert_ptr!(hash_alg);
+    let hash_alg = assert_ptr_mut!(hash_alg);
 
     *hash_alg = str_to_rnp_buffer(sig.hash_algo().to_rnp_id());
     rnp_success!()
@@ -82,8 +84,9 @@ fn rnp_signature_get_keyid(sig: *const RnpSignature,
                            keyid: *mut *mut c_char)
                            -> RnpResult {
     rnp_function!(rnp_signature_get_keyid, crate::TRACE);
-    assert_ptr!(sig);
-    assert_ptr!(keyid);
+    let sig = assert_ptr_ref!(sig);
+    let keyid = assert_ptr_mut!(keyid);
+
     *keyid =
         if let Some(issuer) = (*sig).get_issuers().get(0) {
             str_to_rnp_buffer(format!("{:X}", KeyID::from(issuer)))
@@ -98,8 +101,8 @@ fn rnp_signature_get_creation(sig: *const RnpSignature,
                               creation: *mut u32)
                               -> RnpResult {
     rnp_function!(rnp_signature_get_creation, crate::TRACE);
-    assert_ptr!(sig);
-    assert_ptr!(creation);
+    let sig = assert_ptr_ref!(sig);
+    let creation = assert_ptr_mut!(creation);
 
     *creation =
         (*sig).signature_creation_time()
@@ -115,9 +118,8 @@ fn rnp_signature_get_signer(sig: *const RnpSignature,
                             key: *mut *mut RnpKey)
                             -> RnpResult {
     rnp_function!(rnp_signature_get_signer, crate::TRACE);
-    assert_ptr!(sig);
-    assert_ptr!(key);
-    let sig = &*sig;
+    let sig = assert_ptr_ref!(sig);
+    let key = assert_ptr_mut!(key);
 
     for issuer in sig.get_issuers() {
         if let Some(cert) = (*sig.ctx).cert(&issuer.clone().into()) {
@@ -138,8 +140,8 @@ fn rnp_signature_is_valid(sig: *const RnpSignature,
                           flags: u32)
                           -> RnpResult {
     rnp_function!(rnp_signature_is_valid, crate::TRACE);
-    assert_ptr!(sig);
-    let sig = &*sig;
+    let sig = assert_ptr_ref!(sig);
+    arg!(flags);
 
     // According to the rnp documentation, flags must currently be
     // zero.
