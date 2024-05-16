@@ -267,6 +267,7 @@ fn rnp_ffi_create(ctx: *mut *mut RnpContext,
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_ffi_destroy(ctx: *mut RnpContext) -> RnpResult {
+    rnp_function!(rnp_ffi_destroy, crate::TRACE);
     if ! ctx.is_null() {
         drop(Box::from_raw(ctx));
     }

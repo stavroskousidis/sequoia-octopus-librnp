@@ -99,6 +99,7 @@ fn rnp_op_sign_cleartext_create<'a>(op: *mut *mut RnpOpSign<'a>,
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_op_sign_destroy(op: *mut RnpOpSign) -> RnpResult {
+    rnp_function!(rnp_op_sign_destroy, crate::TRACE);
     if ! op.is_null() {
         drop(Box::from_raw(op));
     }

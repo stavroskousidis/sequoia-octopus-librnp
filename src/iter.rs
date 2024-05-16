@@ -124,6 +124,7 @@ fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
 #[no_mangle] pub unsafe extern "C"
 fn rnp_identifier_iterator_destroy(iter: *mut RnpIdentifierIterator)
                                    -> RnpResult {
+    rnp_function!(rnp_identifier_iterator_destroy, crate::TRACE);
     if ! iter.is_null() {
         drop(Box::from_raw(iter));
     }

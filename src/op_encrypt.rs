@@ -88,6 +88,7 @@ fn rnp_op_encrypt_create<'a>(op: *mut *mut RnpOpEncrypt<'a>,
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_op_encrypt_destroy(op: *mut RnpOpEncrypt) -> RnpResult {
+    rnp_function!(rnp_op_encrypt_destroy, crate::TRACE);
     if ! op.is_null() {
         drop(Box::from_raw(op));
     }

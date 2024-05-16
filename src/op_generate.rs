@@ -135,6 +135,7 @@ fn rnp_op_generate_subkey_create(op: *mut *mut RnpOpGenerate,
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_op_generate_destroy(op: *mut RnpOpGenerate) -> RnpResult {
+    rnp_function!(rnp_op_generate_destroy, crate::TRACE);
     if ! op.is_null() {
         drop(Box::from_raw(op));
     }

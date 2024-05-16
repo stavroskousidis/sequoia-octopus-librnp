@@ -290,6 +290,7 @@ fn rnp_locate_key(ctx: *mut RnpContext,
 #[no_mangle] pub unsafe extern "C"
 fn rnp_key_handle_destroy(key: *mut RnpKey)
                           -> RnpResult {
+    rnp_function!(rnp_key_handle_destroy, crate::TRACE);
     if ! key.is_null() {
         drop(Box::from_raw(key));
     }

@@ -255,6 +255,7 @@ fn rnp_output_armor_set_line_length<'a>(_: *mut RnpOutput<'a>,
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_output_destroy(output: *mut RnpOutput) -> RnpResult {
+    rnp_function!(rnp_output_destroy, crate::TRACE);
     if ! output.is_null() {
         drop(Box::from_raw(output));
     }

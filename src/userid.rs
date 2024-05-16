@@ -99,6 +99,7 @@ impl RnpUserID {
 #[no_mangle] pub unsafe extern "C"
 fn rnp_uid_handle_destroy(uid: *mut RnpUserID)
                           -> RnpResult {
+    rnp_function!(rnp_uid_handle_destroy, crate::TRACE);
     if ! uid.is_null() {
         drop(Box::from_raw(uid));
     }

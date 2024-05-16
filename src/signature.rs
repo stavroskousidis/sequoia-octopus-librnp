@@ -55,6 +55,7 @@ impl RnpSignature {
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_signature_handle_destroy(sig: *mut RnpSignature) -> RnpResult {
+    rnp_function!(rnp_signature_handle_destroy, crate::TRACE);
     if ! sig.is_null() {
         drop(Box::from_raw(sig));
     }

@@ -223,6 +223,7 @@ fn rnp_op_verify_detached_create<'a>(op: *mut *mut RnpOpVerify<'a>,
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_op_verify_destroy(op: *mut RnpOpVerify) -> RnpResult {
+    rnp_function!(rnp_op_verify_destroy, crate::TRACE);
     if ! op.is_null() {
         drop(Box::from_raw(op));
     }
