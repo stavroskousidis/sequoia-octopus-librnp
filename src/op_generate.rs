@@ -78,7 +78,7 @@ fn rnp_op_generate_create(op: *mut *mut RnpOpGenerate,
     rnp_function!(rnp_op_generate_create, crate::TRACE);
     let op = assert_ptr_mut!(op);
     let ctx = assert_ptr_mut!(ctx);
-    assert_str!(alg);
+    let alg = assert_str!(alg);
 
     let pk_algo = rnp_try!(PublicKeyAlgorithm::from_rnp_id(alg));
     use PublicKeyAlgorithm::*;
@@ -116,7 +116,7 @@ fn rnp_op_generate_subkey_create(op: *mut *mut RnpOpGenerate,
     let op = assert_ptr_mut!(op);
     let ctx = assert_ptr_mut!(ctx);
     let primary = assert_ptr_ref!(primary);
-    assert_str!(alg);
+    let alg = assert_str!(alg);
 
     let pk_algo = rnp_try!(PublicKeyAlgorithm::from_rnp_id(alg));
     *op = Box::into_raw(Box::new(RnpOpGenerate {
@@ -328,7 +328,7 @@ fn rnp_op_generate_set_curve(op: *mut RnpOpGenerate,
                             -> RnpResult {
     rnp_function!(rnp_op_generate_set_curve, crate::TRACE);
     let op = assert_ptr_mut!(op);
-    assert_str!(curve);
+    let curve = assert_str!(curve);
     (*op).curve = Some(rnp_try!(Curve::from_rnp_id(curve)));
     rnp_success!()
 }

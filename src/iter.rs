@@ -26,7 +26,7 @@ fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
     rnp_function!(rnp_identifier_iterator_create, crate::TRACE);
     let ctx = assert_ptr_mut!(ctx);
     let iter = assert_ptr_mut!(iter);
-    assert_str!(typ); // XXX
+    let typ = assert_str!(typ);
 
     let typ = rnp_try!(RnpIdentifierType::from_rnp_id(typ));
     t!("type = {:?}", typ);

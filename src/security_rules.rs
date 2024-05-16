@@ -52,7 +52,7 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
     rnp_function!(rnp_get_security_rule, crate::TRACE);
     let ctx = assert_ptr_ref!(ctx);
     let typ = assert_str!(typ);
-    let name_ = assert_str!(name);
+    let name = assert_str!(name);
     arg!(time);
     arg!(flags_inout);
     arg!(from_out);
@@ -71,7 +71,7 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
 
     let time = UNIX_EPOCH + Duration::new(time, 0);
     t!("typ: {}, name: {}, time: {:?}, query flags: {:?}",
-       typ, name_, time, query_flags);
+       typ, name, time, query_flags);
 
     match typ {
         RNP_FEATURE_PK_ALG => {
@@ -178,14 +178,14 @@ fn rnp_add_security_rule(ctx: *mut RnpContext,
     rnp_function!(rnp_add_security_rule, crate::TRACE);
     let ctx = assert_ptr_mut!(ctx);
     let typ = assert_str!(typ);
-    let name_ = assert_str!(name);
+    let name = assert_str!(name);
     arg!(flags);
     arg!(time);
     arg!(level);
 
     let time = UNIX_EPOCH + Duration::new(time, 0);
     t!("typ: {}, name: {}, flags: {:?}, time: {:?}, level: {:?}",
-       typ, name_, flags, time, level);
+       typ, name, flags, time, level);
 
     match typ {
         RNP_FEATURE_PK_ALG => {

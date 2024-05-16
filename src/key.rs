@@ -1,8 +1,5 @@
 use std::{
     cmp::min,
-    ffi::{
-        CStr,
-    },
     fmt,
     io,
     sync::{
@@ -237,8 +234,8 @@ fn rnp_locate_key(ctx: *mut RnpContext,
     rnp_function!(rnp_locate_key, crate::TRACE);
 
     let ctx = assert_ptr_mut!(ctx);
-    assert_str!(identifier_type);
-    assert_str!(identifier);
+    let identifier_type = assert_str!(identifier_type);
+    let identifier = assert_str!(identifier);
     let key = assert_ptr_mut!(key);
 
     let id = rnp_try!(
@@ -754,7 +751,7 @@ fn rnp_key_allows_usage(key: *mut RnpKey,
                         -> RnpResult {
     rnp_function!(rnp_key_allows_usage, crate::TRACE);
     let key = assert_ptr_mut!(key);
-    let _usage = assert_str!(usage);
+    let usage = assert_str!(usage);
     let result = assert_ptr_mut!(result);
     let policy = (*((*key).ctx)).policy().clone();
 
@@ -1258,7 +1255,7 @@ fn rnp_key_export_revocation(key: *mut RnpKey,
         arg!(hash);
         None
     } else {
-        assert_str!(hash);
+        let hash = assert_str!(hash);
         Some(rnp_try!(HashAlgorithm::from_rnp_id(hash)))
     };
 
@@ -1266,15 +1263,14 @@ fn rnp_key_export_revocation(key: *mut RnpKey,
         arg!(code);
         ReasonForRevocation::Unspecified
     } else {
-        assert_str!(code);
+        let code = assert_str!(code);
         rnp_try!(ReasonForRevocation::from_rnp_id(code))
     };
 
     let reason = if reason.is_null() {
         b""
     } else {
-        assert_str!(reason);
-        CStr::from_ptr(reason).to_bytes()
+        assert_str!(reason).as_bytes()
     };
 
     if ! rnp_try!(key.is_primary()) {
@@ -1344,7 +1340,7 @@ fn rnp_key_revoke(key: *mut RnpKey,
         arg!(hash);
         None
     } else {
-        assert_str!(hash);
+        let hash = assert_str!(hash);
         Some(rnp_try!(HashAlgorithm::from_rnp_id(hash)))
     };
 
@@ -1352,15 +1348,14 @@ fn rnp_key_revoke(key: *mut RnpKey,
         arg!(code);
         ReasonForRevocation::Unspecified
     } else {
-        assert_str!(code);
+        let code = assert_str!(code);
         rnp_try!(ReasonForRevocation::from_rnp_id(code))
     };
 
     let reason = if reason.is_null() {
         b""
     } else {
-        assert_str!(reason);
-        CStr::from_ptr(reason).to_bytes()
+        assert_str!(reason).as_bytes()
     };
 
     let cert = if let Some(cert) = key.cert() {

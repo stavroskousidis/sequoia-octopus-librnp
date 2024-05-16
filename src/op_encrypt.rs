@@ -307,7 +307,7 @@ fn rnp_op_encrypt_set_cipher(op: *mut RnpOpEncrypt,
                              -> RnpResult {
     rnp_function!(rnp_op_encrypt_set_cipher, crate::TRACE);
     let op = assert_ptr_mut!(op);
-    assert_str!(cipher);
+    let cipher = assert_str!(cipher);
     (*op).cipher = Some(rnp_try!(SymmetricAlgorithm::from_rnp_id(cipher)));
     rnp_success!()
 }
@@ -318,7 +318,7 @@ fn rnp_op_encrypt_set_aead(op: *mut RnpOpEncrypt,
                            -> RnpResult {
     rnp_function!(rnp_op_encrypt_set_aead, crate::TRACE);
     let _ = assert_ptr_mut!(op);
-    assert_str!(algo);
+    let algo = assert_str!(algo);
     let aead = rnp_try!(Option::<AEADAlgorithm>::from_rnp_id(algo));
 
     rnp_return_status!(match aead {
@@ -350,7 +350,7 @@ fn rnp_op_encrypt_set_hash(op: *mut RnpOpEncrypt,
                            -> RnpResult {
     rnp_function!(rnp_op_encrypt_set_hash, crate::TRACE);
     let op = assert_ptr_mut!(op);
-    assert_str!(hash);
+    let hash = assert_str!(hash);
     (*op).hash = Some(rnp_try!(HashAlgorithm::from_rnp_id(hash)));
     rnp_success!()
 }

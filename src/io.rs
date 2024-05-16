@@ -234,7 +234,7 @@ fn rnp_output_to_armor<'a>(sink: *mut RnpOutput<'a>,
         warn!("rnp_output_to_armor: type detection not implemented");
         rnp_return_status!(RNP_ERROR_NOT_IMPLEMENTED); // XXX
     }
-    assert_str!(kind); // XXX
+    let kind = assert_str!(kind);
     let kind = rnp_try!(armor::Kind::from_rnp_id(kind));
 
     *output = match armor::Writer::new(&mut *sink, kind) {
@@ -355,7 +355,7 @@ fn rnp_enarmor(input: *mut RnpInput,
         warn!("rnp_enarmor: type detection not implemented");
         rnp_return_status!(RNP_ERROR_NOT_IMPLEMENTED); // XXX
     }
-    assert_str!(kind); // XXX
+    let kind = assert_str!(kind);
     let kind = rnp_try!(armor::Kind::from_rnp_id(kind));
 
     fn f(input: &mut RnpInput, output: &mut RnpOutput, kind: armor::Kind)

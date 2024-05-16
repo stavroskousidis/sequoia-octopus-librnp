@@ -1,13 +1,3 @@
-use std::{
-    ffi::{
-        CStr,
-    },
-};
-
-use libc::{
-    c_char,
-};
-
 use sequoia_openpgp as openpgp;
 use openpgp::{
     armor,
@@ -39,7 +29,7 @@ pub trait ToRnpId {
 }
 
 pub trait FromRnpId {
-    fn from_rnp_id(id: *const c_char) -> Result<Self>
+    fn from_rnp_id(id: &str) -> Result<Self>
         where Self: Sized;
 }
 
@@ -65,26 +55,21 @@ impl ToRnpId for SymmetricAlgorithm {
 }
 
 impl FromRnpId for SymmetricAlgorithm {
-    fn from_rnp_id(id: *const c_char) -> Result<Self> {
+    fn from_rnp_id(id: &str) -> Result<Self> {
         use SymmetricAlgorithm::*;
-        let id = unsafe {
-            CStr::from_ptr(id)
-        };
-        match &id.to_bytes().iter().map(u8::to_ascii_uppercase)
-            .collect::<Vec<_>>()[..]
-        {
-            b"IDEA" => Ok(IDEA),
-            b"TRIPLEDES" => Ok(TripleDES),
-            b"CAST5" => Ok(CAST5),
-            b"BLOWFISH" => Ok(Blowfish),
-            b"AES128" => Ok(AES128),
-            b"AES192" => Ok(AES192),
-            b"AES256" => Ok(AES256),
-            b"TWOFISH" => Ok(Twofish),
-            b"CAMELLIA128" => Ok(Camellia128),
-            b"CAMELLIA192" => Ok(Camellia192),
-            b"CAMELLIA256" => Ok(Camellia256),
-            b"SM4" => Err(RNP_ERROR_NOT_SUPPORTED),
+        match id.to_uppercase().as_str() {
+            "IDEA" => Ok(IDEA),
+            "TRIPLEDES" => Ok(TripleDES),
+            "CAST5" => Ok(CAST5),
+            "BLOWFISH" => Ok(Blowfish),
+            "AES128" => Ok(AES128),
+            "AES192" => Ok(AES192),
+            "AES256" => Ok(AES256),
+            "TWOFISH" => Ok(Twofish),
+            "CAMELLIA128" => Ok(Camellia128),
+            "CAMELLIA192" => Ok(Camellia192),
+            "CAMELLIA256" => Ok(Camellia256),
+            "SM4" => Err(RNP_ERROR_NOT_SUPPORTED),
             _ => {
                 global_warn!("unknown symmetric algorithm: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)
@@ -94,17 +79,12 @@ impl FromRnpId for SymmetricAlgorithm {
 }
 
 impl FromRnpId for Option<AEADAlgorithm> {
-    fn from_rnp_id(id: *const c_char) -> Result<Self> {
+    fn from_rnp_id(id: &str) -> Result<Self> {
         use AEADAlgorithm::*;
-        let id = unsafe {
-            CStr::from_ptr(id)
-        };
-        match &id.to_bytes().iter().map(u8::to_ascii_uppercase)
-            .collect::<Vec<_>>()[..]
-        {
-            b"NONE" => Ok(None),
-            b"EAX" => Ok(Some(EAX)),
-            b"OCB" => Ok(Some(OCB)),
+        match id.to_uppercase().as_str() {
+            "NONE" => Ok(None),
+            "EAX" => Ok(Some(EAX)),
+            "OCB" => Ok(Some(OCB)),
             _ => {
                 global_warn!("unknown AEAD algorithm: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)
@@ -133,21 +113,16 @@ impl ToRnpId for PublicKeyAlgorithm {
 }
 
 impl FromRnpId for PublicKeyAlgorithm {
-    fn from_rnp_id(id: *const c_char) -> Result<Self> {
+    fn from_rnp_id(id: &str) -> Result<Self> {
         use PublicKeyAlgorithm::*;
-        let id = unsafe {
-            CStr::from_ptr(id)
-        };
-        match &id.to_bytes().iter().map(u8::to_ascii_uppercase)
-            .collect::<Vec<_>>()[..]
-        {
-            b"RSA" =>     Ok(RSAEncryptSign),
-            b"DSA" =>     Ok(DSA),
-            b"ELGAMAL" => Ok(ElGamalEncrypt),
-            b"ECDSA" =>   Ok(ECDSA),
-            b"ECDH" =>    Ok(ECDH),
-            b"EDDSA" =>   Ok(EdDSA),
-            b"SM2" =>     Err(RNP_ERROR_NOT_SUPPORTED),
+        match id.to_uppercase().as_str() {
+            "RSA" =>     Ok(RSAEncryptSign),
+            "DSA" =>     Ok(DSA),
+            "ELGAMAL" => Ok(ElGamalEncrypt),
+            "ECDSA" =>   Ok(ECDSA),
+            "ECDH" =>    Ok(ECDH),
+            "EDDSA" =>   Ok(EdDSA),
+            "SM2" =>     Err(RNP_ERROR_NOT_SUPPORTED),
             _ => {
                 global_warn!("unknown public key algorithm: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)
@@ -173,23 +148,18 @@ impl ToRnpId for Curve {
 }
 
 impl FromRnpId for Curve {
-    fn from_rnp_id(id: *const c_char) -> Result<Self> {
+    fn from_rnp_id(id: &str) -> Result<Self> {
         use Curve::*;
-        let id = unsafe {
-            CStr::from_ptr(id)
-        };
-        match &id.to_bytes().iter().map(u8::to_ascii_uppercase)
-            .collect::<Vec<_>>()[..]
-        {
-            b"NIST P-256" => Ok(NistP256),
-            b"NIST P-384" => Ok(NistP384),
-            b"NIST P-521" => Ok(NistP521),
-            b"BRAINPOOLP256R1" => Ok(BrainpoolP256),
-            b"BRAINPOOLP512R1" => Ok(BrainpoolP512),
-            b"ED25519" => Ok(Ed25519),
-            b"CURVE25519" => Ok(Cv25519),
-            b"SECP256K1" => Err(RNP_ERROR_NOT_SUPPORTED),
-            b"SM2 P-256" => Err(RNP_ERROR_NOT_SUPPORTED),
+        match id.to_uppercase().as_str() {
+            "NIST P-256" => Ok(NistP256),
+            "NIST P-384" => Ok(NistP384),
+            "NIST P-521" => Ok(NistP521),
+            "BRAINPOOLP256R1" => Ok(BrainpoolP256),
+            "BRAINPOOLP512R1" => Ok(BrainpoolP512),
+            "ED25519" => Ok(Ed25519),
+            "CURVE25519" => Ok(Cv25519),
+            "SECP256K1" => Err(RNP_ERROR_NOT_SUPPORTED),
+            "SM2" => Err(RNP_ERROR_NOT_SUPPORTED),
             _ => {
                 global_warn!("unknown curve: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)
@@ -215,23 +185,18 @@ impl ToRnpId for HashAlgorithm {
 }
 
 impl FromRnpId for HashAlgorithm {
-    fn from_rnp_id(id: *const c_char) -> Result<Self> {
+    fn from_rnp_id(id: &str) -> Result<Self> {
         use HashAlgorithm::*;
-        let id = unsafe {
-            CStr::from_ptr(id)
-        };
-        match &id.to_bytes().iter().map(u8::to_ascii_uppercase)
-            .collect::<Vec<_>>()[..]
-        {
-            b"MD5" => Ok(MD5),
-            b"SHA1" => Ok(SHA1),
-            b"RIPEMD160" => Ok(RipeMD),
-            b"SHA256" => Ok(SHA256),
-            b"SHA384" => Ok(SHA384),
-            b"SHA512" => Ok(SHA512),
-            b"SHA224" => Ok(SHA224),
-            b"SM3" => Err(RNP_ERROR_NOT_SUPPORTED),
-           _ => {
+        match id.to_uppercase().as_str() {
+            "MD5" => Ok(MD5),
+            "SHA1" => Ok(SHA1),
+            "RIPEMD160" => Ok(RipeMD),
+            "SHA256" => Ok(SHA256),
+            "SHA384" => Ok(SHA384),
+            "SHA512" => Ok(SHA512),
+            "SHA224" => Ok(SHA224),
+            "SM3" => Err(RNP_ERROR_NOT_SUPPORTED),
+            _ => {
                 global_warn!("unknown hash algorithm: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)
             },
@@ -246,19 +211,14 @@ pub trait AsymmetricAlgorithmExt {
     /// AsymmetricAlgorithm is more fine-grained as it includes the
     /// key length.  To compensate, we return all RSA values here,
     /// with the most appropriate representative as the first value.
-    fn all_from_rnp_id(id: *const c_char) -> Result<Vec<AsymmetricAlgorithm>> {
+    fn all_from_rnp_id(id: &str) -> Result<Vec<AsymmetricAlgorithm>> {
         use AsymmetricAlgorithm::*;
-        let id = unsafe {
-            CStr::from_ptr(id)
-        };
-        match &id.to_bytes().iter().map(u8::to_ascii_uppercase)
-            .collect::<Vec<_>>()[..]
-        {
-            b"RSA" => Ok(vec![RSA2048, RSA1024, RSA3072, RSA4096]),
-            b"ELGAMAL" =>
+        match id.to_uppercase().as_str() {
+            "RSA" => Ok(vec![RSA2048, RSA1024, RSA3072, RSA4096]),
+            "ELGAMAL" =>
                 Ok(vec![ElGamal2048, ElGamal1024, ElGamal3072, ElGamal4096]),
-            b"DSA" => Ok(vec![DSA2048, DSA1024, DSA3072, DSA4096]),
-            b"SM2" => Ok(vec![]),
+            "DSA" => Ok(vec![DSA2048, DSA1024, DSA3072, DSA4096]),
+            "SM2" => Ok(vec![]),
             // XXX: Add more algorithms as more RNP_ALGNAME_* symbols
             // are added.
             _ => {
@@ -272,7 +232,7 @@ pub trait AsymmetricAlgorithmExt {
 impl AsymmetricAlgorithmExt for AsymmetricAlgorithm {}
 
 impl FromRnpId for AsymmetricAlgorithm {
-    fn from_rnp_id(id: *const c_char) -> Result<Self> {
+    fn from_rnp_id(id: &str) -> Result<Self> {
         Self::all_from_rnp_id(id)?.get(0).cloned()
             .ok_or(RNP_ERROR_NOT_SUPPORTED)
     }
@@ -292,18 +252,13 @@ impl ToRnpId for armor::Kind {
 }
 
 impl FromRnpId for armor::Kind {
-    fn from_rnp_id(id: *const c_char) -> Result<Self> {
+    fn from_rnp_id(id: &str) -> Result<Self> {
         use armor::Kind::*;
-        let id = unsafe {
-            CStr::from_ptr(id)
-        };
-        match &id.to_bytes().iter().map(u8::to_ascii_uppercase)
-            .collect::<Vec<_>>()[..]
-        {
-            b"MESSAGE" => Ok(Message),
-            b"PUBLIC KEY" => Ok(PublicKey),
-            b"SECRET KEY" => Ok(SecretKey),
-            b"SIGNATURE" => Ok(Signature),
+        match id.to_uppercase().as_str() {
+            "MESSAGE" => Ok(Message),
+            "PUBLIC KEY" => Ok(PublicKey),
+            "SECRET KEY" => Ok(SecretKey),
+            "SIGNATURE" => Ok(Signature),
             _ => {
                 global_warn!("unknown symmetric algorithm: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)
@@ -327,18 +282,13 @@ impl ToRnpId for ReasonForRevocation {
 }
 
 impl FromRnpId for ReasonForRevocation {
-    fn from_rnp_id(id: *const c_char) -> Result<Self> {
+    fn from_rnp_id(id: &str) -> Result<Self> {
         use ReasonForRevocation::*;
-        let id = unsafe {
-            CStr::from_ptr(id)
-        };
-        match &id.to_bytes().iter().map(u8::to_ascii_uppercase)
-            .collect::<Vec<_>>()[..]
-        {
-            b"NO" => Ok(Unspecified),
-            b"SUPERSEDED" => Ok(KeySuperseded),
-            b"COMPROMISED" => Ok(KeyCompromised),
-            b"RETIRED" => Ok(KeyRetired),
+        match id.to_uppercase().as_str() {
+            "NO" => Ok(Unspecified),
+            "SUPERSEDED" => Ok(KeySuperseded),
+            "COMPROMISED" => Ok(KeyCompromised),
+            "RETIRED" => Ok(KeyRetired),
             _ => {
                 global_warn!("unknown reason for revocation: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)
@@ -356,15 +306,12 @@ pub enum RnpIdentifierType {
 }
 
 impl FromRnpId for RnpIdentifierType {
-    fn from_rnp_id(id: *const c_char) -> Result<Self> {
-        let id = unsafe {
-            CStr::from_ptr(id)
-        };
-        match id.to_bytes() {
-            b"userid" =>      Ok(RnpIdentifierType::UserID),
-            b"keyid" =>       Ok(RnpIdentifierType::KeyID),
-            b"fingerprint" => Ok(RnpIdentifierType::Fingerprint),
-            b"grip" =>        Ok(RnpIdentifierType::Keygrip),
+    fn from_rnp_id(id: &str) -> Result<Self> {
+        match id {
+            "userid" =>      Ok(RnpIdentifierType::UserID),
+            "keyid" =>       Ok(RnpIdentifierType::KeyID),
+            "fingerprint" => Ok(RnpIdentifierType::Fingerprint),
+            "grip" =>        Ok(RnpIdentifierType::Keygrip),
             _ => {
                 global_warn!("unknown iterator typ: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)
@@ -374,18 +321,7 @@ impl FromRnpId for RnpIdentifierType {
 }
 
 impl RnpIdentifierType {
-    pub fn with_identifier(&self, id: *const c_char) -> Result<RnpIdentifier> {
-        let id = unsafe {
-            CStr::from_ptr(id)
-        };
-        let id = match id.to_str() {
-            Ok(v) => v,
-            Err(e) => {
-                global_warn!("conversion to string failed: {}", e);
-                return Err(RNP_ERROR_BAD_PARAMETERS);
-            },
-        };
-
+    pub fn with_identifier(&self, id: &str) -> Result<RnpIdentifier> {
         Ok(match self {
             RnpIdentifierType::UserID =>
                 RnpIdentifier::UserID(id.into()),
@@ -437,15 +373,12 @@ pub enum RnpKeyUsage {
 }
 
 impl FromRnpId for RnpKeyUsage {
-    fn from_rnp_id(id: *const c_char) -> Result<Self> {
-        let id = unsafe {
-            CStr::from_ptr(id)
-        };
-        match id.to_bytes() {
-            b"sign" =>         Ok(RnpKeyUsage::Sign),
-            b"certify" =>      Ok(RnpKeyUsage::Certify),
-            b"encrypt" =>      Ok(RnpKeyUsage::Encrypt),
-            b"authenticate" => Ok(RnpKeyUsage::Authenticate),
+    fn from_rnp_id(id: &str) -> Result<Self> {
+        match id {
+            "sign" =>         Ok(RnpKeyUsage::Sign),
+            "certify" =>      Ok(RnpKeyUsage::Certify),
+            "encrypt" =>      Ok(RnpKeyUsage::Encrypt),
+            "authenticate" => Ok(RnpKeyUsage::Authenticate),
             _ => {
                 global_warn!("unknown usage: {:?}", id);
                 Err(RNP_ERROR_BAD_PARAMETERS)

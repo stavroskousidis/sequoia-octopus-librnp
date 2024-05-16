@@ -271,7 +271,7 @@ fn rnp_op_sign_set_hash(op: *mut RnpOpSign,
                         -> RnpResult {
     rnp_function!(rnp_op_sign_set_hash, crate::TRACE);
     let op = assert_ptr_mut!(op);
-    assert_str!(hash);
+    let hash = assert_str!(hash);
     (*op).hash = Some(rnp_try!(HashAlgorithm::from_rnp_id(hash)));
     rnp_success!()
 }
