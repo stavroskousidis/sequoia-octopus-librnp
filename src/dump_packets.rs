@@ -30,5 +30,5 @@ fn rnp_dump_packets_to_output(input: *mut RnpInput,
 
     rnp_try_or!(dump::dump(input, output, dump_mpis, dump_hex, None, None),
                 RNP_ERROR_GENERIC);
-    RNP_SUCCESS
+    rnp_success!()
 }

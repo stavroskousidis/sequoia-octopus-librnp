@@ -13,7 +13,7 @@ macro_rules! unused {
         fn $s() -> crate::RnpResult {
             global_warn!(
                 "previously unused function is used: {}", stringify!($s));
-            crate::error::RNP_ERROR_NOT_IMPLEMENTED
+            crate::error::RNP_ERROR_NOT_IMPLEMENTED.quiet_epilogue()
         }
     };
 }

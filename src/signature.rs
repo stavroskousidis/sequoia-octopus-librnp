@@ -59,7 +59,7 @@ fn rnp_signature_handle_destroy(sig: *mut RnpSignature) -> RnpResult {
     if ! sig.is_null() {
         drop(Box::from_raw(sig));
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -71,7 +71,7 @@ fn rnp_signature_get_hash_alg(sig: *const RnpSignature,
     assert_ptr!(hash_alg);
 
     *hash_alg = str_to_rnp_buffer(sig.hash_algo().to_rnp_id());
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 
@@ -90,7 +90,7 @@ fn rnp_signature_get_keyid(sig: *const RnpSignature,
         } else {
             std::ptr::null_mut()
         };
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -107,7 +107,7 @@ fn rnp_signature_get_creation(sig: *const RnpSignature,
              .expect("creation time is representable as epoch")
              .as_secs() as u32)
         .unwrap_or(0);
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -126,11 +126,11 @@ fn rnp_signature_get_signer(sig: *const RnpSignature,
                 .parts_into_unspecified();
             *key = Box::into_raw(Box::new(
                 RnpKey::new((*sig).ctx as *mut _, k, &cert)));
-            return RNP_SUCCESS;
+            rnp_success!();
         }
     }
     *key = std::ptr::null_mut();
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -144,7 +144,7 @@ fn rnp_signature_is_valid(sig: *const RnpSignature,
     // According to the rnp documentation, flags must currently be
     // zero.
     if flags != 0 {
-        return RNP_ERROR_BAD_PARAMETERS;
+        rnp_return_status!(RNP_ERROR_BAD_PARAMETERS);
     }
 
     if let Some(valid) = sig.valid {
@@ -153,12 +153,12 @@ fn rnp_signature_is_valid(sig: *const RnpSignature,
             // fact, the key that created the signature could have
             // expired, but we ignore that :/.)
             if sig.signature_alive(None, None).is_ok() {
-                return RNP_SUCCESS;
+                rnp_return_status!(RNP_SUCCESS);
             } else {
-                return RNP_ERROR_SIGNATURE_EXPIRED;
+                rnp_return_status!(RNP_ERROR_SIGNATURE_EXPIRED);
             }
         } else {
-            return RNP_ERROR_SIGNATURE_INVALID;
+            rnp_return_status!(RNP_ERROR_SIGNATURE_INVALID);
         }
     }
 
@@ -168,7 +168,7 @@ fn rnp_signature_is_valid(sig: *const RnpSignature,
     // RnpSignature is created include set the signature's validity).
     // As Thunderbird doesn't appear to care about the validity of
     // these signatures, don't complicate the implementation... yet.
-    RNP_ERROR_SIGNATURE_INVALID
+    rnp_return_status!(RNP_ERROR_SIGNATURE_INVALID)
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -190,7 +190,7 @@ fn rnp_signature_get_features(sig: *const RnpSignature,
              | (*f.as_bitfield().as_ref().get(3).unwrap_or(&0) as u32) << 24)
         .unwrap_or(0);
 
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 /// Replacement for ComponentAmalgamation::signatures.

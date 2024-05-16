@@ -575,3 +575,24 @@ interoperability test suite].
 
   [shared keys]: https://bugzilla.mozilla.org/show_bug.cgi?id=1703368
   [OpenPGP interoperability test suite]: https://tests.sequoia-pgp.org/
+
+# Debugging
+
+When the Octopus is built in debug mode, it can emit tracing
+information to stderr (or `octopus.log` in your Thunderbird profile
+directory on Windows).  There are several modes available, depending
+on the setting of the `SEQUOIA_OCTOPUS_TRACING` environment variable:
+modes are:
+
+- By default, only failures are traced.
+
+- `call` traces all function invocations with their arguments and
+  results.
+
+- `full` selects full tracing mode.
+
+Please note that traces may contain sensitive information such as
+OpenPGP Fingerprints and User IDs, but they shouldn't contain secret
+key material.  Always use the least verbose log level that
+demonstrates the problem, and review the log and remove sensitive
+information before submitting it to a public bug tracker.

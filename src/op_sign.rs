@@ -68,7 +68,7 @@ fn rnp_op_sign_detached_create<'a>(op: *mut *mut RnpOpSign<'a>,
         armor: false,
         csf: false,
     }));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -94,7 +94,7 @@ fn rnp_op_sign_cleartext_create<'a>(op: *mut *mut RnpOpSign<'a>,
         armor: false,
         csf: true,
     }));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -103,7 +103,7 @@ fn rnp_op_sign_destroy(op: *mut RnpOpSign) -> RnpResult {
     if ! op.is_null() {
         drop(Box::from_raw(op));
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 
@@ -235,10 +235,10 @@ fn rnp_op_sign_add_signature(op: *mut RnpOpSign,
     let key = assert_ptr_ref!(key);
     if ! sig.is_null() {
         warn!("changing signature parameters not implemented");
-        return RNP_ERROR_NOT_IMPLEMENTED;
+        rnp_return_status!(RNP_ERROR_NOT_IMPLEMENTED);
     }
 
-    if let Ok(k) = key.deref().clone().parts_into_secret() {
+    rnp_return_status!(if let Ok(k) = key.deref().clone().parts_into_secret() {
         op.secret_keys.push(k);
         RNP_SUCCESS
     } else if (*key.ctx).certs.key_on_agent(&key.fingerprint()) {
@@ -248,7 +248,7 @@ fn rnp_op_sign_add_signature(op: *mut RnpOpSign,
         RNP_SUCCESS
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -258,7 +258,7 @@ fn rnp_op_sign_set_armor(op: *mut RnpOpSign,
     rnp_function!(rnp_op_sign_set_armor, crate::TRACE);
     assert_ptr!(op);
     (*op).armor = armored;
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -269,6 +269,6 @@ fn rnp_op_sign_set_hash(op: *mut RnpOpSign,
     assert_ptr!(op);
     assert_ptr!(hash);
     (*op).hash = Some(rnp_try!(HashAlgorithm::from_rnp_id(hash)));
-    RNP_SUCCESS
+    rnp_success!()
 }
 

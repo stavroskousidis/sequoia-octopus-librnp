@@ -83,7 +83,7 @@ fn rnp_op_encrypt_create<'a>(op: *mut *mut RnpOpEncrypt<'a>,
         armor: false,
         no_wrap: false,
     }));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -92,7 +92,7 @@ fn rnp_op_encrypt_destroy(op: *mut RnpOpEncrypt) -> RnpResult {
     if ! op.is_null() {
         drop(Box::from_raw(op));
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 
@@ -257,7 +257,7 @@ fn rnp_op_encrypt_add_recipient(op: *mut RnpOpEncrypt,
         op.recipients.push(key.deref().clone());
     }
 
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -271,10 +271,10 @@ fn rnp_op_encrypt_add_signature(op: *mut RnpOpEncrypt,
     let key = assert_ptr_ref!(key);
     if ! sig.is_null() {
         warn!("changing signature parameters not implemented");
-        return RNP_ERROR_NOT_IMPLEMENTED;
+        rnp_return_status!(RNP_ERROR_NOT_IMPLEMENTED);
     }
 
-    if let Ok(k) = key.deref().clone().parts_into_secret() {
+    rnp_return_status!(if let Ok(k) = key.deref().clone().parts_into_secret() {
         op.signers.push(k);
         RNP_SUCCESS
     } else if (*key.ctx).certs.key_on_agent(&key.fingerprint()) {
@@ -284,7 +284,7 @@ fn rnp_op_encrypt_add_signature(op: *mut RnpOpEncrypt,
         RNP_SUCCESS
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -294,7 +294,7 @@ fn rnp_op_encrypt_set_armor(op: *mut RnpOpEncrypt,
     rnp_function!(rnp_op_encrypt_set_armor, crate::TRACE);
     assert_ptr!(op);
     (*op).armor = armored;
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -305,7 +305,7 @@ fn rnp_op_encrypt_set_cipher(op: *mut RnpOpEncrypt,
     assert_ptr!(op);
     assert_ptr!(cipher);
     (*op).cipher = Some(rnp_try!(SymmetricAlgorithm::from_rnp_id(cipher)));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -316,10 +316,11 @@ fn rnp_op_encrypt_set_aead(op: *mut RnpOpEncrypt,
     assert_ptr!(op);
     assert_ptr!(algo);
     let aead = rnp_try!(Option::<AEADAlgorithm>::from_rnp_id(algo));
-    match aead {
+
+    rnp_return_status!(match aead {
         None => RNP_SUCCESS,
         Some(_) => RNP_ERROR_NOT_SUPPORTED,
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -330,12 +331,12 @@ fn rnp_op_encrypt_set_aead_bits(op: *mut RnpOpEncrypt,
     assert_ptr!(op);
 
     // This sets the chunk size using the OpenPGP wire encoding.
-    if (0..=16).contains(&encoded_bits) {
+    rnp_return_status!(if (0..=16).contains(&encoded_bits) {
         // Range is okay, we just don't do anything.
         RNP_SUCCESS
     } else {
         RNP_ERROR_BAD_PARAMETERS
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -346,7 +347,7 @@ fn rnp_op_encrypt_set_hash(op: *mut RnpOpEncrypt,
     assert_ptr!(op);
     assert_ptr!(hash);
     (*op).hash = Some(rnp_try!(HashAlgorithm::from_rnp_id(hash)));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -364,7 +365,7 @@ fn rnp_op_encrypt_set_flags(op: *mut RnpOpEncrypt,
         op.no_wrap = false;
     }
 
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[cfg(test)]
@@ -386,6 +387,8 @@ mod tests {
     use crate::rnp_input_destroy;
     use crate::rnp_output_destroy;
     use crate::rnp_ffi_destroy;
+
+    const RNP_SUCCESS: u32 = crate::error::RNP_SUCCESS.as_u32();
 
     use openpgp::{
         Cert,

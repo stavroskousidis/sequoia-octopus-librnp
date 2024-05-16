@@ -118,7 +118,7 @@ fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
         iter: results.into_iter(),
     }));
 
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -128,7 +128,7 @@ fn rnp_identifier_iterator_destroy(iter: *mut RnpIdentifierIterator)
     if ! iter.is_null() {
         drop(Box::from_raw(iter));
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -149,5 +149,5 @@ fn rnp_identifier_iterator_next(iter: *mut RnpIdentifierIterator,
         *item = std::ptr::null();
     }
 
-    RNP_SUCCESS
+    rnp_success!()
 }

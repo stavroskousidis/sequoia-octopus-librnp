@@ -87,7 +87,7 @@ fn rnp_op_generate_create(op: *mut *mut RnpOpGenerate,
         _ => {
             warn!("public key algorithm unsupported or not signing-capable: {}",
                   pk_algo);
-            return RNP_ERROR_BAD_PARAMETERS;
+            rnp_return_status!(RNP_ERROR_BAD_PARAMETERS);
         },
     }
 
@@ -102,7 +102,7 @@ fn rnp_op_generate_create(op: *mut *mut RnpOpGenerate,
         password: None,
         expiration: None,
     }));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -130,7 +130,7 @@ fn rnp_op_generate_subkey_create(op: *mut *mut RnpOpGenerate,
         password: None,
         expiration: None,
     }));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -139,7 +139,7 @@ fn rnp_op_generate_destroy(op: *mut RnpOpGenerate) -> RnpResult {
     if ! op.is_null() {
         drop(Box::from_raw(op));
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -254,12 +254,12 @@ fn rnp_op_generate_execute(op: *mut RnpOpGenerate) -> RnpResult {
         Ok(())
     }
 
-    if let Err(e) = f(&mut *op) {
+    rnp_return_status!(if let Err(e) = f(&mut *op) {
         log!("sequoia-octopus: failed to generate key: {}", e);
         RNP_ERROR_GENERIC
     } else {
         RNP_SUCCESS
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -272,14 +272,14 @@ fn rnp_op_generate_get_key(op: *mut RnpOpGenerate,
     let op = &mut *op;
     let key_out = key;
 
-    match &op.mode {
+    rnp_return_status!(match &op.mode {
         Mode::Generated { key } => {
             *key_out =
                 Box::into_raw(Box::new(RnpKey::without_cert(op.ctx, key.clone())));
             RNP_SUCCESS
         },
         _ => RNP_ERROR_BAD_PARAMETERS,
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -290,7 +290,7 @@ fn rnp_op_generate_set_protection_password(op: *mut RnpOpGenerate,
     assert_ptr!(op);
     assert_ptr!(password);
     (*op).password = Some(rnp_try!(cstr_to_str(password)).to_string().into());
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -301,13 +301,13 @@ fn rnp_op_generate_set_userid(op: *mut RnpOpGenerate,
     assert_ptr!(op);
     assert_ptr!(userid);
 
-    match (*op).mode {
+    rnp_return_status!(match (*op).mode {
         Mode::PrimaryKey { ref mut userids } => {
             userids.push(rnp_try!(cstr_to_str(userid)).into());
             RNP_SUCCESS
         },
         _ => RNP_ERROR_BAD_PARAMETERS,
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -317,7 +317,7 @@ fn rnp_op_generate_set_bits(op: *mut RnpOpGenerate,
     rnp_function!(rnp_op_generate_set_bits, crate::TRACE);
     assert_ptr!(op);
     (*op).bits = Some(bits);
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -328,7 +328,7 @@ fn rnp_op_generate_set_curve(op: *mut RnpOpGenerate,
     assert_ptr!(op);
     assert_ptr!(curve);
     (*op).curve = Some(rnp_try!(Curve::from_rnp_id(curve)));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -338,5 +338,5 @@ fn rnp_op_generate_set_expiration(op: *mut RnpOpGenerate,
     rnp_function!(rnp_op_generate_set_expiration, crate::TRACE);
     assert_ptr!(op);
     (*op).expiration = Some(time::Duration::new(expiration as u64, 0));
-    RNP_SUCCESS
+    rnp_success!()
 }

@@ -1,45 +1,148 @@
 //! Error handling.
 
+use std::{
+    fmt,
+    sync::OnceLock,
+};
+
+// Like eprintln!
+macro_rules! log {
+    ($dst:expr $(,)?) => (
+        $crate::error::log_internal($dst)
+    );
+    ($dst:expr, $($arg:tt)*) => (
+        $crate::error::log_internal(std::format!($dst, $($arg)*))
+    );
+}
+
 /// Native RNP result type.
+///
+/// This is what the RNP functions return.
 pub type RnpResult = u32;
-pub const RNP_SUCCESS: RnpResult = 0x00000000;
+
+/// A wrapped RnpResult.
+///
+/// This is the type of our status code constants.  By using a type
+/// distinct from [`RnpResult`], we force a conversion through
+/// [`RnpStatus::epilogue`] (or [`RnpStatus::quiet_epilogue`]).
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct RnpStatus(RnpResult);
+
+impl fmt::UpperHex for RnpStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::UpperHex::fmt(&self.0, f) // Forward.
+    }
+}
+
+impl fmt::Display for RnpStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            RNP_SUCCESS => f.write_str("RNP_SUCCESS"),
+            RNP_ERROR_GENERIC => f.write_str("RNP_ERROR_GENERIC"),
+            RNP_ERROR_BAD_FORMAT => f.write_str("RNP_ERROR_BAD_FORMAT"),
+            RNP_ERROR_BAD_PARAMETERS => f.write_str("RNP_ERROR_BAD_PARAMETERS"),
+            RNP_ERROR_NOT_IMPLEMENTED => f.write_str("RNP_ERROR_NOT_IMPLEMENTED"),
+            RNP_ERROR_NOT_SUPPORTED => f.write_str("RNP_ERROR_NOT_SUPPORTED"),
+            RNP_ERROR_OUT_OF_MEMORY => f.write_str("RNP_ERROR_OUT_OF_MEMORY"),
+            RNP_ERROR_SHORT_BUFFER => f.write_str("RNP_ERROR_SHORT_BUFFER"),
+            RNP_ERROR_NULL_POINTER => f.write_str("RNP_ERROR_NULL_POINTER"),
+            RNP_ERROR_ACCESS => f.write_str("RNP_ERROR_ACCESS"),
+            RNP_ERROR_READ => f.write_str("RNP_ERROR_READ"),
+            RNP_ERROR_WRITE => f.write_str("RNP_ERROR_WRITE"),
+            RNP_ERROR_BAD_STATE => f.write_str("RNP_ERROR_BAD_STATE"),
+            RNP_ERROR_MAC_INVALID => f.write_str("RNP_ERROR_MAC_INVALID"),
+            RNP_ERROR_SIGNATURE_INVALID => f.write_str("RNP_ERROR_SIGNATURE_INVALID"),
+            RNP_ERROR_KEY_GENERATION => f.write_str("RNP_ERROR_KEY_GENERATION"),
+            RNP_ERROR_BAD_PASSWORD => f.write_str("RNP_ERROR_BAD_PASSWORD"),
+            RNP_ERROR_KEY_NOT_FOUND => f.write_str("RNP_ERROR_KEY_NOT_FOUND"),
+            RNP_ERROR_NO_SUITABLE_KEY => f.write_str("RNP_ERROR_NO_SUITABLE_KEY"),
+            RNP_ERROR_DECRYPT_FAILED => f.write_str("RNP_ERROR_DECRYPT_FAILED"),
+            RNP_ERROR_RNG => f.write_str("RNP_ERROR_RNG"),
+            RNP_ERROR_SIGNING_FAILED => f.write_str("RNP_ERROR_SIGNING_FAILED"),
+            RNP_ERROR_NO_SIGNATURES_FOUND => f.write_str("RNP_ERROR_NO_SIGNATURES_FOUND"),
+            RNP_ERROR_SIGNATURE_EXPIRED => f.write_str("RNP_ERROR_SIGNATURE_EXPIRED"),
+            RNP_ERROR_NOT_ENOUGH_DATA => f.write_str("RNP_ERROR_NOT_ENOUGH_DATA"),
+            RNP_ERROR_UNKNOWN_TAG => f.write_str("RNP_ERROR_UNKNOWN_TAG"),
+            RNP_ERROR_PACKET_NOT_CONSUMED => f.write_str("RNP_ERROR_PACKET_NOT_CONSUMED"),
+            RNP_ERROR_NO_USERID => f.write_str("RNP_ERROR_NO_USERID"),
+            RNP_ERROR_EOF => f.write_str("RNP_ERROR_EOF"),
+            n => write!(f, "RNP_ERROR_{:08X}", n),
+        }
+    }
+}
+
+impl RnpStatus {
+    /// Does this status denote success?
+    pub fn success(&self) -> bool {
+        self == &RNP_SUCCESS
+    }
+
+    /// On failure, prints a trace message in debug builds.
+    ///
+    /// Returns the [`RnpResult`] suitable as return value for RNP
+    /// functions.
+    pub fn epilogue(&self, name: &str, args: Vec<String>) -> RnpResult {
+        if ! self.success() || call_tracing() {
+            if cfg!(debug_assertions) {
+                log!("sequoia-octopus: TRACE: {}({}) => {}",
+                     name, args.join(", "), self)
+            }
+        }
+        self.quiet_epilogue()
+    }
+
+    /// Does not print a trace message.
+    ///
+    /// Returns the [`RnpResult`] suitable as return value for RNP
+    /// functions.
+    pub fn quiet_epilogue(&self) -> RnpResult {
+        self.0
+    }
+
+    #[cfg(test)]
+    pub const fn as_u32(&self) -> u32 {
+        self.0
+    }
+}
+
+pub const RNP_SUCCESS: RnpStatus = RnpStatus(0x00000000);
 
 // Common error codes
-pub const RNP_ERROR_GENERIC: RnpResult = 0x10000000;
-pub const RNP_ERROR_BAD_FORMAT: RnpResult = 0x10000001;
-pub const RNP_ERROR_BAD_PARAMETERS: RnpResult = 0x10000002;
-pub const RNP_ERROR_NOT_IMPLEMENTED: RnpResult = 0x10000003;
-pub const RNP_ERROR_NOT_SUPPORTED: RnpResult = 0x10000004;
-pub const RNP_ERROR_OUT_OF_MEMORY: RnpResult = 0x10000005;
-pub const RNP_ERROR_SHORT_BUFFER: RnpResult = 0x10000006;
-pub const RNP_ERROR_NULL_POINTER: RnpResult = 0x10000007;
+pub const RNP_ERROR_GENERIC: RnpStatus = RnpStatus(0x10000000);
+pub const RNP_ERROR_BAD_FORMAT: RnpStatus = RnpStatus(0x10000001);
+pub const RNP_ERROR_BAD_PARAMETERS: RnpStatus = RnpStatus(0x10000002);
+pub const RNP_ERROR_NOT_IMPLEMENTED: RnpStatus = RnpStatus(0x10000003);
+pub const RNP_ERROR_NOT_SUPPORTED: RnpStatus = RnpStatus(0x10000004);
+pub const RNP_ERROR_OUT_OF_MEMORY: RnpStatus = RnpStatus(0x10000005);
+pub const RNP_ERROR_SHORT_BUFFER: RnpStatus = RnpStatus(0x10000006);
+pub const RNP_ERROR_NULL_POINTER: RnpStatus = RnpStatus(0x10000007);
 
 // Storage
-pub const RNP_ERROR_ACCESS: RnpResult = 0x11000000;
-pub const RNP_ERROR_READ: RnpResult = 0x11000001;
-pub const RNP_ERROR_WRITE: RnpResult = 0x11000002;
+pub const RNP_ERROR_ACCESS: RnpStatus = RnpStatus(0x11000000);
+pub const RNP_ERROR_READ: RnpStatus = RnpStatus(0x11000001);
+pub const RNP_ERROR_WRITE: RnpStatus = RnpStatus(0x11000002);
 
 // Crypto
-pub const RNP_ERROR_BAD_STATE: RnpResult = 0x12000000;
-pub const RNP_ERROR_MAC_INVALID: RnpResult = 0x12000001;
-pub const RNP_ERROR_SIGNATURE_INVALID: RnpResult = 0x12000002;
-pub const RNP_ERROR_KEY_GENERATION: RnpResult = 0x12000003;
-pub const RNP_ERROR_BAD_PASSWORD: RnpResult = 0x12000004;
-pub const RNP_ERROR_KEY_NOT_FOUND: RnpResult = 0x12000005;
-pub const RNP_ERROR_NO_SUITABLE_KEY: RnpResult = 0x12000006;
-pub const RNP_ERROR_DECRYPT_FAILED: RnpResult = 0x12000007;
-pub const RNP_ERROR_RNG: RnpResult = 0x12000008;
-pub const RNP_ERROR_SIGNING_FAILED: RnpResult = 0x12000009;
-pub const RNP_ERROR_NO_SIGNATURES_FOUND: RnpResult = 0x1200000a;
+pub const RNP_ERROR_BAD_STATE: RnpStatus = RnpStatus(0x12000000);
+pub const RNP_ERROR_MAC_INVALID: RnpStatus = RnpStatus(0x12000001);
+pub const RNP_ERROR_SIGNATURE_INVALID: RnpStatus = RnpStatus(0x12000002);
+pub const RNP_ERROR_KEY_GENERATION: RnpStatus = RnpStatus(0x12000003);
+pub const RNP_ERROR_BAD_PASSWORD: RnpStatus = RnpStatus(0x12000004);
+pub const RNP_ERROR_KEY_NOT_FOUND: RnpStatus = RnpStatus(0x12000005);
+pub const RNP_ERROR_NO_SUITABLE_KEY: RnpStatus = RnpStatus(0x12000006);
+pub const RNP_ERROR_DECRYPT_FAILED: RnpStatus = RnpStatus(0x12000007);
+pub const RNP_ERROR_RNG: RnpStatus = RnpStatus(0x12000008);
+pub const RNP_ERROR_SIGNING_FAILED: RnpStatus = RnpStatus(0x12000009);
+pub const RNP_ERROR_NO_SIGNATURES_FOUND: RnpStatus = RnpStatus(0x1200000a);
 
-pub const RNP_ERROR_SIGNATURE_EXPIRED: RnpResult = 0x1200000b;
+pub const RNP_ERROR_SIGNATURE_EXPIRED: RnpStatus = RnpStatus(0x1200000b);
 
 // Parsing
-pub const RNP_ERROR_NOT_ENOUGH_DATA: RnpResult = 0x13000000;
-pub const RNP_ERROR_UNKNOWN_TAG: RnpResult = 0x13000001;
-pub const RNP_ERROR_PACKET_NOT_CONSUMED: RnpResult = 0x13000002;
-pub const RNP_ERROR_NO_USERID: RnpResult = 0x13000003;
-pub const RNP_ERROR_EOF: RnpResult = 0x13000004;
+pub const RNP_ERROR_NOT_ENOUGH_DATA: RnpStatus = RnpStatus(0x13000000);
+pub const RNP_ERROR_UNKNOWN_TAG: RnpStatus = RnpStatus(0x13000001);
+pub const RNP_ERROR_PACKET_NOT_CONSUMED: RnpStatus = RnpStatus(0x13000002);
+pub const RNP_ERROR_NO_USERID: RnpStatus = RnpStatus(0x13000003);
+pub const RNP_ERROR_EOF: RnpStatus = RnpStatus(0x13000004);
 
 /// Rustic-errors resembling the native RNP errors.
 ///
@@ -120,8 +223,8 @@ pub enum Error {
     EOF,
 }
 
-impl From<Error> for RnpResult {
-    fn from(e: Error) -> RnpResult {
+impl From<Error> for RnpStatus {
+    fn from(e: Error) -> RnpStatus {
         use Error::*;
         match e {
             Generic => RNP_ERROR_GENERIC,
@@ -158,7 +261,7 @@ impl From<Error> for RnpResult {
 
 
 // Used by helper functions.
-pub type Result<T> = std::result::Result<T, RnpResult>;
+pub type Result<T> = std::result::Result<T, RnpStatus>;
 
 //#[cfg(windows)]
 pub fn log_internal<T: AsRef<str>>(text: T) {
@@ -183,7 +286,6 @@ pub fn log_internal<T: AsRef<str>>(text: T) {
         use std::io::Write;
         use std::ops::DerefMut;
         use std::sync::Mutex;
-        use std::sync::OnceLock;
         use std::sync::mpsc::channel;
         use std::sync::mpsc::Sender;
         use std::sync::mpsc::Receiver;
@@ -270,22 +372,52 @@ pub fn log_internal<T: AsRef<str>>(text: T) {
     }
 }
 
-// Like eprintln!
-macro_rules! log {
-    ($dst:expr $(,)?) => (
-        $crate::error::log_internal($dst)
-    );
-    ($dst:expr, $($arg:tt)*) => (
-        $crate::error::log_internal(std::format!($dst, $($arg)*))
-    );
+pub fn full_tracing() -> bool {
+    static FULL_TRACING: OnceLock<bool> = OnceLock::new();
+    *FULL_TRACING.get_or_init(
+        || std::env::var("SEQUOIA_OCTOPUS_TRACING")
+            .map(|t| t == "full")
+            .unwrap_or(false))
+}
+
+pub fn call_tracing() -> bool {
+    static FULL_TRACING: OnceLock<bool> = OnceLock::new();
+    *FULL_TRACING.get_or_init(
+        || std::env::var("SEQUOIA_OCTOPUS_TRACING")
+            .map(|t| t == "call")
+            .unwrap_or(false))
 }
 
 macro_rules! rnp_function {
     ( $fn_name: path, $TRACE: expr ) => {
+        #[allow(dead_code, unused_mut, unused_variables)]
+        let mut args: Vec<String> = Vec::new();
+
+        #[allow(unused_macros)]
+        macro_rules! arg {
+            ($arg: expr) => {
+                args.push(format!("{:?}", $arg))
+            };
+        }
+
+        #[allow(unused_macros)]
+        macro_rules! rnp_return_status {
+            ($status: expr) => {
+                return $status.epilogue(stringify!($fn_name), args)
+            };
+        }
+
+        #[allow(unused_macros)]
+        macro_rules! rnp_success {
+            () => {
+                rnp_return_status!(RNP_SUCCESS)
+            };
+        }
+
         #[allow(unused_macros)]
         macro_rules! _trace {
             ( $msg: expr ) => {
-                if $TRACE {
+                if $TRACE && crate::error::full_tracing() {
                     log!("sequoia-octopus: TRACE: {}: {}",
                          stringify!($fn_name), $msg);
                 }
@@ -361,12 +493,20 @@ macro_rules! rnp_function {
         }
 
         #[allow(unused_macros)]
-        macro_rules! assert_ptr {
+        macro_rules! assert_ptr_int {
             ( $param: expr ) => {
                 if $param.is_null() {
                     warn!("parameter {:?} is null", stringify!($param));
-                    return RNP_ERROR_NULL_POINTER;
+                    rnp_return_status!(RNP_ERROR_NULL_POINTER);
                 }
+            };
+        }
+
+        #[allow(unused_macros)]
+        macro_rules! assert_ptr {
+            ( $param: expr ) => {
+                arg!($param);
+                assert_ptr_int!($param);
             };
         }
 
@@ -387,9 +527,60 @@ macro_rules! rnp_function {
         }
 
         #[allow(unused_macros)]
+        macro_rules! assert_str {
+            ( $param: expr ) => {
+                assert_str!($param, false)
+            };
+            ( confidential => $param: expr ) => {
+                assert_str!($param, true)
+            };
+            ( $param: expr, $confidential: expr ) => {{
+                assert_ptr_int!($param);
+                match std::ffi::CStr::from_ptr($param).to_str() {
+                    Ok(s) => {
+                        if $confidential {
+                            arg!("<REDACTED>")
+                        } else {
+                            arg!(s);
+                        }
+                        s
+                    },
+                    Err(e) => {
+                        warn!("parameter {:?} is not UTF8: {}",
+                              stringify!($param), e);
+                        rnp_return_status!(RNP_ERROR_BAD_PARAMETERS);
+                    }
+                }
+            }};
+        }
+
+        #[allow(unused_macros)]
+        macro_rules! rnp_try {
+            ( $result: expr ) => {
+                match $result {
+                    Ok(v) => v,
+                    Err(e) => rnp_return_status!(e),
+                }
+            };
+        }
+
+        #[allow(unused_macros)]
+        macro_rules! rnp_try_or {
+            ( $result: expr, $fail_with: expr ) => {
+                match $result {
+                    Ok(v) => v,
+                    Err(_) => {
+                        let s: RnpStatus = $fail_with;
+                        rnp_return_status!(s);
+                    },
+                }
+            };
+        }
+
+        #[allow(unused_macros)]
         macro_rules! rnp_return {
             ( $expr: expr ) => {
-                if let Err(e) = $expr {
+                rnp_return_status!(if let Err(e) = $expr {
                     warn!("{}", e);
                     if let Ok(e) = e.downcast::<crate::error::Error>() {
                         e.into()
@@ -399,7 +590,7 @@ macro_rules! rnp_function {
                 } else {
                     t!("Leaving function: success");
                     RNP_SUCCESS
-                }
+                })
             };
         }
 
@@ -423,16 +614,7 @@ macro_rules! global_warn {
     };
 }
 
-macro_rules! rnp_try {
-    ( $result: expr ) => {
-        match $result {
-            Ok(v) => v,
-            Err(e) => return e,
-        }
-    };
-}
-
-macro_rules! rnp_try_or {
+macro_rules! global_rnp_try_or {
     ( $result: expr, $fail_with: expr ) => {
         match $result {
             Ok(v) => v,

@@ -284,7 +284,7 @@ fn rnp_locate_key(ctx: *mut RnpContext,
     } else {
         *key = std::ptr::null_mut();
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -294,7 +294,7 @@ fn rnp_key_handle_destroy(key: *mut RnpKey)
     if ! key.is_null() {
         drop(Box::from_raw(key));
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -306,7 +306,7 @@ fn rnp_key_get_keyid(key: *const RnpKey,
     assert_ptr!(keyid);
 
     *keyid = str_to_rnp_buffer(format!("{:X}", (*key).keyid()));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -318,7 +318,7 @@ fn rnp_key_get_fprint(key: *const RnpKey,
     assert_ptr!(fprint);
 
     *fprint = str_to_rnp_buffer(format!("{:X}", (*key).fingerprint()));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -330,7 +330,7 @@ fn rnp_key_get_alg(key: *const RnpKey,
     assert_ptr!(alg);
 
     *alg = str_to_rnp_buffer((*key).pk_algo().to_rnp_id());
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -355,14 +355,14 @@ fn rnp_key_get_curve(key: *mut RnpKey, curve_out: *mut *mut c_char)
                 | BrainpoolP512
                 | Ed25519
                 | Cv25519 => (),
-                _ => return RNP_ERROR_BAD_PARAMETERS,
+                _ => rnp_return_status!(RNP_ERROR_BAD_PARAMETERS),
             };
 
             *curve_out = str_to_rnp_buffer(curve.to_rnp_id());
-            RNP_SUCCESS
+            rnp_success!()
         },
         // Not an ECC algorithm.
-        _ => RNP_ERROR_BAD_PARAMETERS
+        _ => rnp_return_status!(RNP_ERROR_BAD_PARAMETERS),
     }
 }
 
@@ -388,7 +388,7 @@ fn rnp_key_is_primary(key: *mut RnpKey,
     assert_ptr!(key);
     assert_ptr!(result);
     *result = rnp_try!((*key).is_primary());
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 // XXX: A key can be both primary and subkey at the same time in
@@ -402,7 +402,7 @@ fn rnp_key_is_sub(key: *mut RnpKey,
     assert_ptr!(key);
     assert_ptr!(result);
     *result = ! rnp_try!((*key).is_primary());
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -413,12 +413,12 @@ fn rnp_key_get_grip(key: *const RnpKey,
     assert_ptr!(key);
     assert_ptr!(grip);
 
-    if let Ok(keygrip) = Keygrip::of((*key).mpis()) {
+    rnp_return_status!(if let Ok(keygrip) = Keygrip::of((*key).mpis()) {
         *grip = str_to_rnp_buffer(keygrip.to_string());
         RNP_SUCCESS
     } else {
         RNP_ERROR_GENERIC
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -429,7 +429,7 @@ fn rnp_key_get_primary_grip(key: *mut RnpKey,
     assert_ptr!(key);
     assert_ptr!(grip);
 
-    if let Some(cert) = (*key).cert() {
+    rnp_return_status!(if let Some(cert) = (*key).cert() {
         if let Ok(keygrip) = Keygrip::of(cert.primary_key().mpis()) {
             *grip = str_to_rnp_buffer(keygrip.to_string());
             RNP_SUCCESS
@@ -438,7 +438,7 @@ fn rnp_key_get_primary_grip(key: *mut RnpKey,
         }
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
-    }
+    })
 }
 
 /// XXX: This is a really odd function.  How can we not have the
@@ -452,7 +452,7 @@ fn rnp_key_have_public(key: *const RnpKey,
     assert_ptr!(result);
 
     *result = true;
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -470,7 +470,7 @@ fn rnp_key_have_secret(key: *const RnpKey,
 
     t!("returning {:?}", has_secret);
     *result = has_secret;
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -481,12 +481,12 @@ fn rnp_key_get_bits(key: *const RnpKey,
     assert_ptr!(key);
     assert_ptr!(bits);
 
-    if let Some(b) = (*key).mpis().bits() {
+    rnp_return_status!(if let Some(b) = (*key).mpis().bits() {
         *bits = b as u32;
         RNP_SUCCESS
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -501,7 +501,7 @@ fn rnp_key_get_creation(key: *const RnpKey,
         (*key).creation_time().duration_since(UNIX_EPOCH)
         .expect("creation time is representable as epoch")
         .as_secs() as u32;
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -543,7 +543,7 @@ fn rnp_key_get_expiration(key: *mut RnpKey,
     } else {
         t!("{} does not expire", fp);
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -559,7 +559,7 @@ fn rnp_key_get_primary_uid(key: *mut RnpKey,
     // we fall back to using a null policy.  This value is only used
     // for displaying purposes, and falling back seems reasonable to
     // me.
-    if let Some(cert) = (*key).cert().as_ref()
+    rnp_return_status!(if let Some(cert) = (*key).cert().as_ref()
         .and_then(|c| c.with_policy(&policy, None).ok()
                   .or_else(|| c.with_policy(crate::NP, None).ok()))
     {
@@ -571,7 +571,7 @@ fn rnp_key_get_primary_uid(key: *mut RnpKey,
         }
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
-    }
+    })
 }
 
 // XXX: should we only consider valid userids, or all of them?
@@ -584,7 +584,7 @@ fn rnp_key_get_uid_at(key: *mut RnpKey,
     assert_ptr!(key);
     assert_ptr!(uid);
 
-    if let Some(cert) = (*key).cert() {
+    rnp_return_status!(if let Some(cert) = (*key).cert() {
         if let Some(u) = cert.userids().nth(idx) {
             if let Some(ptr) = c_str_to_rnp_buffer(u.value()) {
                 *uid = ptr;
@@ -597,7 +597,7 @@ fn rnp_key_get_uid_at(key: *mut RnpKey,
         }
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
-    }
+    })
 }
 
 // XXX: should we only consider valid userids, or all of them?
@@ -610,7 +610,7 @@ fn rnp_key_get_uid_handle_at(key: *mut RnpKey,
     assert_ptr!(key);
     assert_ptr!(uid);
 
-    if let Some(cert) = (*key).cert() {
+    rnp_return_status!(if let Some(cert) = (*key).cert() {
         if let Some(u) = cert.userids().nth(idx) {
             if let Some(u) = RnpUserID::new((*key).ctx,
                                             u.userid().clone(),
@@ -625,7 +625,7 @@ fn rnp_key_get_uid_handle_at(key: *mut RnpKey,
         }
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
-    }
+    })
 }
 
 // XXX: should we only consider valid userids, or all of them?
@@ -637,12 +637,12 @@ fn rnp_key_get_uid_count(key: *mut RnpKey,
     assert_ptr!(key);
     assert_ptr!(count);
 
-    if let Some(cert) = (*key).cert() {
+    rnp_return_status!(if let Some(cert) = (*key).cert() {
         *count = cert.userids().count();
         RNP_SUCCESS
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
-    }
+    })
 }
 
 // XXX: should we only consider valid subkeys, or all of them?
@@ -655,7 +655,7 @@ fn rnp_key_get_subkey_at(key: *mut RnpKey,
     assert_ptr!(key);
     assert_ptr!(subkey);
 
-    if let Some(cell) = (*key).cert.as_ref() {
+    rnp_return_status!(if let Some(cell) = (*key).cert.as_ref() {
         let cert = cell.read().unwrap();
 
         if let Some(k) = cert.keys().subkeys().nth(idx) {
@@ -672,7 +672,7 @@ fn rnp_key_get_subkey_at(key: *mut RnpKey,
         }
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
-    }
+    })
 }
 
 // XXX: should we only consider valid subkeys, or all of them?
@@ -684,12 +684,12 @@ fn rnp_key_get_subkey_count(key: *mut RnpKey,
     assert_ptr!(key);
     assert_ptr!(count);
 
-    if let Some(cert) = (*key).cert() {
+    rnp_return_status!(if let Some(cert) = (*key).cert() {
         *count = cert.keys().subkeys().count();
         RNP_SUCCESS
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -701,7 +701,7 @@ fn rnp_key_get_signature_at(key: *mut RnpKey,
     let key = assert_ptr_ref!(key);
     assert_ptr!(sig);
 
-    if let Some(cert) = key.try_cert() {
+    rnp_return_status!(if let Some(cert) = key.try_cert() {
         if let Some(subkey) = cert.keys().key_handle(key.fingerprint()).next() {
             if let Some((s, valid)) =
                 ca_signatures(subkey.component_amalgamation()).nth(idx)
@@ -717,7 +717,7 @@ fn rnp_key_get_signature_at(key: *mut RnpKey,
         }
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -728,7 +728,7 @@ fn rnp_key_get_signature_count(key: *mut RnpKey,
     let key = assert_ptr_ref!(key);
     assert_ptr!(count);
 
-    if let Some(cert) = key.try_cert() {
+    rnp_return_status!(if let Some(cert) = key.try_cert() {
         if let Some(subkey) = cert.keys().key_handle(key.fingerprint()).next() {
             *count = ca_signatures(subkey.component_amalgamation()).count();
             RNP_SUCCESS
@@ -737,7 +737,7 @@ fn rnp_key_get_signature_count(key: *mut RnpKey,
         }
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -769,7 +769,7 @@ fn rnp_key_allows_usage(key: *mut RnpKey,
         // Not valid under the policy.  Don't allow use of key.
         *result = false;
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 // XXX: Revocation is a lot less binary than RNP would like it to be.
@@ -805,7 +805,7 @@ fn rnp_key_is_revoked(key: *mut RnpKey,
         // Not valid under the policy.  Treat as revoked.
         *result = true;
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -841,7 +841,7 @@ fn rnp_key_export_autocrypt(key: *mut RnpKey,
         Ok(())
     }
 
-    if let Some(cert) = (*key).cert() {
+    rnp_return_status!(if let Some(cert) = (*key).cert() {
         if let Err(e) = f(&policy, cert, uid, &mut *output) {
             log!("sequoia-octopus: failed to export for autocrypt: {}", e);
             RNP_ERROR_GENERIC
@@ -850,7 +850,7 @@ fn rnp_key_export_autocrypt(key: *mut RnpKey,
         }
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
-    }
+    })
 }
 
 /// XXX: This API seems dangerous.
@@ -877,27 +877,27 @@ fn rnp_key_remove(key: *mut RnpKey,
             //   - We store whole certificates, and without the
             //     primary key, we have no place to store the subkey.
             //   - The usecase for doing that seems dodgy.
-            return RNP_ERROR_NOT_SUPPORTED;
+            rnp_return_status!(RNP_ERROR_NOT_SUPPORTED);
         },
         (false, true) => (), // OK.
         (true, false) => (), // OK.
-        (true, true) => return RNP_ERROR_BAD_PARAMETERS,
+        (true, true) => rnp_return_status!(RNP_ERROR_BAD_PARAMETERS),
     }
 
     let fp = key.fingerprint();
 
     if remove_public {
         if ! ctx.certs.write().remove_all(&fp) {
-            return RNP_ERROR_KEY_NOT_FOUND;
+            rnp_return_status!(RNP_ERROR_KEY_NOT_FOUND);
         }
     }
     else if remove_secret {
         if ! ctx.certs.write().remove_secret_key_material(&fp) {
-            return RNP_ERROR_KEY_NOT_FOUND;
+            rnp_return_status!(RNP_ERROR_KEY_NOT_FOUND);
         }
     }
 
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -927,7 +927,7 @@ fn rnp_key_export(key: *mut RnpKey,
         },
         (false, true) => (), // OK.
         (true, false) => (), // OK.
-        (true, true) => return RNP_ERROR_BAD_PARAMETERS,
+        (true, true) => rnp_return_status!(RNP_ERROR_BAD_PARAMETERS),
     }
 
     let mut cert = key.cert()
@@ -952,12 +952,12 @@ fn rnp_key_export(key: *mut RnpKey,
         Ok(())
     }
 
-    if let Err(e) = f(cert, armored, export_secret, output) {
+    rnp_return_status!(if let Err(e) = f(cert, armored, export_secret, output) {
         warn!("failed to export key: {}", e);
         RNP_ERROR_WRITE
     } else {
         RNP_SUCCESS
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -968,7 +968,8 @@ fn rnp_key_is_locked(key: *mut RnpKey,
     assert_ptr!(key);
     assert_ptr!(result);
     let key = &mut *key;
-    if let Some(k) = key.key.parts_as_secret().ok() {
+
+    rnp_return_status!(if let Some(k) = key.key.parts_as_secret().ok() {
         *result = (*key.ctx).key_is_locked(k);
         RNP_SUCCESS
     } else {
@@ -983,7 +984,7 @@ fn rnp_key_is_locked(key: *mut RnpKey,
             // without secret key material.
             RNP_ERROR_NO_SUITABLE_KEY
         }
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -992,12 +993,13 @@ fn rnp_key_lock(key: *mut RnpKey)
     rnp_function!(rnp_key_lock, crate::TRACE);
     assert_ptr!(key);
     let key = &mut *key;
-    if let Some(k) = key.key.parts_as_secret().ok() {
+
+    rnp_return_status!(if let Some(k) = key.key.parts_as_secret().ok() {
         (*key.ctx).key_lock(k);
         RNP_SUCCESS
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -1013,7 +1015,7 @@ fn rnp_key_unlock(key: *mut RnpKey,
     };
 
     let key = &mut *key;
-    if let Some(k) = key.key.parts_as_secret().ok() {
+    rnp_return_status!(if let Some(k) = key.key.parts_as_secret().ok() {
         if let Err(e) = (*key.ctx).key_unlock(k.clone(), password) {
             warn!("rnp_key_unlock: {}: e", e);
             RNP_ERROR_GENERIC
@@ -1022,7 +1024,7 @@ fn rnp_key_unlock(key: *mut RnpKey,
         }
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -1036,7 +1038,7 @@ fn rnp_key_is_protected(key: *mut RnpKey,
         || (*key.ctx).certs.key_on_agent(&key.fingerprint());
     t!("Key {:X} is {}protected", key.fingerprint(),
        if *result { "" } else { "not " });
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -1094,7 +1096,7 @@ fn rnp_key_get_protection_type(key: *mut RnpKey, typ: *mut *const c_char)
     t!("returning {:?}", r_typ);
     *typ = str_to_rnp_buffer(r_typ);
 
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -1119,9 +1121,9 @@ fn rnp_key_protect(rnp_key: *mut RnpKey,
             // The secret key material is managed by the gpg-agent, we
             // cannot change the password, nor should we try to.  Just
             // turn this into a NOP.
-            return RNP_SUCCESS;
+            rnp_return_status!(RNP_SUCCESS);
         } else {
-            return RNP_ERROR_NO_SUITABLE_KEY;
+            rnp_return_status!(RNP_ERROR_NO_SUITABLE_KEY);
         };
 
     let f = || -> openpgp::Result<()> {
@@ -1180,9 +1182,9 @@ fn rnp_key_unprotect(rnp_key: *mut RnpKey,
             // The secret key material is managed by the gpg-agent, we
             // cannot change the password, nor should we try to.  Just
             // turn this into a NOP.
-            return RNP_SUCCESS;
+            rnp_return_status!(RNP_SUCCESS);
         } else {
-            return RNP_ERROR_NO_SUITABLE_KEY;
+            rnp_return_status!(RNP_ERROR_NO_SUITABLE_KEY);
         };
 
     let f = || -> openpgp::Result<()> {
@@ -1238,13 +1240,13 @@ fn rnp_key_export_revocation(key: *mut RnpKey,
     let output = &mut *output;
 
     if ! rnp_try!(key.is_primary()) {
-        return RNP_ERROR_BAD_PARAMETERS;
+        rnp_return_status!(RNP_ERROR_BAD_PARAMETERS);
     }
 
     if ! key.has_secret() {
         warn!("rnp_key_export_revocation: creating third-party revocation \
                not implemented");
-        return RNP_ERROR_NOT_IMPLEMENTED;
+        rnp_return_status!(RNP_ERROR_NOT_IMPLEMENTED);
     }
 
     let hash = if hash.is_null() {
@@ -1298,12 +1300,12 @@ fn rnp_key_export_revocation(key: *mut RnpKey,
         Ok(())
     }
 
-    if let Err(e) = f(key, output, hash, code, reason) {
+    rnp_return_status!(if let Err(e) = f(key, output, hash, code, reason) {
         warn!("rnp_key_export_revocation: {}", e);
         RNP_ERROR_GENERIC
     } else {
         RNP_SUCCESS
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -1320,13 +1322,13 @@ fn rnp_key_revoke(key: *mut RnpKey,
     let cert = if let Some(cert) = key.cert() {
         cert.clone()
     } else {
-        return RNP_ERROR_NO_SUITABLE_KEY;
+        rnp_return_status!(RNP_ERROR_NO_SUITABLE_KEY);
     };
 
     if ! cert.primary_key().has_secret() {
         warn!("rnp_key_export_revocation: creating third-party revocation \
                not implemented");
-        return RNP_ERROR_NOT_IMPLEMENTED;
+        rnp_return_status!(RNP_ERROR_NOT_IMPLEMENTED);
     }
 
     let hash = if hash.is_null() {
@@ -1389,12 +1391,12 @@ fn rnp_key_revoke(key: *mut RnpKey,
         Ok(())
     }
 
-    if let Err(e) = f(ctx, cert, key, hash, code, reason) {
+    rnp_return_status!(if let Err(e) = f(ctx, cert, key, hash, code, reason) {
         warn!("{}", e);
         RNP_ERROR_GENERIC
     } else {
         RNP_SUCCESS
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -1414,7 +1416,7 @@ fn rnp_key_set_expiration(key: *mut RnpKey,
     let cert = if let Some(cert) = key.cert() {
         cert.clone()
     } else {
-        return RNP_ERROR_NO_SUITABLE_KEY;
+        rnp_return_status!(RNP_ERROR_NO_SUITABLE_KEY);
     };
 
     fn f(ctx: &mut RnpContext, cert: Cert, key: &RnpKey,
@@ -1495,12 +1497,12 @@ fn rnp_key_set_expiration(key: *mut RnpKey,
         Ok(())
     }
 
-    if let Err(e) = f(ctx, cert, key, expiry) {
+    rnp_return_status!(if let Err(e) = f(ctx, cert, key, expiry) {
         warn!("{}", e);
         RNP_ERROR_GENERIC
     } else {
         RNP_SUCCESS
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -1532,7 +1534,7 @@ fn rnp_key_valid_till64(key: *mut RnpKey,
         cert
     } else {
         t!("Could not find key's certificate.");
-        return RNP_ERROR_BAD_PARAMETERS;
+        rnp_return_status!(RNP_ERROR_BAD_PARAMETERS);
     };
 
     // According to the rnp_key_valid_till's documentation
@@ -1551,7 +1553,7 @@ fn rnp_key_valid_till64(key: *mut RnpKey,
         // If it is not even valid with the null policy, return 0.
         *result = 0;
         t!("cert not valid.");
-        return RNP_SUCCESS;
+        rnp_return_status!(RNP_SUCCESS);
     };
 
     // Make sure the key is valid.
@@ -1561,7 +1563,7 @@ fn rnp_key_valid_till64(key: *mut RnpKey,
         // If it is not even valid with the null policy, return 0.
         *result = 0;
         t!("key not valid.");
-        return RNP_SUCCESS;
+        rnp_return_status!(RNP_SUCCESS);
     };
 
     // A key's expiration is the minimum of its expiration
@@ -1603,7 +1605,7 @@ fn rnp_key_valid_till64(key: *mut RnpKey,
         *result = 0;
         t!("time failure.");
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -1622,11 +1624,11 @@ fn rnp_key_25519_bits_tweaked(key: *mut RnpKey, result_out: *mut bool)
             // We want to return an error on unknown curves.
             match curve {
                 Cv25519 => (),
-                _ => return RNP_ERROR_BAD_PARAMETERS,
+                _ => rnp_return_status!(RNP_ERROR_BAD_PARAMETERS),
             };
         },
         // Not an ECC algorithm.
-        _ => return RNP_ERROR_BAD_PARAMETERS,
+        _ => rnp_return_status!(RNP_ERROR_BAD_PARAMETERS),
     }
 
     // RNP's implementation also considers unlocked keys.  Do the
@@ -1637,7 +1639,7 @@ fn rnp_key_25519_bits_tweaked(key: *mut RnpKey, result_out: *mut bool)
 
     // Now check the secret.
     use openpgp::packet::key;
-    match maybe_unlocked_key.optional_secret() {
+    rnp_return_status!(match maybe_unlocked_key.optional_secret() {
         Some(key::SecretKeyMaterial::Unencrypted(k)) => k.map(|secret| {
             use openpgp::crypto::mpi::SecretKeyMaterial;
             match secret {
@@ -1664,7 +1666,7 @@ fn rnp_key_25519_bits_tweaked(key: *mut RnpKey, result_out: *mut bool)
             }
         }),
         _ => RNP_ERROR_BAD_PARAMETERS,
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -1681,11 +1683,11 @@ fn rnp_key_25519_bits_tweak(key: *mut RnpKey)
             // We want to return an error on unknown curves.
             match curve {
                 Cv25519 => (),
-                _ => return RNP_ERROR_BAD_PARAMETERS,
+                _ => rnp_return_status!(RNP_ERROR_BAD_PARAMETERS),
             };
         },
         // Not an ECC algorithm.
-        _ => return RNP_ERROR_BAD_PARAMETERS,
+        _ => rnp_return_status!(RNP_ERROR_BAD_PARAMETERS),
     }
 
     // Now check and clone the secret.
@@ -1702,7 +1704,7 @@ fn rnp_key_25519_bits_tweak(key: *mut RnpKey)
                         _ => Err(RNP_ERROR_BAD_PARAMETERS),
                     }
                 })),
-            _ => return RNP_ERROR_BAD_PARAMETERS,
+            _ => rnp_return_status!(RNP_ERROR_BAD_PARAMETERS),
         };
 
     // OpenPGP stores the secret in reverse order.
@@ -1735,10 +1737,10 @@ fn rnp_key_25519_bits_tweak(key: *mut RnpKey)
 
         *cert = rnp_try_or!(cert.clone().insert_packets(Some(key)),
                             RNP_ERROR_GENERIC);
-        RNP_SUCCESS
+        rnp_success!()
     } else {
         warn!("Key for {:X} not found in keyring", k.fingerprint());
-        RNP_ERROR_GENERIC
+        rnp_return_status!(RNP_ERROR_GENERIC)
     }
 }
 
@@ -1750,12 +1752,12 @@ fn rnp_uid_remove(key: *mut RnpKey, uid: *mut RnpUserID)
     let key = assert_ptr_mut!(key);
     let uid = assert_ptr_ref!(uid);
 
-    if let Some(mut cert) = key.cert_mut() {
+    rnp_return_status!(if let Some(mut cert) = key.cert_mut() {
         *cert = cert.clone().retain_userids(|u| u.userid() != uid.userid());
         RNP_SUCCESS
     } else {
         RNP_ERROR_GENERIC
-    }
+    })
 }
 
 type RnpKeySignaturesCB = fn(*mut RnpContext,
@@ -1841,9 +1843,9 @@ fn rnp_key_remove_signatures(key: *mut RnpKey,
 
         *cert = rnp_try_or!(Cert::from_packets(acc.into_iter()),
                             RNP_ERROR_GENERIC);
-        RNP_SUCCESS
+        rnp_success!()
     } else {
-        RNP_ERROR_GENERIC
+        rnp_return_status!(RNP_ERROR_GENERIC)
     }
 }
 
@@ -1865,6 +1867,8 @@ mod tests {
     use crate::rnp_input_destroy;
     use crate::rnp_output_destroy;
     use crate::rnp_ffi_destroy;
+
+    const RNP_SUCCESS: u32 = crate::error::RNP_SUCCESS.as_u32();
 
     #[test]
     fn key_consistency() -> openpgp::Result<()> {

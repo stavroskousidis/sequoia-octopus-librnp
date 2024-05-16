@@ -103,7 +103,7 @@ fn rnp_uid_handle_destroy(uid: *mut RnpUserID)
     if ! uid.is_null() {
         drop(Box::from_raw(uid));
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 // XXX: what signatures to consider?  all of them?
@@ -116,7 +116,7 @@ fn rnp_uid_get_signature_at(uid: *const RnpUserID,
     let uid = assert_ptr_ref!(uid);
     let sig = assert_ptr_mut!(sig);
 
-    if let Some((s, valid)) = ca_signatures(
+    rnp_return_status!(if let Some((s, valid)) = ca_signatures(
         &uid.cert.userids().nth(uid.nth_uid)
             .expect("we know it's there")
     ).nth(idx)
@@ -126,7 +126,7 @@ fn rnp_uid_get_signature_at(uid: *const RnpUserID,
         RNP_SUCCESS
     } else {
         RNP_ERROR_BAD_PARAMETERS
-    }
+    })
 }
 
 // XXX: what signatures to consider?  all of them?
@@ -142,7 +142,7 @@ fn rnp_uid_get_signature_count(uid: *const RnpUserID,
         &uid.cert.userids().nth(uid.nth_uid)
             .expect("we know it's there")
     ).count();
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 // XXX: Revocation is a lot less binary than RNP would like it to be.
@@ -161,7 +161,7 @@ fn rnp_uid_is_revoked(uid: *const RnpUserID,
        uid.cert.fingerprint(), String::from_utf8_lossy(uid.uid.value()),
        if *result { "" } else { " not" });
 
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -187,7 +187,7 @@ fn rnp_uid_is_valid(uid: *const RnpUserID,
        uid.cert.fingerprint(), String::from_utf8_lossy(uid.uid.value()),
        if *result { "" } else { " not" });
 
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 
@@ -215,6 +215,6 @@ fn rnp_uid_is_primary(uid: *const RnpUserID,
        uid.cert.fingerprint(), String::from_utf8_lossy(uid.uid.value()),
        if *result { "" } else { " not" });
 
-    RNP_SUCCESS
+    rnp_success!()
 }
 

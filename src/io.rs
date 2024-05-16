@@ -101,7 +101,7 @@ fn rnp_input_from_path(input: *mut *mut RnpInput,
                        path: *const c_char)
                        -> RnpResult {
     rnp_function!(rnp_input_from_path, crate::TRACE);
-    match cstr_to_pathbuf(path) {
+    rnp_return_status!(match cstr_to_pathbuf(path) {
         Ok(p) => {
             if let Ok(f) = File::open(&p) {
                 *input = Box::into_raw(Box::new(
@@ -113,7 +113,7 @@ fn rnp_input_from_path(input: *mut *mut RnpInput,
             }
         },
         Err(e) => e,
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -129,7 +129,7 @@ fn rnp_input_from_memory(input: *mut *mut RnpInput,
     } else {
         RnpInput::Ref(io::Cursor::new(data))
     }));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -138,7 +138,7 @@ fn rnp_input_destroy(input: *mut RnpInput) -> RnpResult {
     if ! input.is_null() {
         drop(Box::from_raw(input));
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 impl io::Read for RnpInput {
@@ -156,24 +156,21 @@ fn rnp_output_to_path(output: *mut *mut RnpOutput,
                       path: *const c_char)
                       -> RnpResult {
     rnp_function!(rnp_output_to_path, crate::TRACE);
-    let path = match cstr_to_pathbuf(path) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
+    let path = rnp_try!(cstr_to_pathbuf(path));
 
     let f = match File::create(&path) {
         Ok(f) => f,
         Err(e) => {
             log!("sequoia-octopus: failed to create {:?}: {}",
                  path, e);
-            return RNP_ERROR_ACCESS;
+            rnp_return_status!(RNP_ERROR_ACCESS);
         },
     };
 
     *output = Box::into_raw(Box::new(
         RnpOutput::File(f)
     ));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -185,7 +182,7 @@ fn rnp_output_to_memory(output: *mut *mut RnpOutput,
         RnpOutput::Buf((Vec::new(),
                         if max_alloc == 0 { None } else { Some(max_alloc) }))
     ));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -195,7 +192,7 @@ fn rnp_output_memory_get_buf(output: *const RnpOutput,
                              do_copy: bool)
                              -> RnpResult {
     rnp_function!(rnp_output_memory_get_buf, crate::TRACE);
-    if let RnpOutput::Buf((bytes, _)) = &*output {
+    rnp_return_status!(if let RnpOutput::Buf((bytes, _)) = &*output {
         if do_copy {
             *buf = bytes_to_rnp_buffer(bytes);
             *len = bytes.len();
@@ -206,7 +203,7 @@ fn rnp_output_memory_get_buf(output: *const RnpOutput,
         RNP_SUCCESS
     } else {
         RNP_ERROR_GENERIC
-    }
+    })
 }
 
 
@@ -220,7 +217,7 @@ fn rnp_output_to_armor<'a>(sink: *mut RnpOutput<'a>,
     assert_ptr!(output);
     if kind.is_null() {
         warn!("rnp_output_to_armor: type detection not implemented");
-        return RNP_ERROR_NOT_IMPLEMENTED; // XXX
+        rnp_return_status!(RNP_ERROR_NOT_IMPLEMENTED); // XXX
     }
     let kind = rnp_try!(armor::Kind::from_rnp_id(kind));
 
@@ -228,11 +225,11 @@ fn rnp_output_to_armor<'a>(sink: *mut RnpOutput<'a>,
         Ok(v) => Box::into_raw(Box::new(RnpOutput::Armorer(Some(v)))),
         Err(e) => {
             warn!("rnp_output_to_armor: {}", e);
-            return RNP_ERROR_WRITE;
+            rnp_return_status!(RNP_ERROR_WRITE);
         },
     };
 
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -250,7 +247,7 @@ fn rnp_output_armor_set_line_length<'a>(_: *mut RnpOutput<'a>,
         warn!("rnp_output_armor_set_line_length: setting length to {} ignored",
               llen);
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -259,7 +256,7 @@ fn rnp_output_destroy(output: *mut RnpOutput) -> RnpResult {
     if ! output.is_null() {
         drop(Box::from_raw(output));
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -274,16 +271,16 @@ fn rnp_output_finish(output: *mut RnpOutput) -> RnpResult {
             if let Some(w) = w.take() {
                 if let Err(e) = w.finalize() {
                     warn!("rnp_output_finish: {}", e);
-                    return RNP_ERROR_WRITE;
+                    rnp_return_status!(RNP_ERROR_WRITE);
                 }
             } else {
-                return RNP_ERROR_WRITE;
+                rnp_return_status!(RNP_ERROR_WRITE);
             },
         // XXX: If we ever implement RNP_OUTPUT_FILE_RANDOM, do the
         // rename here.
     }
 
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 impl<'a> io::Write for RnpOutput<'a> {
@@ -333,7 +330,7 @@ fn rnp_enarmor(input: *mut RnpInput,
     assert_ptr!(output);
     if kind.is_null() {
         warn!("rnp_enarmor: type detection not implemented");
-        return RNP_ERROR_NOT_IMPLEMENTED; // XXX
+        rnp_return_status!(RNP_ERROR_NOT_IMPLEMENTED); // XXX
     }
     let kind = rnp_try!(armor::Kind::from_rnp_id(kind));
 
@@ -346,10 +343,10 @@ fn rnp_enarmor(input: *mut RnpInput,
         Ok(())
     }
 
-    if let Err(e) = f(&mut *input, &mut *output, kind) {
+    rnp_return_status!(if let Err(e) = f(&mut *input, &mut *output, kind) {
         warn!("rnp_enarmor failed: {}", e);
         RNP_ERROR_GENERIC
     } else {
         RNP_SUCCESS
-    }
+    })
 }

@@ -119,7 +119,7 @@ impl RnpOpVerifyResult {
     }
 
     /// Returns an verification failure (arbitrarily picks the first).
-    fn verification_error(&self) -> Option<RnpResult> {
+    fn verification_error(&self) -> Option<RnpStatus> {
         for s in &self.signatures {
             if s.status != RNP_SUCCESS {
                 return Some(s.status);
@@ -131,7 +131,7 @@ impl RnpOpVerifyResult {
 
 pub struct RnpOpVerifySignature {
     ctx: *mut RnpContext,
-    status: RnpResult,
+    status: RnpStatus,
     sig: Signature,
     key: Option<(Key<UnspecifiedParts, UnspecifiedRole>, Cert)>,
 }
@@ -196,7 +196,7 @@ fn rnp_op_verify_create<'a>(op: *mut *mut RnpOpVerify<'a>,
         mode: SignatureMode::Inline(&mut *output),
         result: Default::default(),
     }));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -218,7 +218,7 @@ fn rnp_op_verify_detached_create<'a>(op: *mut *mut RnpOpVerify<'a>,
         mode: SignatureMode::Detached(&mut *signature),
         result: Default::default(),
     }));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -227,7 +227,7 @@ fn rnp_op_verify_destroy(op: *mut RnpOpVerify) -> RnpResult {
     if ! op.is_null() {
         drop(Box::from_raw(op));
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -287,7 +287,7 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
         Ok(())
     }
 
-    if let Err(e) = f(op) {
+    rnp_return_status!(if let Err(e) = f(op) {
         if op.result.encrypted_message()
             && ! op.result.decrypted_successfully()
         {
@@ -307,7 +307,7 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
         }
     } else {
         RNP_SUCCESS
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -319,12 +319,12 @@ fn rnp_op_verify_get_signature_at(op: *mut RnpOpVerify,
     let op = assert_ptr_ref!(op);
     assert_ptr!(signature);
 
-    if let Some(s) = op.result.signatures.get(idx) {
+    rnp_return_status!(if let Some(s) = op.result.signatures.get(idx) {
         *signature = s as *const _;
         RNP_SUCCESS
     } else {
         RNP_ERROR_BAD_PARAMETERS
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -335,7 +335,7 @@ fn rnp_op_verify_get_signature_count(op: *mut RnpOpVerify,
     let op = assert_ptr_ref!(op);
     assert_ptr!(count);
     *count = op.result.signatures.len();
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -350,7 +350,7 @@ fn rnp_op_verify_signature_get_handle(sig: *mut RnpOpVerifySignature,
         Box::into_raw(Box::new(
             RnpSignature::new(sig.ctx, sig.sig.clone(),
                               Some(sig.status == RNP_SUCCESS))));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -358,7 +358,7 @@ fn rnp_op_verify_signature_get_status(sig: *mut RnpOpVerifySignature)
                                       -> RnpResult {
     rnp_function!(rnp_op_verify_signature_get_status, crate::TRACE);
     assert_ptr!(sig);
-    (*sig).status
+    rnp_return_status!((*sig).status)
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -368,14 +368,15 @@ fn rnp_op_verify_signature_get_key(sig: *mut RnpOpVerifySignature,
     rnp_function!(rnp_op_verify_signature_get_key, crate::TRACE);
     assert_ptr!(sig);
     assert_ptr!(key_out);
-    if let Some(key) = (*sig).key.as_ref().cloned() {
+
+    rnp_return_status!(if let Some(key) = (*sig).key.as_ref().cloned() {
         *key_out =
             Box::into_raw(Box::new(RnpKey::new((*sig).ctx, key.0, &key.1)));
         RNP_SUCCESS
     } else {
         *key_out = std::ptr::null_mut();
         RNP_ERROR_KEY_NOT_FOUND
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -397,7 +398,7 @@ fn rnp_op_verify_signature_get_times(sig: *mut RnpOpVerifySignature,
                 as u32
         }).unwrap_or(0);
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -428,7 +429,7 @@ fn rnp_op_verify_get_protection_info(op: *mut RnpOpVerify,
             false
         };
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -441,7 +442,7 @@ fn rnp_op_verify_get_used_recipient(op: *mut RnpOpVerify,
 
     *pkesk = op.result.pkesk_used.as_ref().map(|p| p as *const _)
         .unwrap_or(std::ptr::null());
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -453,12 +454,12 @@ fn rnp_op_verify_get_recipient_at(op: *mut RnpOpVerify,
     let op = assert_ptr_ref!(op);
     assert_ptr!(pkesk);
 
-    if let Some(p) = op.result.pkesks.get(idx) {
+    rnp_return_status!(if let Some(p) = op.result.pkesks.get(idx) {
         *pkesk = p as *const _;
         RNP_SUCCESS
     } else {
         RNP_ERROR_BAD_PARAMETERS
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -469,7 +470,7 @@ fn rnp_op_verify_get_recipient_count(op: *mut RnpOpVerify,
     let op = assert_ptr_ref!(op);
     assert_ptr!(count);
     *count = op.result.pkesks.len();
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -480,7 +481,7 @@ fn rnp_recipient_get_keyid(recipient: *const PKESK,
     assert_ptr!(recipient);
     assert_ptr!(keyid);
     *keyid = str_to_rnp_buffer(format!("{:X}", (*recipient).recipient()));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -491,7 +492,7 @@ fn rnp_recipient_get_alg(recipient: *const PKESK,
     assert_ptr!(recipient);
     assert_ptr!(alg);
     *alg = str_to_rnp_buffer((*recipient).pk_algo().to_rnp_id());
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -503,7 +504,7 @@ fn rnp_op_verify_get_used_symenc(op: *mut RnpOpVerify,
     assert_ptr!(skesk);
     *skesk = op.result.skesk_used.as_ref().map(|p| p as *const _)
         .unwrap_or(std::ptr::null());
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -514,12 +515,13 @@ fn rnp_op_verify_get_symenc_at(op: *mut RnpOpVerify,
     rnp_function!(rnp_op_verify_get_symenc_at, crate::TRACE);
     let op = assert_ptr_ref!(op);
     assert_ptr!(skesk);
-    if let Some(p) = op.result.skesks.get(idx) {
+
+    rnp_return_status!(if let Some(p) = op.result.skesks.get(idx) {
         *skesk = p as *const _;
         RNP_SUCCESS
     } else {
         RNP_ERROR_BAD_PARAMETERS
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -530,7 +532,7 @@ fn rnp_op_verify_get_symenc_count(op: *mut RnpOpVerify,
     let op = assert_ptr_ref!(op);
     assert_ptr!(count);
     *count = op.result.skesks.len();
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 struct Helper<'a> {

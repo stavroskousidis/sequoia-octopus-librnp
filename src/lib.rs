@@ -191,7 +191,7 @@ fn rnp_ffi_create(ctx: *mut *mut RnpContext,
     if CStr::from_ptr(pub_fmt).to_bytes() != b"GPG"
         || CStr::from_ptr(sec_fmt).to_bytes() != b"GPG"
     {
-        return RNP_ERROR_BAD_FORMAT;
+        rnp_return_status!(RNP_ERROR_BAD_FORMAT);
     }
 
     // Try to make sure that a pubring.gpg exists.  Thunderbird will
@@ -262,7 +262,7 @@ fn rnp_ffi_create(ctx: *mut *mut RnpContext,
         policy: Arc::new(RwLock::new(policy)),
         ..Default::default()
     }));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -271,14 +271,14 @@ fn rnp_ffi_destroy(ctx: *mut RnpContext) -> RnpResult {
     if ! ctx.is_null() {
         drop(Box::from_raw(ctx));
     }
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_ffi_set_log_fd(ctx: *mut RnpContext, _fd: c_int) -> RnpResult {
     rnp_function!(rnp_ffi_set_log_fd, crate::TRACE);
     assert_ptr!(ctx);
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -289,7 +289,7 @@ fn rnp_ffi_set_pass_provider(ctx: *mut RnpContext,
     rnp_function!(rnp_ffi_set_pass_provider, crate::TRACE);
     assert_ptr!(ctx);
     (*ctx).password_cb = Some((cb, cookie));
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 impl RnpContext {
@@ -648,7 +648,7 @@ fn rnp_load_keys(ctx: *mut RnpContext,
 
 
     if CStr::from_ptr(format).to_bytes() != b"GPG" {
-        return RNP_ERROR_BAD_FORMAT;
+        rnp_return_status!(RNP_ERROR_BAD_FORMAT);
     }
 
     let input = &mut *input;
@@ -691,7 +691,7 @@ fn rnp_load_keys(ctx: *mut RnpContext,
         f => {
             warn!("sequoia-octopus: unexpected flags to rnp_load_keys: {:x}",
                   f);
-            return RNP_ERROR_BAD_PARAMETERS;
+            rnp_return_status!(RNP_ERROR_BAD_PARAMETERS);
         },
     }
 
@@ -700,7 +700,7 @@ fn rnp_load_keys(ctx: *mut RnpContext,
     if let Err(err) = input.read_to_end(&mut data)
     {
         warn!("sequoia-octopus: Error reading input: {}", err);
-        return RNP_ERROR_GENERIC;
+        rnp_return_status!(RNP_ERROR_GENERIC);
     }
 
     let policy = (*ctx).policy.clone();
@@ -708,10 +708,10 @@ fn rnp_load_keys(ctx: *mut RnpContext,
         data, flags == RNP_LOAD_SAVE_SECRET_KEYS, policy)
     {
         warn!("sequoia-octopus: Error reading certs: {}", err);
-        return RNP_ERROR_GENERIC;
+        rnp_return_status!(RNP_ERROR_GENERIC);
     }
 
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -725,7 +725,7 @@ fn rnp_save_keys(ctx: *mut RnpContext,
     assert_ptr!(format);
     assert_ptr!(output);
     if CStr::from_ptr(format).to_bytes() != b"GPG" {
-        return RNP_ERROR_BAD_FORMAT;
+        rnp_return_status!(RNP_ERROR_BAD_FORMAT);
     }
 
     let output = &mut *output;
@@ -756,7 +756,7 @@ fn rnp_save_keys(ctx: *mut RnpContext,
         }
         f => {
             warn!("unexpected flags to rnp_save_keys: {:x}", f);
-            return RNP_ERROR_BAD_PARAMETERS;
+            rnp_return_status!(RNP_ERROR_BAD_PARAMETERS);
         },
     };
 
@@ -775,12 +775,12 @@ fn rnp_save_keys(ctx: *mut RnpContext,
         }
     }
 
-    if let Err(err) = r {
+    rnp_return_status!(if let Err(err) = r {
         warn!("failed saving keys: {}", err);
         RNP_ERROR_GENERIC
     } else {
         RNP_SUCCESS
-    }
+    })
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -811,7 +811,7 @@ fn rnp_get_public_key_count(ctx: *mut RnpContext,
         }
     }).count();
     t!("-> {}", *count);
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -841,5 +841,5 @@ fn rnp_get_secret_key_count(ctx: *mut RnpContext,
         }
     }).count();
     t!("-> {}", *count);
-    RNP_SUCCESS
+    rnp_success!()
 }

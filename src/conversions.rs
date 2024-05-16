@@ -391,13 +391,13 @@ impl RnpIdentifierType {
                 RnpIdentifier::UserID(id.into()),
             RnpIdentifierType::KeyID =>
                 RnpIdentifier::KeyID(
-                    rnp_try_or!(id.parse(), Err(RNP_ERROR_BAD_PARAMETERS))),
+                    global_rnp_try_or!(id.parse(), Err(RNP_ERROR_BAD_PARAMETERS))),
             RnpIdentifierType::Fingerprint =>
                 RnpIdentifier::Fingerprint(
-                    rnp_try_or!(id.parse(), Err(RNP_ERROR_BAD_PARAMETERS))),
+                    global_rnp_try_or!(id.parse(), Err(RNP_ERROR_BAD_PARAMETERS))),
             RnpIdentifierType::Keygrip =>
                 RnpIdentifier::Keygrip(
-                    rnp_try_or!(id.parse(), Err(RNP_ERROR_BAD_PARAMETERS))),
+                    global_rnp_try_or!(id.parse(), Err(RNP_ERROR_BAD_PARAMETERS))),
         })
     }
 }

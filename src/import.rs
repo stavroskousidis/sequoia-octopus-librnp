@@ -197,12 +197,12 @@ fn rnp_import_keys(ctx: *mut RnpContext,
         Ok(())
     };
 
-    if let Err(e) = f() {
+    rnp_return_status!(if let Err(e) = f() {
         warn!("rnp_import_keys: {}", e);
         RNP_ERROR_GENERIC
     } else {
         RNP_SUCCESS
-    }
+    })
 }
 
 /// Import detached signatures by adding them to the cert or key that issued them.
@@ -386,10 +386,10 @@ pub unsafe extern "C" fn rnp_import_signatures(
     };
 
 
-    if let Err(e) = f() {
+    rnp_return_status!(if let Err(e) = f() {
         warn!("rnp_import_signatures: {}", e);
         RNP_ERROR_GENERIC
     } else {
         RNP_SUCCESS
-    }
+    })
 }

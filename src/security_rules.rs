@@ -166,7 +166,7 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
         *from_out = from;
     }
     *level_out = level;
-    RNP_SUCCESS
+    rnp_success!()
 }
 
 #[no_mangle] pub unsafe extern "C"
@@ -283,5 +283,5 @@ fn rnp_add_security_rule(ctx: *mut RnpContext,
         _ => (),
     }
 
-    RNP_SUCCESS
+    rnp_success!()
 }
