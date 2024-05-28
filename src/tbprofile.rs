@@ -210,7 +210,9 @@ impl TBProfile {
             }
         }
 
-        let dirs: Vec<_> = PROFILES_INI.iter().map(PathBuf::from).chain(profile_args).flat_map(|suffix| {
+        let dirs: Vec<_> = PROFILES_INI.iter().map(PathBuf::from)
+            .flat_map(|suffix| -> Box<dyn Iterator<Item = PathBuf>>
+        {
             let mut profiles_ini = base.clone();
             profiles_ini.push(&suffix);
             profiles_ini.push("profiles.ini");
@@ -224,33 +226,35 @@ impl TBProfile {
                     } else {
                         t!("Opening {:?}: {}", profiles_ini, err);
                     }
-                    return vec![];
+                    return Box::new(std::iter::empty());
                 }
             };
 
             let mut content = String::new();
             if let Err(err) = f.read_to_string(&mut content) {
                 warn!("Reading {:?}: {}", profiles_ini, err);
-                return vec![];
+                return Box::new(std::iter::empty());
             }
 
             // Use Ini::new, all sections are keys are lowercased.
             let mut parsed = configparser::ini::Ini::new();
             if let Err(err) = parsed.read(content) {
                 warn!("Parsing {:?}: {}", profiles_ini, err);
-                return vec![];
+                return Box::new(std::iter::empty());
             }
 
-            parsed.sections()
+            let base = base.clone();
+            let prefix = prefix.clone();
+            Box::new(parsed.sections()
                 .into_iter()
-                .filter_map(|section| {
+                .filter_map(move |section| {
                     if section.starts_with("profile") {
                         parsed.get(&section, "path")
                     } else {
                         None
                     }
                 })
-                .map(|path| {
+                .map(move |path| {
                     let mut dir = PathBuf::new();
                     dir.push(&path);
 
@@ -267,7 +271,9 @@ impl TBProfile {
                     t!("Profile directory (absolute path): {:?}", dir);
 
                     dir
-                })
+                }))
+        })
+                .chain(profile_args)
                 .filter(|dir| {
                     // Make sure it exists.
                     if ! dir.is_dir() {
@@ -337,8 +343,7 @@ impl TBProfile {
                 })
                 .collect::<Vec<(PathBuf,
                                 Option<isize>,
-                                Option<SystemTime>)>>()
-        }).collect::<Vec<_>>();
+                                Option<SystemTime>)>>();
 
         // We have zero or more candidate directories.
         *tbprofile = Some(TBProfile::select_profile(dirs));
