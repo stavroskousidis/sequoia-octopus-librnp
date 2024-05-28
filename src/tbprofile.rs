@@ -41,6 +41,25 @@ const LOCK_FILE: &'static str = "parent.lock";
 #[cfg(not(windows))]
 const LOCK_FILE: &'static str = "lock";
 
+/// Like `std::env::args`, but more robust.
+///
+/// Notably, Thunderbird changes `argv`, removing ``['-profile',
+/// 'XXX']` from the arguments.  Curiously, `/proc/self/cmdline` is
+/// not affected, so we prefer that one if we can get at it.
+fn robust_args() -> Vec<String> {
+    if let Ok(mut v) = std::fs::read("/proc/self/cmdline") {
+        // Trim the final terminating zero.
+        if v.last().map(|a| *a == 0).unwrap_or(false) {
+            v.pop();
+        }
+
+        v.split(|d| *d == 0)
+            .map(|a| String::from_utf8_lossy(a).to_string())
+            .collect()
+    } else {
+        std::env::args().collect()
+    }
+}
 
 /// ThreadId is the thread initializing the TBProfile, if any.
 ///
@@ -165,12 +184,13 @@ impl TBProfile {
         base.push(&prefix);
 
         let mut profile_args = Vec::new();
+        let args = robust_args();
         t!("Considering arguments: {}",
-           std::env::args()
+           args.iter()
            .map(|a| format!("{:?}", a))
            .collect::<Vec<String>>()
            .join(" "));
-        for args in std::env::args().collect::<Vec<_>>().windows(2) {
+        for args in args.windows(2) {
             if args[0] == "-profile" {
                 t!("Found -profile argument: {:?}", args[1]);
 
