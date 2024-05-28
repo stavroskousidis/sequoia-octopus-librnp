@@ -37,7 +37,7 @@ use openpgp::{
 use openpgp::crypto::{self, SessionKey};
 use openpgp::packet::{PKESK, SKESK};
 
-use sequoia_ipc as ipc;
+use sequoia_gpg_agent::gnupg;
 
 use crate::{
     RnpContext,
@@ -996,8 +996,8 @@ impl<'a> DecryptionHelper for Helper<'a> {
             let keyid = pkesk.recipient();
             t!("trying to decrypt PKESK with recipient {}", keyid);
             if let Some((cert, key)) = self.get_public_key(keyid) {
-                let mut pair = ipc::gnupg::KeyPair::new(
-                    &ipc::gnupg::Context::new()?, key.parts_as_public())?;
+                let mut pair = gnupg::KeyPair::new(
+                    &gnupg::Context::new()?, key.parts_as_public())?;
                 if let Ok(vcert) = cert.with_policy(&*self.ctx.policy(), None) {
                     pair = pair.with_cert(&vcert);
                 }

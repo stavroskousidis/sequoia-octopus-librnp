@@ -28,6 +28,8 @@ use openpgp::{
     types::HashAlgorithm,
 };
 
+use sequoia_gpg_agent::gnupg;
+
 /// Controls tracing in this module.
 const TRACE: bool = crate::TRACE;
 
@@ -147,9 +149,8 @@ pub fn make_context() -> Result<Ctx> {
 pub fn agent_keypair(policy: &dyn Policy,
                      cert: &Option<Cert>,
                      key: &Key<PublicParts, UnspecifiedRole>)
-                     -> openpgp::Result<sequoia_ipc::gnupg::KeyPair>
+                     -> openpgp::Result<gnupg::KeyPair>
 {
-    use sequoia_ipc::gnupg;
     let agent = gnupg::Context::new()?;
     let mut s = gnupg::KeyPair::new(&agent, key)?;
     if let Some(cert) = cert.as_ref() {
