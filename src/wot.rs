@@ -338,10 +338,8 @@ impl WoT {
         t!("Trust roots (ultimate ownertrust): {:?}", roots);
 
         let policy = (*self.policy.read().unwrap()).clone();
-        let network = sequoia_wot::Network::from_cert_refs(
-            &certs, &policy, reference_time).unwrap();
-        let mut query =
-            sequoia_wot::Query::new(&network, roots);
+        let mut network = sequoia_wot::Network::from_cert_refs(
+            &certs, &policy, reference_time, roots).unwrap();
 
         // Add GnuPG intermediate trust roots to 'trust_roots'
         let mut found_one = true;
@@ -382,7 +380,7 @@ impl WoT {
                         continue;
                     }
 
-                    let authenticated_amount = query.authenticate(
+                    let authenticated_amount = network.authenticate(
                         u.userid(), r.fingerprint(), sequoia_wot::FULLY_TRUSTED)
                         .amount();
 
@@ -395,8 +393,9 @@ impl WoT {
                             r.amount());
                         found_one = true;
                         trust_roots.push(r);
-                        query = sequoia_wot::Query::new(
-                            &network, Roots::new(trust_roots.clone()));
+                        let roots = Roots::new(trust_roots.clone());
+                        network = sequoia_wot::Network::from_cert_refs(
+                            &certs, &policy, reference_time, roots).unwrap();
                         continue 'root;
                     } else {
                         t!("Non-ultimately trusted binding <{}, {}> \
@@ -421,7 +420,7 @@ impl WoT {
                     c.with_policy(&policy, reference_time).map(|vc| {
                         vc.userids().filter_map(|uid| {
                             if let Ok(s) = String::from_utf8(uid.value().to_vec()) {
-                                let paths = query.authenticate(
+                                let paths = network.authenticate(
                                     uid.userid(), &fp,
                                     sequoia_wot::FULLY_TRUSTED);
 
