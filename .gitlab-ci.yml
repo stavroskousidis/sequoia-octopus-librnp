@@ -27,7 +27,7 @@ trixie:
   tags:
     - linux
   stage: cargo_test
-  image: 192.168.122.1:5000/sequoia-pgp/build-docker-image/trixie:latest
+  image: jampot.sequoia-pgp.org/sequoia-pgp/build-docker-image/trixie:latest
   dependencies:
     - codespell
 
@@ -50,7 +50,7 @@ codespell:
   tags:
     - linux
   stage: pre-check
-  image: 192.168.122.1:5000/sequoia-pgp/build-docker-image/trixie:latest
+  image: jampot.sequoia-pgp.org/sequoia-pgp/build-docker-image/trixie:latest
 
   before_script:
     - codespell --version
@@ -65,7 +65,7 @@ deny:
   tags:
     - linux
   stage: pre-check
-  image: 192.168.122.1:5000/sequoia-pgp/build-docker-image/rust-stable:latest
+  image: jampot.sequoia-pgp.org/sequoia-pgp/build-docker-image/rust-stable:latest
   before_script:
     - cargo deny --version
   script:
@@ -77,7 +77,7 @@ windows-gnu:
     - win
     - win2019
   stage: cargo_test
-  image: 192.168.122.1:5000/sequoia-pgp/build-docker-image/windows-gnu
+  image: jampot.sequoia-pgp.org/sequoia-pgp/build-docker-image/windows-gnu
   before_script:
     - clang -v
     - rustup default stable
@@ -96,7 +96,7 @@ windows-msvc:
     - win
     - win2019
   stage: cargo_test
-  image: 192.168.122.1:5000/sequoia-pgp/build-docker-image/windows-msvc
+  image: jampot.sequoia-pgp.org/sequoia-pgp/build-docker-image/windows-msvc
   before_script:
     - rustup default stable-x86_64-pc-windows-msvc
     - rustup show
@@ -116,7 +116,7 @@ windows-msvc-32:
     - win2019
   stage: cargo_test
   image:
-    name: 192.168.122.1:5000/sequoia-pgp/build-docker-image/windows-msvc
+    name: jampot.sequoia-pgp.org/sequoia-pgp/build-docker-image/windows-msvc
     # Set up a cross compilation environment for building x86 binaries on amd64, line copied from Dockerfile.windows.msvc
     # see https://renenyffenegger.ch/notes/Windows/dirs/Program-Files-x86/Microsoft-Visual-Studio/version/edition/Common7/Tools/VsDevCmd_bat
     #
@@ -145,7 +145,7 @@ windows-msvc-release:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
   needs: ["windows-msvc", "thunderbird-tests-beta", "thunderbird-tests-esr102"]
   stage: release
-  image: 192.168.122.1:5000/sequoia-pgp/build-docker-image/windows-msvc
+  image: jampot.sequoia-pgp.org/sequoia-pgp/build-docker-image/windows-msvc
   before_script:
     - rustup default stable-x86_64-pc-windows-msvc
     - rustup show
@@ -172,7 +172,7 @@ debug-windows-msvc-release:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
   needs: ["windows-msvc", "thunderbird-tests-beta", "thunderbird-tests-esr102"]
   stage: release
-  image: 192.168.122.1:5000/sequoia-pgp/build-docker-image/windows-msvc
+  image: jampot.sequoia-pgp.org/sequoia-pgp/build-docker-image/windows-msvc
   before_script:
     - rustup default stable-x86_64-pc-windows-msvc
     - rustup show
@@ -200,7 +200,7 @@ windows-msvc-release-32:
   needs: ["windows-msvc-32", "thunderbird-tests-beta", "thunderbird-tests-esr102"]
   stage: release
   image:
-    name: 192.168.122.1:5000/sequoia-pgp/build-docker-image/windows-msvc
+    name: jampot.sequoia-pgp.org/sequoia-pgp/build-docker-image/windows-msvc
     entrypoint: ["C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat", "-arch=x86", "-host_arch=amd64", "&&", "type", "README", "&&", "powershell.exe", "-NoLogo", "-ExecutionPolicy", "Bypass"]
   before_script:
     - rustup default stable-i686-pc-windows-msvc
@@ -250,11 +250,11 @@ windows-msvc-release-32:
 
 thunderbird-tests-beta:
   extends: .thunderbird-tests
-  image: 192.168.122.1:5000/sequoia-pgp/build-thunderbird/tbbuild_beta:for_ci
+  image: jampot.sequoia-pgp.org/sequoia-pgp/build-thunderbird/tbbuild_beta:for_ci
 
 thunderbird-tests-esr102:
   extends: .thunderbird-tests
-  image: 192.168.122.1:5000/sequoia-pgp/build-thunderbird/tbbuild_esr102:for_ci
+  image: jampot.sequoia-pgp.org/sequoia-pgp/build-thunderbird/tbbuild_esr102:for_ci
 
 variables:
   DEBIAN_FRONTEND: noninteractive
