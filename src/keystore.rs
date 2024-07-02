@@ -1676,7 +1676,7 @@ mod tests {
             })?;
         }
 
-        let mut sig = builder.sign_subkey_binding(&mut pk_signer, pk, &key)?;
+        let sig = builder.sign_subkey_binding(&mut pk_signer, pk, &key)?;
 
         // Verify it.
         if let Err(err) = sig.verify_subkey_binding(pk_signer.public(), pk, &key) {

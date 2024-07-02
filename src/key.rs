@@ -1820,11 +1820,11 @@ fn rnp_key_remove_signatures(key: *mut RnpKey,
         // The primary key and related signatures.
         let pk_bundle = cert.primary_key().bundle();
         acc.push(pk_bundle.key().clone().into());
-        for s in pk_bundle.self_signatures() { acc.push(s.clone().into()); }
-        for s in pk_bundle.self_revocations()  { acc.push(s.clone().into()); }
+        for s in pk_bundle.self_signatures2() { acc.push(s.clone().into()); }
+        for s in pk_bundle.self_revocations2()  { acc.push(s.clone().into()); }
         if ! remove_non_selfsig {
-            for s in pk_bundle.other_revocations() { acc.push(s.clone().into()); }
-            for s in pk_bundle.certifications() { acc.push(s.clone().into()); }
+            for s in pk_bundle.other_revocations2() { acc.push(s.clone().into()); }
+            for s in pk_bundle.certifications2() { acc.push(s.clone().into()); }
         }
 
         // The subkeys and related signatures.
