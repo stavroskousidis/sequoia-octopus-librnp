@@ -3,3 +3,5 @@
 #+STARTUP: content hidestars
 
 * Changes in 1.10.0
+** New functionality
+   - rnp_dearmor

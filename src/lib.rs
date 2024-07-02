@@ -114,6 +114,7 @@ use userid::RnpUserID;
 pub mod import;
 pub mod security_rules;
 pub mod dump_packets;
+pub mod armor;
 
 // The gpg module is copied from OpenPGP CA.  We don't want to modify
 // it.
