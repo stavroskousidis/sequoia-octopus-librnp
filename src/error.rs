@@ -497,7 +497,7 @@ macro_rules! rnp_function {
             ( $param: expr ) => {
                 if $param.is_null() {
                     warn!("parameter {:?} is null", stringify!($param));
-                    rnp_return_status!(RNP_ERROR_NULL_POINTER);
+                    rnp_return_status!(crate::error::RNP_ERROR_NULL_POINTER);
                 }
             };
         }
@@ -548,7 +548,7 @@ macro_rules! rnp_function {
                     Err(e) => {
                         warn!("parameter {:?} is not UTF8: {}",
                               stringify!($param), e);
-                        rnp_return_status!(RNP_ERROR_BAD_PARAMETERS);
+                        rnp_return_status!(crate::error::RNP_ERROR_BAD_PARAMETERS);
                     }
                 }
             }};
@@ -570,7 +570,7 @@ macro_rules! rnp_function {
                 match $result {
                     Ok(v) => v,
                     Err(_) => {
-                        let s: RnpStatus = $fail_with;
+                        let s: crate::error::RnpStatus = $fail_with;
                         rnp_return_status!(s);
                     },
                 }
@@ -585,11 +585,11 @@ macro_rules! rnp_function {
                     if let Ok(e) = e.downcast::<crate::error::Error>() {
                         e.into()
                     } else {
-                        RNP_ERROR_GENERIC
+                        crate::error::RNP_ERROR_GENERIC
                     }
                 } else {
                     t!("Leaving function: success");
-                    RNP_SUCCESS
+                    crate::error::RNP_SUCCESS
                 })
             };
         }
