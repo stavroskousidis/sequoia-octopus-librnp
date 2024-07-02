@@ -4,7 +4,7 @@ use libc::{
     c_char
 };
 
-const CLAIMED_RNP_VERSION: [u32; 3] = [0, 17, 0];
+const CLAIMED_RNP_VERSION: [u32; 3] = [0, 17, 1];
 
 const RNP_VERSION_COMPONENT_MASK: u32 = 0x3ff;
 
