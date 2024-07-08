@@ -166,6 +166,14 @@ impl TBProfile {
         }
     }
 
+    /// Returns whether or not we find the encrypted passphrase file
+    /// for locking secret keys managed by Thunderbird.
+    pub fn has_encrypted_passphrase_txt() -> bool {
+        const NAME: &str = "encrypted-openpgp-passphrase.txt";
+
+        Self::path().map(|p| p.join(NAME).exists()).unwrap_or(false)
+    }
+
     fn find(mut tbprofile: MutexGuard<Option<TBProfile>>)
         -> openpgp::Result<Option<PathBuf>>
     {

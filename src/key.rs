@@ -61,6 +61,7 @@ use crate::{
     conversions::*,
     error::*,
     signature::ca_signatures,
+    tbprofile::TBProfile,
 };
 
 pub struct RnpKey {
@@ -465,7 +466,14 @@ fn rnp_key_have_secret(key: *const RnpKey,
     let result = assert_ptr_mut!(result);
 
     let mut has_secret = (*key).has_secret();
-    if ! has_secret {
+
+    // If there is no secret in the Thunderbird keyring, we are
+    // looking at the gpg-agent store.  However, we have to be careful
+    // to only report secret keys after Thunderbird has created their
+    // encrypted passphrase file, otherwise Thunderbird will complain
+    // about the OpenPGP state being corrupted, and disable OpenPGP
+    // support.
+    if ! has_secret && TBProfile::has_encrypted_passphrase_txt() {
         has_secret = (*(*key).ctx).certs.key_on_agent(&(*key).fingerprint());
     }
 
