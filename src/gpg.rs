@@ -658,6 +658,9 @@ fn list_keys_raw(ctx: &Ctx, secret: bool, filter: Option<String>,
             .arg("--with-colons");
         if secret {
             gpg.arg("--list-secret-keys");
+            // Skip expensive trust models, we don't use the
+            // information anyways.
+            gpg.arg("--always-trust");
         } else {
             gpg.arg("--list-keys");
         }
@@ -812,6 +815,8 @@ pub fn list_secret_keys(ctx: &Ctx, filter: Option<String>,
 {
     rnp_function!(gpg::list_secret_keys, TRACE);
 
+    // Note: when listing secret keys, we don't evaluate the trust
+    // model.
     let (res, tag) = list_keys_raw(&ctx, true, filter, if_changed)?;
     let secret_keys = list_secret_keys_parse(res)?;
 
