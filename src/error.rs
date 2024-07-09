@@ -82,7 +82,7 @@ impl RnpStatus {
     /// Returns the [`RnpResult`] suitable as return value for RNP
     /// functions.
     pub fn epilogue(&self, name: &str, args: Vec<String>) -> RnpResult {
-        if ! self.success() || call_tracing() {
+        if ! self.success() || call_tracing() || full_tracing() {
             if cfg!(debug_assertions) {
                 log!("sequoia-octopus: TRACE: {}({}) => {}",
                      name, args.join(", "), self)
@@ -603,6 +603,10 @@ macro_rules! rnp_function {
                 }
                 crate::THUNDERBIRD_WORKAROUND
             }};
+        }
+
+        if crate::error::full_tracing() {
+            t!("Entering function");
         }
     };
 }
