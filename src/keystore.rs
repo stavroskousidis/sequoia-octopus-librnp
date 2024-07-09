@@ -948,10 +948,10 @@ impl KeystoreData {
         let now = SystemTime::now();
         let elapsed = now.duration_since(self.keys_on_agent_last_refresh);
         let expired = match elapsed {
-            // If the cache is more than 10 seconds out of date,
+            // If the cache is more than 1 minute out of date,
             // refresh it.
             Ok(elapsed) => {
-                if elapsed > Duration::new(10, 0) {
+                if elapsed > Duration::new(60, 0) {
                     true
                 } else {
                     false
