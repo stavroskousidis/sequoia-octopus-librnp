@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::sync::{Arc, Condvar, Mutex, RwLock};
+use std::sync::{Arc, RwLock, mpsc};
 use std::time::Duration;
 use std::time::SystemTime;
 
@@ -27,27 +27,23 @@ use crate::tbprofile::TBProfile;
 /// Controls tracing in this module.
 const TRACE: bool = crate::TRACE;
 
+enum WoTCommand {
+    Recompute,
+}
+
 /// Handle for communication with the background thread.
 #[derive(Clone)]
 pub struct WoTWorkerHandle {
-    cond: Arc<(Mutex<bool>, Condvar)>,
+    sender: mpsc::Sender<WoTCommand>,
 }
 
 impl WoTWorkerHandle {
     /// Constructs a new handle.
-    fn new() -> Self {
-        Self {
-            cond: Arc::new((Mutex::new(false), Condvar::new())),
-        }
-    }
-
-    /// Blocks the current thread until it is notified, or the given
-    /// timeout elapsed.
-    fn wait_for(&self, timeout: Duration) {
-        let (mut notified, _) = self.cond.1.wait_timeout_while(
-            self.cond.0.lock().unwrap(), timeout,
-            |notified| ! *notified).unwrap();
-        *notified = false;
+    fn new() -> (Self, mpsc::Receiver<WoTCommand>) {
+        let (sender, receiver) = mpsc::channel();
+        (Self {
+            sender,
+        }, receiver)
     }
 
     /// Wakes the background thread to do a WoT update.
@@ -57,15 +53,13 @@ impl WoTWorkerHandle {
     /// consider doing an update again, unless the result could not
     /// possibly have changed.
     pub fn notify(&self) {
-        let mut notified = self.cond.0.lock().unwrap();
-        *notified = true;
-        self.cond.1.notify_one();
+        let _ = self.sender.send(WoTCommand::Recompute);
     }
 }
 
 pub struct WoT {
     /// Handle for communication with the background thread.
-    handle: WoTWorkerHandle,
+    receiver: mpsc::Receiver<WoTCommand>,
 
     ksd: Arc<RwLock<KeystoreData>>,
     policy: Arc<RwLock<StandardPolicy<'static>>>,
@@ -93,9 +87,9 @@ impl WoT {
                                    policy: Arc<RwLock<StandardPolicy<'static>>>)
                                    -> Result<WoTWorkerHandle>
     {
-        let handle = WoTWorkerHandle::new();
+        let (handle, receiver) = WoTWorkerHandle::new();
 
-        match Self::new(handle.clone(), ksd, policy) {
+        match Self::new(receiver, ksd, policy) {
             Ok(mut wot) => {
                 std::thread::Builder::new().name("sq wot".to_string())
                     .spawn(move || wot.background_thread())?;
@@ -109,7 +103,7 @@ impl WoT {
     // Return a locked WoTData.
     //
     // If WoT hasn't been initialized, do it now.
-    fn new(handle: WoTWorkerHandle,
+    fn new(receiver: mpsc::Receiver<WoTCommand>,
            ksd: Arc<RwLock<KeystoreData>>,
            policy: Arc<RwLock<StandardPolicy<'static>>>)
            -> Result<WoT>
@@ -198,7 +192,7 @@ impl WoT {
         tx.commit()?;
 
         Ok(WoT {
-            handle,
+            receiver,
             ksd,
             policy,
             _gpg_ctx: gpg_ctx,
@@ -208,7 +202,7 @@ impl WoT {
         })
     }
 
-    fn background_thread(&mut self) -> ! {
+    fn background_thread(&mut self) -> () {
         rnp_function!(WoT::background_thread, TRACE);
         loop {
             let now = SystemTime::now();
@@ -216,11 +210,19 @@ impl WoT {
                 .and_then(|t| t.duration_since(now).ok())
                 .unwrap_or(Duration::new(0, 0));
             t!("Blocking for {:?}", t);
-            self.handle.wait_for(t);
-
-            if let Err(e) = self.update(now) {
-                eprintln!(
-                    "sequoia-octopus: error in WoT background thread: {}", e);
+            match self.receiver.recv_timeout(t) {
+                Ok(WoTCommand::Recompute) |
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if let Err(e) = self.update(now) {
+                        global_warn!(
+                            "error in WoT background thread: {}", e);
+                    }
+                },
+                // Keystore was destroyed.
+                Err(_) => {
+                    t!("Keystore disconnected.  Time to shutdown.");
+                    return;
+                }
             }
         }
     }
