@@ -67,9 +67,10 @@ deny:
   stage: pre-check
   image: jampot.sequoia-pgp.org/sequoia-pgp/build-docker-image/rust-stable:latest
   before_script:
+    - curl -o /tmp/deny.toml "https://gitlab.com/sequoia-pgp/common-ci/-/raw/main/deny.toml"
     - cargo deny --version
   script:
-    - cargo deny --color always check
+    - cargo deny --color always check --config /tmp/deny.toml
   after_script: []
 
 windows-gnu:
