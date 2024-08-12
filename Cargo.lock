@@ -2459,7 +2459,7 @@ dependencies = [
 
 [[package]]
 name = "sequoia-octopus-librnp"
-version = "1.9.0"
+version = "1.10.0"
 dependencies = [
  "anyhow",
  "buffered-reader",
