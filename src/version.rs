@@ -21,6 +21,32 @@ pub unsafe extern "C" fn rnp_version_for(
     minor: u32,
     patch: u32,
 ) -> u32 {
+    let r = rnp_version_for_internal(major, minor, patch);
+
+    // Thunderbird invokes this function with the minimal supported
+    // version, then compares the result with the result of
+    // `rnp_version`.  If it is lower, an error message is emitted to
+    // the error console, and OpenPGP support is disabled.
+    //
+    // This error message can be hard to discover.  Do the same
+    // comparison, and emit an error message to stderr.
+    if rnp_version() < r {
+        log!("sequoia-octopus: Thunderbird requires a newer version of the Octopus.");
+        log!("sequoia-octopus: We support the API {}.{}.{}, but {}.{}.{} is required.",
+             CLAIMED_RNP_VERSION[0], CLAIMED_RNP_VERSION[1],
+             CLAIMED_RNP_VERSION[2],
+             major, minor, patch);
+        log!("sequoia-octopus: Please update, or report this issue to your distribution.");
+    }
+
+    r
+}
+
+fn rnp_version_for_internal(
+    major: u32,
+    minor: u32,
+    patch: u32,
+) -> u32 {
     (major & RNP_VERSION_COMPONENT_MASK) << RNP_VERSION_MAJOR_SHIFT
         | (minor & RNP_VERSION_COMPONENT_MASK) << RNP_VERSION_MINOR_SHIFT
         | ((patch & RNP_VERSION_COMPONENT_MASK) << RNP_VERSION_PATCH_SHIFT)
@@ -29,7 +55,7 @@ pub unsafe extern "C" fn rnp_version_for(
 #[no_mangle]
 pub unsafe extern "C" fn rnp_version(
 ) -> u32 {
-    rnp_version_for(
+    rnp_version_for_internal(
         CLAIMED_RNP_VERSION[0],
         CLAIMED_RNP_VERSION[1],
         CLAIMED_RNP_VERSION[2],
