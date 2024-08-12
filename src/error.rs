@@ -265,7 +265,9 @@ pub type Result<T> = std::result::Result<T, RnpStatus>;
 
 //#[cfg(windows)]
 pub fn log_internal<T: AsRef<str>>(text: T) {
-    let text = format!("{}: {}", chrono::offset::Utc::now(), text.as_ref());
+    let text = format!("{}: {}",
+                       chrono::offset::Utc::now().format("%T"),
+                       text.as_ref());
 
     if cfg!(windows) {
         // Save messages to a log file in the current profile's
