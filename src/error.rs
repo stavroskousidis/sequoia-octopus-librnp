@@ -496,7 +496,7 @@ macro_rules! rnp_function {
         macro_rules! assert_ptr_int {
             ( $param: expr ) => {
                 if $param.is_null() {
-                    warn!("parameter {:?} is null", stringify!($param));
+                    warn!("parameter {:?} is NULL", stringify!($param));
                     rnp_return_status!(crate::error::RNP_ERROR_NULL_POINTER);
                 }
             };
