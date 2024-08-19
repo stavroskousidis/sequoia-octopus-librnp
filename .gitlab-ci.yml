@@ -253,6 +253,10 @@ thunderbird-tests-esr102:
   extends: .thunderbird-tests
   image: jampot.sequoia-pgp.org/sequoia-pgp/build-thunderbird/tbbuild_esr102:for_ci
 
+thunderbird-tests-esr115:
+  extends: .thunderbird-tests
+  image: jampot.sequoia-pgp.org/sequoia-pgp/build-thunderbird/tbbuild_esr115:for_ci
+
 variables:
   DEBIAN_FRONTEND: noninteractive
   CARGO_HOME: $CI_PROJECT_DIR/../cargo
