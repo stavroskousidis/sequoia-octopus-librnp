@@ -996,7 +996,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
             let keyid = pkesk.recipient();
             t!("trying to decrypt PKESK with recipient {}", keyid);
             if let Some((cert, key)) = self.get_public_key(keyid) {
-                let mut pair = gnupg::KeyPair::new(
+                let mut pair = sequoia_gpg_agent::KeyPair::new_for_gnupg_context(
                     &gnupg::Context::new()?, key.parts_as_public())?;
                 if let Ok(vcert) = cert.with_policy(&*self.ctx.policy(), None) {
                     pair = pair.with_cert(&vcert);

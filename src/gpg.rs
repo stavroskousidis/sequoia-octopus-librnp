@@ -149,10 +149,10 @@ pub fn make_context() -> Result<Ctx> {
 pub fn agent_keypair(policy: &dyn Policy,
                      cert: &Option<Cert>,
                      key: &Key<PublicParts, UnspecifiedRole>)
-                     -> openpgp::Result<gnupg::KeyPair>
+                     -> openpgp::Result<sequoia_gpg_agent::KeyPair>
 {
     let agent = gnupg::Context::new()?;
-    let mut s = gnupg::KeyPair::new(&agent, key)?;
+    let mut s = sequoia_gpg_agent::KeyPair::new_for_gnupg_context(&agent, key)?;
     if let Some(cert) = cert.as_ref() {
         if let Ok(vcert) = cert.with_policy(policy, None) {
             s = s.with_cert(&vcert);
