@@ -148,7 +148,7 @@ impl<P: Policy + 'static> ParcimonieServer<P> {
     }
 
     async fn worker(&mut self) -> openpgp::Result<()> {
-        rnp_function!(Parcimonie::woker, TRACE);
+        rnp_function!(Parcimonie::worker, TRACE);
 
         let mut rng = rand::thread_rng();
 

@@ -1642,7 +1642,7 @@ mod tests {
         let mut pk_signer = pk.clone().parts_into_secret()?.into_keypair()?;
 
 
-        // Add the keys and signatues to cert.
+        // Add the keys and signatures to cert.
         let mut packets: Vec<Packet> = vec![];
 
         // If there is a valid backsig, recreate it.
