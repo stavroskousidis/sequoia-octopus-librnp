@@ -130,7 +130,7 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
             let s =
                 op.ctx.decrypt_key_for(None, key, RnpPasswordFor::Sign)?
                 .into_keypair()?;
-            let mut signer = Signer::new(message, s)
+            let mut signer = Signer::new(message, s)?
                 .hash_algo(op.hash.unwrap_or_default())?
                 .detached();
 
@@ -138,24 +138,24 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
                 let s =
                     op.ctx.decrypt_key_for(None, key, RnpPasswordFor::Sign)?
                     .into_keypair()?;
-                signer = signer.add_signer(s);
+                signer = signer.add_signer(s)?;
             }
 
             for (cert, key) in &op.agent_keys {
                 let s = gpg::agent_keypair(&*op.ctx.policy(), &cert, &key)?;
-                signer = signer.add_signer(s);
+                signer = signer.add_signer(s)?;
             }
 
             message = signer.build()?;
         } else if let Some((cert, key)) = op.agent_keys.get(0) {
             let s = gpg::agent_keypair(&*op.ctx.policy(), &cert, &key)?;
-            let mut signer = Signer::new(message, s)
+            let mut signer = Signer::new(message, s)?
                 .hash_algo(op.hash.unwrap_or_default())?
                 .detached();
 
             for (cert, key) in &op.agent_keys[1..] {
                 let s = gpg::agent_keypair(&*op.ctx.policy(), &cert, &key)?;
-                signer = signer.add_signer(s);
+                signer = signer.add_signer(s)?;
             }
 
             message = signer.build()?;
@@ -182,7 +182,7 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
             let s =
                 op.ctx.decrypt_key_for(None, key, RnpPasswordFor::Sign)?
                 .into_keypair()?;
-            let mut signer = Signer::new(message, s)
+            let mut signer = Signer::new(message, s)?
                 .hash_algo(op.hash.unwrap_or_default())?
                 .cleartext();
 
@@ -190,24 +190,24 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
                 let s =
                     op.ctx.decrypt_key_for(None, key, RnpPasswordFor::Sign)?
                     .into_keypair()?;
-                signer = signer.add_signer(s);
+                signer = signer.add_signer(s)?;
             }
 
             for (cert, key) in &op.agent_keys {
                 let s = gpg::agent_keypair(&*op.ctx.policy(), &cert, &key)?;
-                signer = signer.add_signer(s);
+                signer = signer.add_signer(s)?;
             }
 
             message = signer.build()?;
         } else if let Some((cert, key)) = op.agent_keys.get(0) {
             let s = gpg::agent_keypair(&*op.ctx.policy(), &cert, &key)?;
-            let mut signer = Signer::new(message, s)
+            let mut signer = Signer::new(message, s)?
                 .hash_algo(op.hash.unwrap_or_default())?
                 .cleartext();
 
             for (cert, key) in &op.agent_keys[1..] {
                 let s = gpg::agent_keypair(&*op.ctx.policy(), &cert, &key)?;
-                signer = signer.add_signer(s);
+                signer = signer.add_signer(s)?;
             }
 
             message = signer.build()?;

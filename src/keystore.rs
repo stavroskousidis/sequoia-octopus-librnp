@@ -1117,7 +1117,7 @@ impl KeystoreData {
 
         let fp = cert.fingerprint();
         let id = KeyID::from(&fp);
-        let grip = Keygrip::of(cert.primary_key().mpis()).ok();
+        let grip = Keygrip::of(cert.primary_key().key().mpis()).ok();
 
         t!("Inserting {}, {:?} (external: {})",
            fp, cert.userids().nth(0).map(|ua| ua.userid()), is_external);
@@ -1145,7 +1145,7 @@ impl KeystoreData {
                 // only those packets that are either secret keys or
                 // public ones that are not in `cert_ref`.
                 let known_keys: HashSet<Fingerprint> =
-                    cert_ref.keys().map(|k| k.fingerprint()).collect();
+                    cert_ref.keys().map(|k| k.key().fingerprint()).collect();
                 let cert_update = cert_ref.clone()
                     .insert_packets(cert.into_tsk().into_packets()
                                     .filter(|p| match p {
@@ -1158,7 +1158,7 @@ impl KeystoreData {
                         // Insert everything else, including secret keys.
                         _ => true,
                     }))
-                    .expect("does not fail if the primary keys are equal");
+                    .expect("does not fail if the primary keys are equal").0;
 
                 if cert_ref.as_tsk() == cert_update.as_tsk() {
                     // They are identical.  There is nothing to do.
@@ -1242,21 +1242,21 @@ impl KeystoreData {
                     });
                 }
 
-                t!("Adding subkey fingerprint mapping for {}", sk.fingerprint());
-                self.by_subkey_fp.entry(sk.fingerprint())
+                t!("Adding subkey fingerprint mapping for {}", sk.key().fingerprint());
+                self.by_subkey_fp.entry(sk.key().fingerprint())
                     .and_modify(|v| add!(v, ()))
                     .or_insert(vec![ MapEntry::new(&cert_cell) ]);
 
-                t!("Adding subkey keyid mapping for {}", sk.keyid());
-                self.by_subkey_id.entry(sk.keyid())
+                t!("Adding subkey keyid mapping for {}", sk.key().keyid());
+                self.by_subkey_id.entry(sk.key().keyid())
                     .and_modify(|v| add!(v, ()))
                     .or_insert(vec![ MapEntry::new(&cert_cell) ]);
 
-                if let Ok(g) = Keygrip::of(sk.mpis()) {
+                if let Ok(g) = Keygrip::of(sk.key().mpis()) {
                     t!("Adding subkey keygrip mapping for {}", g);
                     self.by_subkey_grip.entry(g)
-                        .and_modify(|v| add!(v, sk.fingerprint()))
-                        .or_insert(vec![ MapEntry::new2(&cert_cell, sk.fingerprint()) ]);
+                        .and_modify(|v| add!(v, sk.key().fingerprint()))
+                        .or_insert(vec![ MapEntry::new2(&cert_cell, sk.key().fingerprint()) ]);
                 }
             }
         }
@@ -1314,15 +1314,15 @@ impl KeystoreData {
 
             // Remove other primary key indices.
             remove!(fp, self.by_primary_id.entry(KeyID::from(fp)));
-            if let Ok(g) = Keygrip::of(e.cert().primary_key().mpis()) {
+            if let Ok(g) = Keygrip::of(e.cert().primary_key().key().mpis()) {
                 remove!(fp, self.by_primary_grip.entry(g));
             }
 
             // And remove any subkey indices.
             for sk in e.cert().keys().subkeys() {
-                remove!(fp, self.by_subkey_fp.entry(sk.fingerprint()));
-                remove!(fp, self.by_subkey_id.entry(sk.keyid()));
-                if let Ok(g) = Keygrip::of(sk.mpis()) {
+                remove!(fp, self.by_subkey_fp.entry(sk.key().fingerprint()));
+                remove!(fp, self.by_subkey_id.entry(sk.key().keyid()));
+                if let Ok(g) = Keygrip::of(sk.key().mpis()) {
                     remove!(fp, self.by_subkey_grip.entry(g));
                 }
             }
@@ -1337,12 +1337,12 @@ impl KeystoreData {
                 // Strip the subkey.
                 let mut had_one = false;
                 *cert = cert.clone().retain_subkeys(|ska| {
-                    if ska.fingerprint() == *fp {
+                    if ska.key().fingerprint() == *fp {
                         had_one = true;
                         removed_one = true;
 
-                        remove!(&cert_fp, self.by_subkey_id.entry(ska.keyid()));
-                        if let Ok(g) = Keygrip::of(ska.mpis()) {
+                        remove!(&cert_fp, self.by_subkey_id.entry(ska.key().keyid()));
+                        if let Ok(g) = Keygrip::of(ska.key().mpis()) {
                             remove!(&cert_fp, self.by_subkey_grip.entry(g));
                         }
 
@@ -1420,7 +1420,6 @@ mod tests {
 
     use anyhow::Context;
 
-    use openpgp::cert::prelude::*;
     use openpgp::policy::StandardPolicy;
     use openpgp::types::SignatureType;
     use openpgp::packet::signature::subpacket::SubpacketTag;
@@ -1465,11 +1464,11 @@ mod tests {
     // either as primary keys (the first bool) or as subkeys (the
     // second bool).
     fn ks_contains(ks: &KeystoreData,
-                   checks: &[(&ErasedKeyAmalgamation<key::PublicParts>,
+                   checks: &[(&Key<key::PublicParts, key::UnspecifiedRole>,
                               bool, bool)])
     {
-        for (ka, as_primary, as_sub) in checks.iter() {
-            let fpr = ka.fingerprint();
+        for (key, as_primary, as_sub) in checks.iter() {
+            let fpr = key.fingerprint();
             match ks.by_primary_fp(&fpr) {
                 Some(_) if *as_primary => (),
                 Some(_) =>
@@ -1482,7 +1481,7 @@ mod tests {
             }
 
             if ks.by_subkey_fp(&fpr)
-                .any(|c| c.keys().any(|ka| ka.fingerprint() == fpr))
+                .any(|c| c.keys().any(|ka| ka.key().fingerprint() == fpr))
             {
                 if ! *as_sub {
                     panic!("{} found in by_subkey_fp, expected nothing\n{:?}",
@@ -1496,7 +1495,7 @@ mod tests {
             }
 
             // By keyid.
-            let keyid = ka.keyid();
+            let keyid = key.keyid();
             if ks.by_primary_id(&keyid).any(|c| c.fingerprint() == fpr)
             {
                 if ! *as_primary {
@@ -1511,7 +1510,7 @@ mod tests {
             }
 
             if ks.by_subkey_id(&keyid)
-                .any(|c| c.keys().any(|ka| ka.keyid() == keyid))
+                .any(|c| c.keys().any(|ka| ka.key().keyid() == keyid))
             {
                 if ! *as_sub {
                     panic!("{} found in by_subkey_id, expected nothing\n{:?}",
@@ -1525,7 +1524,7 @@ mod tests {
             }
 
             // By grip.
-            if let Ok(grip) = Keygrip::of(ka.mpis()) {
+            if let Ok(grip) = Keygrip::of(key.mpis()) {
                 if ks.by_primary_grip(&grip).any(|c| c.fingerprint() == fpr)
                 {
                     if ! *as_primary {
@@ -1540,7 +1539,7 @@ mod tests {
                 }
 
                 if ks.by_subkey_grip(&grip)
-                    .any(|c| c.keys().any(|ka| ka.keyid() == keyid))
+                    .any(|c| c.keys().any(|ka| ka.key().keyid() == keyid))
                 {
                     if ! *as_sub {
                         panic!("Found {} in by_subkey_grip, expected nothing\n{:?}",
@@ -1559,10 +1558,10 @@ mod tests {
     // Asserts that a key does not appear in the key store, either in
     // the indices or in any of the certificates.
     fn ks_is_missing(ks: &KeystoreData,
-                     ka: &ErasedKeyAmalgamation<key::PublicParts>)
+                     key: &Key<key::PublicParts, key::UnspecifiedRole>)
     {
         // First check the maps.
-        ks_contains(ks, &[ (&ka, false, false) ]);
+        ks_contains(ks, &[ (key, false, false) ]);
 
         // Now iterate over everything and make sure it is really gone.
         for (table, cert) in
@@ -1587,11 +1586,11 @@ mod tests {
                 }))
         {
             for k in cert.keys() {
-                assert!(k.fingerprint() != ka.fingerprint(),
+                assert!(k.key().fingerprint() != key.fingerprint(),
                         "{}: {} still exists in {}, {:?}\n{:?}",
                         table,
-                        ka.fingerprint(),
-                        k.fingerprint(),
+                        key.fingerprint(),
+                        k.key().fingerprint(),
                         cert.with_policy(&StandardPolicy::new(), None)
                             .map(|cert| {
                                 cert.primary_userid()
@@ -1658,7 +1657,7 @@ mod tests {
             let backsig = builder.embedded_signatures()
                 .filter(|backsig| {
                     (*backsig).clone().verify_primary_key_binding(
-                        &cert.primary_key(),
+                        cert.primary_key().key(),
                         &key).is_ok()
                 })
                 .nth(0)
@@ -1686,7 +1685,7 @@ mod tests {
         packets.push(key.clone().into());
         packets.push(sig.into());
 
-        let cert = cert.clone().insert_packets(packets.clone())?;
+        let cert = cert.clone().insert_packets(packets.clone())?.0;
 
         Ok(cert)
     }
@@ -1699,24 +1698,24 @@ mod tests {
 
         // Generate a key and insert it.
         let (alice, revocation) = openpgp::cert::CertBuilder::general_purpose(
-            None, Some("alice")).generate()?;
+            Some("alice")).generate()?;
         ks.insert(alice.clone());
 
         let n_subkeys = alice.keys().subkeys().count();
         ks_count(&ks, 1, n_subkeys, false);
         ks_contains(&ks, &[
-            (&alice.primary_key().into(), true, false)
+            (&alice.primary_key().key().role_as_unspecified(), true, false)
         ]);
         for sk in alice.keys().subkeys() {
             // Try lookups.
             ks_contains(&ks, &[
-                (&sk.into(), false, true)
+                (&sk.key().role_as_unspecified(), false, true)
             ]);
         }
 
         // Now, remove one subkey.
-        let removed_sk: ErasedKeyAmalgamation<key::PublicParts>
-            = alice.keys().subkeys().nth(0).unwrap().into();
+        let removed_sk: &Key<key::PublicParts, key::UnspecifiedRole>
+            = alice.keys().subkeys().nth(0).unwrap().key().role_as_unspecified();
         let fp = removed_sk.fingerprint();
         let r = ks.remove_all(&fp);
         assert!(r);
@@ -1725,16 +1724,16 @@ mod tests {
 
         // Remove the subkey from our copy of Alice's cert, and redo
         // all the lookups.
-        let alice = alice.retain_subkeys(|sk| sk.fingerprint() != fp);
+        let alice = alice.retain_subkeys(|sk| sk.key().fingerprint() != fp);
         let n_subkeys = alice.keys().subkeys().count();
         ks_count(&ks, 1, n_subkeys, false);
         ks_contains(&ks, &[
-            (&alice.primary_key().into(), true, false)
+            (&alice.primary_key().key().role_as_unspecified(), true, false)
         ]);
         for sk in alice.keys().subkeys() {
             // Try lookups.
             ks_contains(&ks, &[
-                (&sk.into(), false, true)
+                (&sk.key().role_as_unspecified(), false, true)
             ]);
         }
 
@@ -1743,14 +1742,14 @@ mod tests {
             let cell =
                 ks.cert_cell_by_primary_fp(&alice.fingerprint()).unwrap();
             let mut cert = cell.write().unwrap();
-            *cert = cert.clone().insert_packets(Some(revocation))?;
+            *cert = cert.clone().insert_packets(Some(revocation))?.0;
         }
         use openpgp::types::RevocationStatus;
         let p = &openpgp::policy::StandardPolicy::new();
 
         let fp = alice.fingerprint();
         let id = KeyID::from(&fp);
-        let grip = Keygrip::of(alice.primary_key().mpis())?;
+        let grip = Keygrip::of(alice.primary_key().key().mpis())?;
         assert!(matches!(
             ks.by_primary_fp(&fp).unwrap().revocation_status(p, None),
             RevocationStatus::Revoked(_)));
@@ -1761,13 +1760,13 @@ mod tests {
             ks.by_primary_grip(&grip).nth(0).unwrap().revocation_status(p, None),
             RevocationStatus::Revoked(_)));
         ks_contains(&ks, &[
-            (&alice.primary_key().into(), true, false)
+            (&alice.primary_key().key().role_as_unspecified(), true, false)
         ]);
 
         for sk in alice.keys().subkeys() {
-            let fp = sk.fingerprint();
+            let fp = sk.key().fingerprint();
             let id = KeyID::from(&fp);
-            let grip = Keygrip::of(sk.mpis())?;
+            let grip = Keygrip::of(sk.key().mpis())?;
 
             assert!(ks.by_primary_fp(&fp).is_none());
             assert_eq!(ks.by_primary_id(&id).count(), 0);
@@ -1783,7 +1782,7 @@ mod tests {
                 RevocationStatus::Revoked(_)));
 
             ks_contains(&ks, &[
-                (&sk.into(), false, true)
+                (&sk.key().role_as_unspecified(), false, true)
             ]);
         }
 
@@ -1820,12 +1819,12 @@ mod tests {
             let mut added: Vec<Fingerprint> = Vec::new();
             for i in 0..alice.keys().subkeys().count() {
                 let subset = alice.clone().retain_subkeys(|sk| {
-                    if added.iter().any(|fpr| fpr == &sk.fingerprint()) {
+                    if added.iter().any(|fpr| fpr == &sk.key().fingerprint()) {
                         // Already present.  Ignore it.
                         false
                     } else if added.len() < i {
                         // Add it.
-                        added.push(sk.fingerprint());
+                        added.push(sk.key().fingerprint());
                         true
                     } else {
                         // We have enough.
@@ -1846,14 +1845,14 @@ mod tests {
                 // Make sure it was merged correctly.
                 ks_count(&ks, 1, i, false);
 
-                ks_contains(&ks, &[(&alice.primary_key().into(), true, false)]);
+                ks_contains(&ks, &[(&alice.primary_key().key().role_as_unspecified(), true, false)]);
                 for sk in alice.keys().subkeys() {
-                    if added.iter().any(|fpr| fpr == &sk.fingerprint()) {
+                    if added.iter().any(|fpr| fpr == &sk.key().fingerprint()) {
                         // Should have been added.
-                        ks_contains(&ks, &[(&sk.into(), false, true)]);
+                        ks_contains(&ks, &[(&sk.key().role_as_unspecified(), false, true)]);
                     } else {
                         // Hasn't been added yet.
-                        ks_contains(&ks, &[(&sk.into(), false, false)]);
+                        ks_contains(&ks, &[(&sk.key().role_as_unspecified(), false, false)]);
                     }
                 }
             }
@@ -1880,22 +1879,22 @@ mod tests {
 
         // Generate the keys.
         let (alice, _) = openpgp::cert::CertBuilder::general_purpose(
-            None, Some("alice")).generate()?;
+            Some("alice")).generate()?;
 
         let (bob, _) = openpgp::cert::CertBuilder::new()
             .add_userid("bob")
             .add_signing_subkey()
             .generate()?;
 
-        let alice_pk = alice.primary_key().into();
+        let alice_pk = alice.primary_key().key().role_as_unspecified();
         let alice_enc = alice.with_policy(p, None)?
             .keys().subkeys().for_transport_encryption().nth(0)
             .expect("encryption-capable subkey");
         let alice_signing = alice.with_policy(p, None)?
             .keys().subkeys().for_signing().nth(0)
             .expect("signing-capable subkey")
-            .into_key_amalgamation()
-            .into();
+            .amalgamation()
+            .key().role_as_unspecified();
 
         // Add Alice's encryption capable subkey to Bob's certificate.
         let key = alice_enc.key().clone();
@@ -1904,22 +1903,22 @@ mod tests {
                             .parts_into_secret()
                             .expect("secret key material"),
                         alice_enc.binding_signature())?;
-        let common: ErasedKeyAmalgamation<key::PublicParts>
-            = alice_enc.into_key_amalgamation().into();
+        let common: &Key<key::PublicParts, key::UnspecifiedRole>
+            = alice_enc.key().role_as_unspecified();
 
-        let bob_pk = bob.primary_key().into();
-        let bob_enc: ErasedKeyAmalgamation<key::PublicParts>
+        let bob_pk = bob.primary_key().key().role_as_unspecified();
+        let bob_enc: &Key<key::PublicParts, key::UnspecifiedRole>
             = bob.with_policy(p, None)?
             .keys().subkeys().for_transport_encryption().nth(0)
             .expect("encryption-capable subkey")
-            .into_key_amalgamation()
-            .into();
+            .amalgamation()
+            .key().role_as_unspecified();
         assert_eq!(common.fingerprint(), bob_enc.fingerprint());
         let bob_signing = bob.with_policy(p, None)?
             .keys().subkeys().for_signing().nth(0)
             .expect("encryption-capable subkey")
-            .into_key_amalgamation()
-            .into();
+            .amalgamation()
+            .key().role_as_unspecified();
 
         ks.insert(alice.clone());
         assert_eq!(ks.by_subkey_fp(&common.fingerprint()).count(), 1);
@@ -1966,9 +1965,9 @@ mod tests {
         ]);
 
         assert!(! ks.by_primary_fp(&alice.fingerprint()).unwrap()
-            .keys().any(|ka| ka.fingerprint() == common.fingerprint()));
+            .keys().any(|ka| ka.key().fingerprint() == common.fingerprint()));
         assert!(! ks.by_primary_fp(&bob.fingerprint()).unwrap()
-            .keys().any(|ka| ka.fingerprint() == common.fingerprint()));
+            .keys().any(|ka| ka.key().fingerprint() == common.fingerprint()));
 
         // Finally, remove the cert.
         let r = ks.remove_all(&alice.fingerprint());
@@ -2035,7 +2034,7 @@ mod tests {
         // Generate the keys.
         let t = std::time::SystemTime::now() - std::time::Duration::new(10, 0);
         let (alice, _) = openpgp::cert::CertBuilder::general_purpose(
-            None, Some("alice"))
+            Some("alice"))
             .set_creation_time(t)
             .generate()?;
 
@@ -2045,15 +2044,15 @@ mod tests {
             .set_creation_time(t)
             .generate()?;
 
-        let alice_pk = alice.primary_key().into();
+        let alice_pk = alice.primary_key().key().role_as_unspecified();
         let alice_enc = alice.with_policy(p, None)?
             .keys().subkeys().for_transport_encryption().nth(0)
             .expect("encryption-capable subkey");
         let alice_signing = alice.with_policy(p, None)?
             .keys().subkeys().for_signing().nth(0)
             .expect("signing-capable subkey")
-            .into_key_amalgamation()
-            .into();
+            .amalgamation()
+            .key().role_as_unspecified();
 
         // Add the encryption subkey to Bob's key.  Change the
         // creation time so that it has the same grip, but a different
@@ -2067,21 +2066,21 @@ mod tests {
                             .parts_into_secret()
                             .expect("secret key material"),
                         alice_enc.binding_signature())?;
-        let alice_enc: ErasedKeyAmalgamation<key::PublicParts>
-            = alice_enc.into_key_amalgamation().into();
+        let alice_enc: &Key<key::PublicParts, key::UnspecifiedRole>
+            = alice_enc.amalgamation().key().role_as_unspecified();
 
-        let bob_pk = bob.primary_key().into();
-        let bob_enc: ErasedKeyAmalgamation<key::PublicParts>
+        let bob_pk = bob.primary_key().key().role_as_unspecified();
+        let bob_enc: &Key<key::PublicParts, key::UnspecifiedRole>
             = bob.with_policy(p, None)?
             .keys().subkeys().for_transport_encryption().nth(0)
             .expect("encryption-capable subkey")
-            .into_key_amalgamation()
-            .into();
+            .amalgamation()
+            .key().role_as_unspecified();
         let bob_signing = bob.with_policy(p, None)?
             .keys().subkeys().for_signing().nth(0)
             .expect("encryption-capable subkey")
-            .into_key_amalgamation()
-            .into();
+            .amalgamation()
+            .key().role_as_unspecified();
 
         let common_grip = Keygrip::of(alice_enc.mpis()).unwrap();
         assert_eq!(common_grip,
@@ -2137,9 +2136,9 @@ mod tests {
         ]);
 
         assert!(! ks.by_primary_fp(&alice.fingerprint()).unwrap()
-            .keys().any(|ka| Keygrip::of(ka.mpis()).unwrap() == common_grip));
+            .keys().any(|ka| Keygrip::of(ka.key().mpis()).unwrap() == common_grip));
         assert!(! ks.by_primary_fp(&bob.fingerprint()).unwrap()
-            .keys().any(|ka| Keygrip::of(ka.mpis()).unwrap() == common_grip));
+            .keys().any(|ka| Keygrip::of(ka.key().mpis()).unwrap() == common_grip));
 
         // Finally, remove the cert.
         let r = ks.remove_all(&alice.fingerprint());
@@ -2211,7 +2210,7 @@ mod tests {
             .set_creation_time(t)
             .generate()?;
 
-        let alice_pk = alice.primary_key().into();
+        let alice_pk = alice.primary_key().key().role_as_unspecified();
         let alice_signing = alice.with_policy(p, None)?
             .keys().subkeys().for_signing().nth(0)
             .expect("signing-capable subkey");
@@ -2222,7 +2221,7 @@ mod tests {
         ks_count(&ks, 1, 1, false);
         ks_contains(&ks, &[
             (&alice_pk, true, false),
-            (&alice_signing.clone().into_key_amalgamation().into(), false, true),
+            (&alice_signing.clone().amalgamation().key().role_as_unspecified(), false, true),
         ]);
 
         // Create a second subkey with the same grip.
@@ -2236,11 +2235,11 @@ mod tests {
                               .parts_into_secret()
                               .expect("secret key material"),
                           &template)?;
-        let alice_pk = alice.primary_key().into();
-        let alice_signing: ErasedKeyAmalgamation<key::PublicParts>
-            = alice.keys().subkeys().nth(0).unwrap().into();
-        let alice_signing2: ErasedKeyAmalgamation<key::PublicParts>
-            = alice.keys().subkeys().nth(1).unwrap().into();
+        let alice_pk = alice.primary_key().key().role_as_unspecified();
+        let alice_signing: &Key<key::PublicParts, key::UnspecifiedRole>
+            = alice.keys().subkeys().nth(0).unwrap().key().role_as_unspecified();
+        let alice_signing2: &Key<key::PublicParts, key::UnspecifiedRole>
+            = alice.keys().subkeys().nth(1).unwrap().key().role_as_unspecified();
 
         let common_grip = Keygrip::of(alice_signing.mpis()).unwrap();
         assert_eq!(common_grip,
@@ -2313,7 +2312,7 @@ mod tests {
     #[test]
     fn key_cert_secrets_preserved() -> openpgp::Result<()> {
         let (key, _) =
-            openpgp::cert::CertBuilder::general_purpose(None, Some("Hanna")).generate()?;
+            openpgp::cert::CertBuilder::general_purpose(Some("Hanna")).generate()?;
         let fp = key.fingerprint();
         let a = key.clone();
         let b = key.strip_secret_key_material();
@@ -2330,7 +2329,7 @@ mod tests {
 
             let k = ks.by_primary_fp(&fp).unwrap();
             assert!(k.is_tsk());
-            assert!(k.primary_key().has_unencrypted_secret());
+            assert!(k.primary_key().key().has_unencrypted_secret());
             assert_eq!(k.keys().unencrypted_secret().count(),
                        k.keys().count());
         }

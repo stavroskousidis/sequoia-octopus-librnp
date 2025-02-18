@@ -265,7 +265,7 @@ fn rnp_locate_key(ctx: *mut RnpContext,
             Fingerprint(fp) => cert.keys().key_handle(fp)
                 .nth(0).expect("must exist in cert").key().clone(),
             Keygrip(grip) => cert.keys().filter(|k| {
-                crate::Keygrip::of(k.mpis()).map(|g| g == grip).unwrap_or(false)
+                crate::Keygrip::of(k.key().mpis()).map(|g| g == grip).unwrap_or(false)
             })
                 .nth(0).expect("must exist in cert").key().clone(),
         }.parts_into_unspecified();
@@ -432,7 +432,7 @@ fn rnp_key_get_primary_grip(key: *mut RnpKey,
     let grip = assert_ptr_mut!(grip);
 
     rnp_return_status!(if let Some(cert) = (*key).cert() {
-        if let Ok(keygrip) = Keygrip::of(cert.primary_key().mpis()) {
+        if let Ok(keygrip) = Keygrip::of(cert.primary_key().key().mpis()) {
             *grip = str_to_rnp_buffer(keygrip.to_string());
             RNP_SUCCESS
         } else {
@@ -573,7 +573,7 @@ fn rnp_key_get_primary_uid(key: *mut RnpKey,
                   .or_else(|| c.with_policy(crate::NP, None).ok()))
     {
         if let Ok(u) = cert.primary_userid() {
-            *uid = c_str_to_rnp_buffer_lossy(u.value());
+            *uid = c_str_to_rnp_buffer_lossy(u.userid().value());
             RNP_SUCCESS
         } else {
             RNP_ERROR_GENERIC
@@ -596,7 +596,7 @@ fn rnp_key_get_uid_at(key: *mut RnpKey,
 
     rnp_return_status!(if let Some(cert) = (*key).cert() {
         if let Some(u) = cert.userids().nth(idx) {
-            if let Some(ptr) = c_str_to_rnp_buffer(u.value()) {
+            if let Some(ptr) = c_str_to_rnp_buffer(u.userid().value()) {
                 *uid = ptr;
                 RNP_SUCCESS
             } else {
@@ -716,7 +716,7 @@ fn rnp_key_get_signature_at(key: *mut RnpKey,
     rnp_return_status!(if let Some(cert) = key.try_cert() {
         if let Some(subkey) = cert.keys().key_handle(key.fingerprint()).next() {
             if let Some((s, valid)) =
-                ca_signatures(subkey.component_amalgamation()).nth(idx)
+                ca_signatures(subkey.signatures()).nth(idx)
             {
                 *sig = Box::into_raw(Box::new(
                     RnpSignature::new(key.ctx, s.clone(), valid)));
@@ -742,7 +742,7 @@ fn rnp_key_get_signature_count(key: *mut RnpKey,
 
     rnp_return_status!(if let Some(cert) = key.try_cert() {
         if let Some(subkey) = cert.keys().key_handle(key.fingerprint()).next() {
-            *count = ca_signatures(subkey.component_amalgamation()).count();
+            *count = ca_signatures(subkey.signatures()).count();
             RNP_SUCCESS
         } else {
             RNP_ERROR_NO_SUITABLE_KEY
@@ -844,7 +844,7 @@ fn rnp_key_export_autocrypt(key: *mut RnpKey,
     {
         // Attempt to parse the given user id into only the email.
         let parsed_uid = UserID::from(uid.to_string());
-        let addr = parsed_uid.email2().ok().and_then(|e| e)
+        let addr = parsed_uid.email().ok().and_then(|e| e)
         // But fall back to whatever we got.
             .unwrap_or(uid);
 
@@ -954,7 +954,7 @@ fn rnp_key_export(key: *mut RnpKey,
         cert = cert.retain_subkeys(|_| false);
     } else if is_subkey {
         let subkey = key.fingerprint();
-        cert = cert.retain_subkeys(|ska| ska.fingerprint() == subkey);
+        cert = cert.retain_subkeys(|ska| ska.key().fingerprint() == subkey);
     }
 
     fn f(cert: Cert, armored: bool, export_secret: bool, sink: &mut RnpOutput)
@@ -1167,7 +1167,7 @@ fn rnp_key_protect(rnp_key: *mut RnpKey,
                     key.role_into_subordinate().into()
                 };
 
-            *cert = cert.clone().insert_packets(Some(key))?;
+            *cert = cert.clone().insert_packets(Some(key))?.0;
             Ok(())
         } else {
             Err(anyhow::anyhow!("Key for {:X} not found in keyring",
@@ -1234,7 +1234,7 @@ fn rnp_key_unprotect(rnp_key: *mut RnpKey,
                     key.role_into_subordinate().into()
                 };
 
-            *cert = cert.clone().insert_packets(Some(key))?;
+            *cert = cert.clone().insert_packets(Some(key))?.0;
             Ok(())
         } else {
             Err(anyhow::anyhow!("Key for {:X} not found in keyring",
@@ -1372,7 +1372,7 @@ fn rnp_key_revoke(key: *mut RnpKey,
         rnp_return_status!(RNP_ERROR_NO_SUITABLE_KEY);
     };
 
-    if ! cert.primary_key().has_secret() {
+    if ! cert.primary_key().key().has_secret() {
         warn!("rnp_key_export_revocation: creating third-party revocation \
                not implemented");
         rnp_return_status!(RNP_ERROR_NOT_IMPLEMENTED);
@@ -1416,7 +1416,7 @@ fn rnp_key_revoke(key: *mut RnpKey,
         };
 
         // Merge the revocation into the store.
-        ctx.certs.write().insert(cert.insert_packets(Some(sig))?);
+        ctx.certs.write().insert(cert.insert_packets(Some(sig))?.0);
         Ok(())
     }
 
@@ -1523,7 +1523,7 @@ fn rnp_key_set_expiration(key: *mut RnpKey,
         };
 
         // Merge the updated cert into the store.
-        ctx.certs.write().insert(cert.insert_packets(sigs)?);
+        ctx.certs.write().insert(cert.insert_packets(sigs)?.0);
         Ok(())
     }
 
@@ -1766,7 +1766,7 @@ fn rnp_key_25519_bits_tweak(key: *mut RnpKey)
             };
 
         *cert = rnp_try_or!(cert.clone().insert_packets(Some(key)),
-                            RNP_ERROR_GENERIC);
+                            RNP_ERROR_GENERIC).0;
         rnp_success!()
     } else {
         warn!("Key for {:X} not found in keyring", k.fingerprint());
@@ -1828,11 +1828,11 @@ fn rnp_key_remove_signatures(key: *mut RnpKey,
         // The primary key and related signatures.
         let pk_bundle = cert.primary_key().bundle();
         acc.push(pk_bundle.key().clone().into());
-        for s in pk_bundle.self_signatures2() { acc.push(s.clone().into()); }
-        for s in pk_bundle.self_revocations2()  { acc.push(s.clone().into()); }
+        for s in pk_bundle.self_signatures() { acc.push(s.clone().into()); }
+        for s in pk_bundle.self_revocations()  { acc.push(s.clone().into()); }
         if ! remove_non_selfsig {
-            for s in pk_bundle.other_revocations2() { acc.push(s.clone().into()); }
-            for s in pk_bundle.certifications2() { acc.push(s.clone().into()); }
+            for s in pk_bundle.other_revocations() { acc.push(s.clone().into()); }
+            for s in pk_bundle.certifications() { acc.push(s.clone().into()); }
         }
 
         // The subkeys and related signatures.
@@ -1851,7 +1851,7 @@ fn rnp_key_remove_signatures(key: *mut RnpKey,
             acc.push(uidb.userid().clone().into());
             for s in uidb.self_signatures()   { acc.push(s.clone().into()); }
             for s in uidb.self_revocations()  { acc.push(s.clone().into()); }
-            for s in uidb.attestations()      { acc.push(s.clone().into()); }
+            for s in uidb.approvals()         { acc.push(s.clone().into()); }
             if ! remove_non_selfsig {
                 for s in uidb.other_revocations() { acc.push(s.clone().into()); }
                 for s in uidb.certifications() { acc.push(s.clone().into()); }
@@ -1863,7 +1863,7 @@ fn rnp_key_remove_signatures(key: *mut RnpKey,
             acc.push(uab.user_attribute().clone().into());
             for s in uab.self_signatures()   { acc.push(s.clone().into()); }
             for s in uab.self_revocations()  { acc.push(s.clone().into()); }
-            for s in uab.attestations()      { acc.push(s.clone().into()); }
+            for s in uab.approvals()         { acc.push(s.clone().into()); }
             if ! remove_non_selfsig {
                 for s in uab.other_revocations() { acc.push(s.clone().into()); }
                 for s in uab.certifications() { acc.push(s.clone().into()); }
@@ -1942,7 +1942,7 @@ mod tests {
                 let r = unsafe {
                     rnp_locate_key(ctx,
                                    b"fingerprint\x00".as_ptr() as *const c_char,
-                                   CString::new(k.fingerprint().to_string())
+                                   CString::new(k.key().fingerprint().to_string())
                                    .unwrap().into_raw() as *const c_char,
                                    &mut key as *mut *mut _)
                 };
@@ -1954,7 +1954,7 @@ mod tests {
                         return Err(anyhow::anyhow!("Failed to change password"));
                     }
                     log!("After unprotecting {} with {}",
-                         k.fingerprint(), old.unwrap());
+                         k.key().fingerprint(), old.unwrap());
                     crate::cert_dump(
                         &unsafe { &mut *ctx }
                             .certs.read()
@@ -1971,7 +1971,7 @@ mod tests {
                     };
                     assert_eq!(r, RNP_SUCCESS);
                     log!("After protecting {} with {}",
-                         k.fingerprint(), new.unwrap());
+                         k.key().fingerprint(), new.unwrap());
                     crate::cert_dump(
                         &unsafe { &mut *ctx }
                             .certs.read()
@@ -2324,7 +2324,7 @@ Pnn+We1aTBhaGa86AQ==
             log!("ctx: keystore: {:?}", unsafe { &mut *ctx }.certs);
 
             for (i, key) in alice.keys().enumerate() {
-                eprintln!("{}. {}...", i, key.fingerprint());
+                eprintln!("{}. {}...", i, key.key().fingerprint());
                 let key = key.key().clone();
                 let key = if strip_secrets {
                     key.take_secret().0

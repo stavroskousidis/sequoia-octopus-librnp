@@ -299,7 +299,7 @@ pub unsafe extern "C" fn rnp_import_signatures(
                         ) -> openpgp::Result<openpgp::Cert> {
                         let old_count = cert.bad_signatures().count();
                         let cert_new = cert
-                            .insert_packets(Packet::Signature(sig.clone()))?;
+                            .insert_packets(Packet::Signature(sig.clone()))?.0;
                         if old_count < cert_new.bad_signatures().count()
                             {
                                 Err(anyhow::anyhow!("signature does not match"))

@@ -36,6 +36,7 @@ pub trait FromRnpId {
 impl ToRnpId for SymmetricAlgorithm {
     fn to_rnp_id(&self) -> &str {
         use SymmetricAlgorithm::*;
+        #[allow(deprecated)]
         match self {
             Unencrypted => "PLAINTEXT",
             IDEA => "IDEA",
@@ -57,6 +58,7 @@ impl ToRnpId for SymmetricAlgorithm {
 impl FromRnpId for SymmetricAlgorithm {
     fn from_rnp_id(id: &str) -> Result<Self> {
         use SymmetricAlgorithm::*;
+        #[allow(deprecated)]
         match id.to_uppercase().as_str() {
             "IDEA" => Ok(IDEA),
             "TRIPLEDES" => Ok(TripleDES),
@@ -115,6 +117,7 @@ impl ToRnpId for PublicKeyAlgorithm {
 impl FromRnpId for PublicKeyAlgorithm {
     fn from_rnp_id(id: &str) -> Result<Self> {
         use PublicKeyAlgorithm::*;
+        #[allow(deprecated)]
         match id.to_uppercase().as_str() {
             "RSA" =>     Ok(RSAEncryptSign),
             "DSA" =>     Ok(DSA),

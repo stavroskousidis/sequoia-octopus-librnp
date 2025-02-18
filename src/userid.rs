@@ -120,8 +120,9 @@ fn rnp_uid_get_signature_at(uid: *const RnpUserID,
     let sig = assert_ptr_mut!(sig);
 
     rnp_return_status!(if let Some((s, valid)) = ca_signatures(
-        &uid.cert.userids().nth(uid.nth_uid)
+        uid.cert.userids().nth(uid.nth_uid)
             .expect("we know it's there")
+            .signatures()
     ).nth(idx)
     {
         *sig = Box::into_raw(Box::new(
@@ -142,8 +143,9 @@ fn rnp_uid_get_signature_count(uid: *const RnpUserID,
     let count = assert_ptr_mut!(count);
 
     *count = ca_signatures(
-        &uid.cert.userids().nth(uid.nth_uid)
+        uid.cert.userids().nth(uid.nth_uid)
             .expect("we know it's there")
+            .signatures()
     ).count();
     rnp_success!()
 }

@@ -95,6 +95,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34ac096ce696dc2fcabef30516bb13c0a68a11d30131d3df6f04711467681b04"
 
 [[package]]
+name = "argon2"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c3610892ee6e0cbce8ae2700349fcf8f98adb0dbfbee85aec3c9179d29cc072"
+dependencies = [
+ "base64ct",
+ "blake2",
+ "cpufeatures",
+ "password-hash",
+]
+
+[[package]]
 name = "ascii-canvas"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -143,12 +155,6 @@ dependencies = [
 
 [[package]]
 name = "base64"
-version = "0.21.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
-
-[[package]]
-name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
@@ -168,7 +174,7 @@ dependencies = [
  "bitflags",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools",
  "proc-macro2",
  "quote",
  "regex",
@@ -197,6 +203,15 @@ name = "bitflags"
 version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f68f53c83ab957f72c32642f3868eec03eb974d1fb82e453128456482613d36"
+
+[[package]]
+name = "blake2"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46502ad458c9a52b69d4d4d32775c788b7a1b85e8bc9d482d92250fc0e3f8efe"
+dependencies = [
+ "digest",
+]
 
 [[package]]
 name = "block-buffer"
@@ -612,6 +627,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer",
+ "const-oid",
  "crypto-common",
  "subtle",
 ]
@@ -790,7 +806,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33d852cb9b869c2a9b3df2f71a3074817f01e1844f839a144f5fcef059a4eb5d"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1131,7 +1147,7 @@ dependencies = [
  "once_cell",
  "radix_trie",
  "rand",
- "thiserror 1.0.69",
+ "thiserror",
  "tokio",
  "tracing",
 ]
@@ -1154,7 +1170,7 @@ dependencies = [
  "once_cell",
  "openssl",
  "rand",
- "thiserror 1.0.69",
+ "thiserror",
  "tinyvec",
  "tokio",
  "tracing",
@@ -1177,9 +1193,27 @@ dependencies = [
  "rand",
  "resolv-conf",
  "smallvec",
- "thiserror 1.0.69",
+ "thiserror",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "hkdf"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
+dependencies = [
+ "hmac",
+]
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest",
 ]
 
 [[package]]
@@ -1521,15 +1555,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "itertools"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
-dependencies = [
- "either",
-]
-
-[[package]]
 name = "itoa"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1563,7 +1588,7 @@ dependencies = [
  "ascii-canvas",
  "bit-set",
  "ena",
- "itertools 0.11.0",
+ "itertools",
  "lalrpop-util",
  "petgraph",
  "regex",
@@ -1618,7 +1643,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -1779,7 +1804,7 @@ dependencies = [
  "getrandom 0.2.15",
  "libc",
  "nettle-sys",
- "thiserror 1.0.69",
+ "thiserror",
  "typenum",
 ]
 
@@ -1902,6 +1927,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ocb3"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c196e0276c471c843dd5777e7543a36a298a4be942a2a688d8111cd43390dedb"
+dependencies = [
+ "aead",
+ "cipher",
+ "ctr",
+ "subtle",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1915,17 +1952,18 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "openpgp-cert-d"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c7b032ca58c6f20835aaaa11906a74f8002691e0a619adce4e0cb6498e26305"
+checksum = "d3dd47b0b6df1022ca8a9a06791261c3153028abef191fe53aa326b7f443f2d6"
 dependencies = [
  "anyhow",
  "dirs",
  "fd-lock",
  "libc",
  "sha1collisiondetection",
+ "sha2",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror",
  "walkdir",
 ]
 
@@ -2000,6 +2038,17 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-targets 0.52.6",
+]
+
+[[package]]
+name = "password-hash"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "346f04948ba92c43e8469c1ee6736c7563d71012b17d40745260fe106aac2166"
+dependencies = [
+ "base64ct",
+ "rand_core",
+ "subtle",
 ]
 
 [[package]]
@@ -2199,7 +2248,7 @@ checksum = "ba009ff324d1fc1b900bd1fdb31564febe58a8ccc8a6fdbb93b543d33b13ca43"
 dependencies = [
  "getrandom 0.2.15",
  "libredox",
- "thiserror 1.0.69",
+ "thiserror",
 ]
 
 [[package]]
@@ -2237,7 +2286,7 @@ version = "0.12.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43e734407157c3c2034e0258f5e4473ddb361b1e85f95a66690d67264d7cd1da"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "bytes",
  "encoding_rs",
  "futures-core",
@@ -2344,7 +2393,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2453,19 +2502,19 @@ checksum = "f79dfe2d285b0488816f30e700a7438c5a73d816b5b7d3ac72fbc48b0d185e03"
 
 [[package]]
 name = "sequoia-autocrypt"
-version = "0.25.1"
+version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e24fc0ec87c156a35f24fc153ab694e0f37cd6fa87c1cf5005c9f4fa5e10415b"
+checksum = "11d65ff1c8589a3e505d36c8e1919483bf4a2d8d6eb65f84c3922fbdcae6928b"
 dependencies = [
- "base64 0.21.7",
+ "base64",
  "sequoia-openpgp",
 ]
 
 [[package]]
 name = "sequoia-cert-store"
-version = "0.6.2"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e339ad4320d008e1fda89c4efe2c332f5de6d408ed309167e2b6818fb97b9a5"
+checksum = "cc8987ed37e9931aee509c7ebc10e93b2ee5862849546c8a0c4588f3ed670b74"
 dependencies = [
  "anyhow",
  "crossbeam",
@@ -2477,15 +2526,15 @@ dependencies = [
  "rusqlite",
  "sequoia-openpgp",
  "smallvec",
- "thiserror 2.0.11",
+ "thiserror",
  "url",
 ]
 
 [[package]]
 name = "sequoia-gpg-agent"
-version = "0.5.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10a28bcdf6c4ab432b1bf572c8cbde6b5d9fd951ca70f7ca5447c86e355777c8"
+checksum = "c7f01803c82bdada34baa0f049e523c77b446ee347035df239a1f890c5d70c48"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2497,32 +2546,30 @@ dependencies = [
  "sequoia-openpgp",
  "stfu8",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror",
  "tokio",
 ]
 
 [[package]]
 name = "sequoia-ipc"
-version = "0.35.1"
+version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89aecb8a95233361c172546b037e0ea4c63b0dacbaeb52a25bcf1dddf78a3ee3"
+checksum = "c92579bbd37f62bbcc41e4dce7771fea395037bebaf9b8e10c20b765be8280ab"
 dependencies = [
  "anyhow",
- "buffered-reader",
  "capnp-rpc",
  "ctor",
  "dirs",
  "fs2",
  "lalrpop",
  "lalrpop-util",
- "lazy_static",
  "libc",
  "memsec",
  "rand",
  "sequoia-openpgp",
  "socket2",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror",
  "tokio",
  "tokio-util",
  "winapi",
@@ -2530,12 +2577,12 @@ dependencies = [
 
 [[package]]
 name = "sequoia-net"
-version = "0.29.0"
+version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "547e60d834118c0e90058c346dee0bf98e805d470c318dacff575e2a3356b975"
+checksum = "956ef5d37e41f53259cd3c6caac5f135351ee92f76f3ac6ee9cf771ee6e33925"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64",
  "futures-util",
  "hickory-client",
  "hickory-resolver",
@@ -2546,7 +2593,7 @@ dependencies = [
  "percent-encoding",
  "reqwest",
  "sequoia-openpgp",
- "thiserror 1.0.69",
+ "thiserror",
  "tokio",
  "url",
  "z-base-32",
@@ -2557,7 +2604,6 @@ name = "sequoia-octopus-librnp"
 version = "1.10.0"
 dependencies = [
  "anyhow",
- "buffered-reader",
  "chrono",
  "configparser",
  "csv",
@@ -2579,20 +2625,21 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror",
  "tokio",
  "vergen",
 ]
 
 [[package]]
 name = "sequoia-openpgp"
-version = "1.22.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e858e4e9e48ff079cede92e1b45c942a5466ce9a4e3cc0c2a7e66586a718ef59"
+checksum = "015e5fc3d023418b9db98ca9a7f3e90b305872eeafe5ca45c5c32b5eb335c1e8"
 dependencies = [
  "aes-gcm",
  "anyhow",
- "base64 0.22.1",
+ "argon2",
+ "base64",
  "botan",
  "buffered-reader",
  "bzip2",
@@ -2604,22 +2651,23 @@ dependencies = [
  "ed25519-dalek",
  "flate2",
  "getrandom 0.2.15",
+ "hkdf",
  "idna",
  "lalrpop",
  "lalrpop-util",
- "lazy_static",
  "libc",
  "memsec",
  "nettle",
  "num-bigint-dig",
- "once_cell",
+ "ocb3",
  "openssl",
  "openssl-sys",
  "rand_core",
  "regex",
  "regex-syntax",
  "sha1collisiondetection",
- "thiserror 1.0.69",
+ "sha2",
+ "thiserror",
  "win-crypto-ng",
  "winapi",
  "xxhash-rust",
@@ -2627,9 +2675,9 @@ dependencies = [
 
 [[package]]
 name = "sequoia-openpgp-mt"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02a86b047ba5a71263eb36a1baba6c3124ceb4a34c221592e878a82fc34e4445"
+checksum = "1fb256a02274bc6cb6b6b7f514b6cbcffbd30c2dbeee1533de6e1c573cbec72a"
 dependencies = [
  "anyhow",
  "buffered-reader",
@@ -2639,23 +2687,23 @@ dependencies = [
 
 [[package]]
 name = "sequoia-policy-config"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "617d5f0043e630871080fb5a70317cd4f2b7417d6c21b6be11eda5e75bc2549d"
+checksum = "8e016b708d64857b6a97e1a331d9471b73e30ed450d247628e1a0ce236b1e597"
 dependencies = [
  "anyhow",
  "chrono",
  "sequoia-openpgp",
  "serde",
- "thiserror 1.0.69",
+ "thiserror",
  "toml",
 ]
 
 [[package]]
 name = "sequoia-wot"
-version = "0.13.3"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "608352b8e9128ff838c4376746057815640455c25515f53551859df995442421"
+checksum = "7725fa3249ea6f786362408e7fc9ebd86e9250633991d97a2bd64d1197dce490"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2663,7 +2711,7 @@ dependencies = [
  "num_cpus",
  "sequoia-cert-store",
  "sequoia-openpgp",
- "thiserror 2.0.11",
+ "thiserror",
 ]
 
 [[package]]
@@ -2886,7 +2934,7 @@ dependencies = [
  "getrandom 0.3.1",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2906,16 +2954,7 @@ version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
 dependencies = [
- "thiserror-impl 1.0.69",
-]
-
-[[package]]
-name = "thiserror"
-version = "2.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d452f284b73e6d76dd36758a0c8684b1d5be31f92b89d07fd5822175732206fc"
-dependencies = [
- "thiserror-impl 2.0.11",
+ "thiserror-impl",
 ]
 
 [[package]]
@@ -2923,17 +2962,6 @@ name = "thiserror-impl"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "2.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26afc1baea8a989337eeb52b6e72a039780ce45c3edfcc9c5b9d112feeb173c2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3379,7 +3407,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

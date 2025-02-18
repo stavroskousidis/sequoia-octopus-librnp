@@ -22,7 +22,6 @@ use sequoia_openpgp as openpgp;
 use openpgp::{
     Cert,
     Fingerprint,
-    crypto::hash::Digest,
     packet::{Key, key::PublicParts, key::UnspecifiedRole},
     policy::Policy,
     types::HashAlgorithm,
@@ -98,7 +97,7 @@ impl CacheTag {
 
     /// Hashes the output.
     fn hash_output(mut self, output: &[u8]) -> Result<Self> {
-        let mut output_hasher = OUTPUT_HASH_ALGO.context()?;
+        let mut output_hasher = OUTPUT_HASH_ALGO.context()?.for_digest();
         output_hasher.update(&output);
         self.hash = output_hasher.into_digest()?;
         Ok(self)

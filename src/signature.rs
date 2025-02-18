@@ -201,12 +201,11 @@ fn rnp_signature_get_features(sig: *const RnpSignature,
 /// available in sequoia-openpgp 1.0.  However, we now mark
 /// self-signatures as valid, a functionality that is not available in
 /// the stock version of the function.
-use openpgp::cert::amalgamation::ComponentAmalgamation;
-pub fn ca_signatures<'a, T>(ca: &ComponentAmalgamation<'a, T>)
-                            -> impl Iterator<Item = (&'a Signature, Option<bool>)>
+pub fn ca_signatures<'a>(sigs: impl Iterator<Item = &'a Signature>)
+                         -> impl Iterator<Item = (&'a Signature, Option<bool>)>
 {
     use openpgp::packet::signature::subpacket::SubpacketTag;
-    ca.signatures().map(|sig| {
+    sigs.map(|sig| {
         // If Sequoia verified a signature, it will set the
         // authenticated flag of subpackets to true.  Thus, we know a
         // signature is "valid" iff the signature creation time has

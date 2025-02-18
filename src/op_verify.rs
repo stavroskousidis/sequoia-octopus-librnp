@@ -11,7 +11,6 @@ use sequoia_openpgp as openpgp;
 use openpgp::{
     KeyHandle,
     KeyID,
-    Fingerprint,
     cert::{
         Cert,
     },
@@ -93,7 +92,8 @@ impl fmt::Debug for RnpOpVerifyResult {
             .field("mode", &self.mode)
             .field("cipher", &self.cipher)
             .field("pkesks", &self.pkesks.iter().map(|pkesk| {
-                pkesk.recipient().to_hex()
+                pkesk.recipient().map(|r| r.to_hex())
+                    .unwrap_or_else(|| "<anonymous>".into())
             }).collect::<Vec<String>>())
             .field("skesk count", &self.skesks.len())
             .field("pkesk_used", &self.pkesk_used.as_ref().map(|pkesk| {
@@ -490,7 +490,13 @@ fn rnp_recipient_get_keyid(recipient: *const PKESK,
     rnp_function!(rnp_recipient_get_keyid, crate::TRACE);
     let recipient = assert_ptr_ref!(recipient);
     let keyid = assert_ptr_mut!(keyid);
-    *keyid = str_to_rnp_buffer(format!("{:X}", (*recipient).recipient()));
+    let r = (*recipient).recipient();
+    *keyid = str_to_rnp_buffer(format!("{:X}", match r {
+        Some(KeyHandle::KeyID(i)) => i.clone(),
+        Some(KeyHandle::Fingerprint(i)) => i.into(),
+        // XXX: Best effort given the API.
+        None => KeyID::wildcard(),
+    }));
     rnp_success!()
 }
 
@@ -589,7 +595,7 @@ impl<'a> VerificationHelper for Helper<'a> {
                 for h in sig.get_issuers() {
                     if let Some(key) = cert.keys().key_handle(h).nth(0) {
                         t!("success: key {}, cert {}",
-                           key.fingerprint(), cert.fingerprint());
+                           key.key().fingerprint(), cert.fingerprint());
                         return Some((key.parts_as_unspecified().key().clone(),
                                      cert.clone()));
                     }
@@ -600,7 +606,7 @@ impl<'a> VerificationHelper for Helper<'a> {
                 if let Some(cert) = ctx.cert_by_subkey_handle(&h) {
                     if let Some(key) = cert.keys().key_handle(h).nth(0) {
                         t!("success: key {}, cert {}",
-                           key.fingerprint(), cert.fingerprint());
+                           key.key().fingerprint(), cert.fingerprint());
                         return Some((key.parts_as_unspecified().key().clone(),
                                      cert.clone()));
                     }
@@ -675,7 +681,7 @@ impl<'a> VerificationHelper for Helper<'a> {
                             Err(BadKey { sig, ka, error }) => {
                                 t!("Signature {}.{}: can't verify, \
                                     bad key ({}): {}",
-                                   i, signo, ka.fingerprint(), error);
+                                   i, signo, ka.key().fingerprint(), error);
                                 self.result.signatures.push(
                                     RnpOpVerifySignature {
                                         ctx: self.ctx as *mut _,
@@ -688,7 +694,7 @@ impl<'a> VerificationHelper for Helper<'a> {
                             },
                             Err(BadSignature { sig, ka, error }) => {
                                 t!("Signature {}.{}: bad signature by {}: {}",
-                                   i, signo, ka.fingerprint(), error);
+                                   i, signo, ka.key().fingerprint(), error);
                                 self.result.signatures.push(
                                     RnpOpVerifySignature {
                                         ctx: self.ctx as *mut _,
@@ -702,6 +708,15 @@ impl<'a> VerificationHelper for Helper<'a> {
                                                    .parts_into_unspecified(),
                                                    ka.cert().clone())),
                                     });
+                            },
+                            Err(UnknownSignature { sig, .. }) => {
+                                t!("Signature {}.{}: unknown signature: {}",
+                                   i, signo, sig.error());
+                                // XXX: Not sure what to do with it.
+                            },
+                            Err(e) => {
+                                t!("Signature {}.{}: {}", i, signo, e);
+                                // XXX: Not sure what to do with it.
                             },
                         }
                     }
@@ -815,14 +830,13 @@ impl<'a> Helper<'a> {
 
     /// Tries to decrypt the given PKESK packet with `keypair` and try
     /// to decrypt the packet parser using `decrypt`.
-    fn try_decrypt<D>(&self, pkesk: &PKESK,
-                      algo: Option<SymmetricAlgorithm>,
-                      keypair: &mut dyn crypto::Decryptor,
-                      decrypt: &mut D)
-                      -> Option<(SymmetricAlgorithm,
-                                 SessionKey,
-                                 Option<Fingerprint>)>
-        where D: FnMut(SymmetricAlgorithm, &SessionKey) -> bool
+    fn try_decrypt(&self, pkesk: &PKESK,
+                   algo: Option<SymmetricAlgorithm>,
+                   keypair: &mut dyn crypto::Decryptor,
+                   decrypt: &mut dyn FnMut(Option<SymmetricAlgorithm>, &SessionKey) -> bool)
+                   -> Option<(Option<SymmetricAlgorithm>,
+                              SessionKey,
+                              Option<Cert>)>
     {
         let fp = keypair.public().fingerprint();
         let (algo, sk) = pkesk.decrypt(keypair, algo)
@@ -837,22 +851,30 @@ impl<'a> Helper<'a> {
 
         let ks = self.ctx.certs.read();
 
-        let recipient =
+        // First, try a subkey lookup.
+        let mut recipient =
             ks.by_subkey_fp(&fp)
                 .filter(|fp| fp.is_tsk())
                 .nth(0)
-                .map(|cert| cert.fingerprint())
-                .unwrap_or(fp);
+                .map(|cert| cert.clone().strip_secret_key_material());
 
-        Some((algo, sk, Some(recipient)))
+        // Then lookup as cert, unlikely as that may be.
+        if recipient.is_none() {
+            recipient = ks.by_fp(&fp)
+                .filter(|fp| fp.is_tsk())
+                .nth(0)
+                .map(|cert| cert.clone().strip_secret_key_material());
+        }
+
+        Some((algo, sk, recipient))
     }
 }
 
 impl<'a> DecryptionHelper for Helper<'a> {
-    fn decrypt<D>(&mut self, pkesks: &[PKESK], skesks: &[SKESK],
-                  algo: Option<SymmetricAlgorithm>,
-                  mut decrypt: D) -> openpgp::Result<Option<Fingerprint>>
-        where D: FnMut(SymmetricAlgorithm, &SessionKey) -> bool
+    fn decrypt(&mut self, pkesks: &[PKESK], skesks: &[SKESK],
+               algo: Option<SymmetricAlgorithm>,
+               decrypt: &mut dyn FnMut(Option<SymmetricAlgorithm>, &SessionKey) -> bool)
+               -> openpgp::Result<Option<Cert>>
     {
         rnp_function!(Helper::decrypt, crate::TRACE);
         t!("{} PKESKs, {} SKESKs, algo: {:?}",
@@ -878,13 +900,19 @@ impl<'a> DecryptionHelper for Helper<'a> {
             // First, we try those keys that we can use without
             // prompting for a password.
             for pkesk in pkesks {
-                let keyid = pkesk.recipient();
-                t!("trying to decrypt PKESK with recipient {}", keyid);
+                let keyid = if let Some(r) = pkesk.recipient() {
+                    KeyID::from(r)
+                } else {
+                    // Skip anonymous recipients.
+                    continue;
+                };
+
+                t!("trying to decrypt PKESK with recipient {:?}", keyid);
                 if let Some(key) = self.get_decryption_key(&keyid) {
                     if ! key.secret().is_encrypted() {
                         if let Some((_algo, _sk, fp)) =
                             key.clone().into_keypair().ok().and_then(|mut k| {
-                                self.try_decrypt(pkesk, algo, &mut k, &mut decrypt)
+                                self.try_decrypt(pkesk, algo, &mut k, decrypt)
                             })
                         {
                             t!("success!");
@@ -908,7 +936,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
         t!("trying to decrypt PKESKs using wildcard recipients with \
             unencrypted keys");
         let ks = self.ctx.certs.read();
-        for pkesk in pkesks.iter().filter(|p| p.recipient().is_wildcard()) {
+        for pkesk in pkesks.iter().filter(|p| p.recipient().is_none()) {
             t!("trying to decrypt PKESK with wildcard recipient...");
             // Get all possible decryption keys from the context.
             for cert in ks.iter().filter(|cert| cert.is_tsk()) {
@@ -926,8 +954,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
                     if ! key.secret().is_encrypted() {
                         if let Some((_algo, _sk, fp)) =
                             key.clone().into_keypair().ok().and_then(|mut k| {
-                                self.try_decrypt(pkesk, algo, &mut k,
-                                                 &mut decrypt)
+                                self.try_decrypt(pkesk, algo, &mut k, decrypt)
                             })
                         {
                             t!("success!");
@@ -954,7 +981,13 @@ impl<'a> DecryptionHelper for Helper<'a> {
                 continue;
             }
 
-            let keyid = pkesk.recipient();
+            let keyid = if let Some(r) = pkesk.recipient() {
+                KeyID::from(r)
+            } else {
+                // Skip anonymous recipients.
+                continue;
+            };
+
             t!("trying to decrypt PKESK with recipient {}", keyid);
             if let Some(key) = self.get_decryption_key(&keyid) {
                 let mut keypair =
@@ -977,8 +1010,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
                     };
 
                 if let Some((_algo, _sk, fp)) =
-                    self.try_decrypt(pkesk, algo, &mut keypair,
-                                     &mut decrypt)
+                    self.try_decrypt(pkesk, algo, &mut keypair, decrypt)
                 {
                     t!("success!");
                     self.result.pkesk_used = Some(pkesk.clone());
@@ -993,9 +1025,15 @@ impl<'a> DecryptionHelper for Helper<'a> {
 
         t!("trying to decrypt PKESKs with gpg-agent");
         for pkesk in pkesks {
-            let keyid = pkesk.recipient();
+            let keyid = if let Some(r) = pkesk.recipient() {
+                KeyID::from(r)
+            } else {
+                // Skip anonymous recipients.
+                continue;
+            };
+
             t!("trying to decrypt PKESK with recipient {}", keyid);
-            if let Some((cert, key)) = self.get_public_key(keyid) {
+            if let Some((cert, key)) = self.get_public_key(&keyid) {
                 let mut pair = sequoia_gpg_agent::KeyPair::new_for_gnupg_context(
                     &gnupg::Context::new()?, key.parts_as_public())?;
                 if let Ok(vcert) = cert.with_policy(&*self.ctx.policy(), None) {
@@ -1007,7 +1045,7 @@ impl<'a> DecryptionHelper for Helper<'a> {
                 {
                     t!("success!");
                     self.result.pkesk_used = Some(pkesk.clone());
-                    return Ok(Some(cert.fingerprint()));
+                    return Ok(Some(cert.clone()));
                 } else {
                     t!("failure!");
                 }

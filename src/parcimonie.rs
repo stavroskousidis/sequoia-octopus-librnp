@@ -272,7 +272,7 @@ impl<P: Policy + 'static> ParcimonieServer<P> {
                                     {
                                         None
                                     } else {
-                                        ua.userid().email2().unwrap_or(None)
+                                        ua.userid().email().unwrap_or(None)
                                             .map(ToString::to_string)
                                     }
                                 })

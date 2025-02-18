@@ -7,6 +7,10 @@ use libc::{
 use sequoia_openpgp as openpgp;
 use openpgp::{
     Cert,
+    cert::{
+        Preferences,
+        amalgamation::ValidAmalgamation,
+    },
     packet::{
         Key,
         key::{
@@ -16,9 +20,10 @@ use openpgp::{
             UnspecifiedRole,
         },
     },
-    serialize::stream::{*, Encryptor2 as Encryptor},
+    serialize::stream::*,
     types::{
         AEADAlgorithm,
+        Features,
         HashAlgorithm,
         SymmetricAlgorithm,
     },
@@ -41,7 +46,7 @@ pub struct RnpOpEncrypt<'a> {
     ctx: &'a mut RnpContext,
     input: &'a mut RnpInput,
     output: &'a mut RnpOutput<'a>,
-    recipients: Vec<Key<UnspecifiedParts, UnspecifiedRole>>,
+    recipients: Vec<(Features, Key<UnspecifiedParts, UnspecifiedRole>)>,
     signers: Vec<Key<SecretParts, UnspecifiedRole>>,
     agent_signers: Vec<(Option<Cert>, Key<PublicParts, UnspecifiedRole>)>,
     cipher: Option<SymmetricAlgorithm>,
@@ -150,7 +155,10 @@ fn rnp_op_encrypt_execute(op: *mut RnpOpEncrypt) -> RnpResult {
 
         // Encrypt the message.
         let mut message =
-            Encryptor::for_recipients(message, &op.recipients)
+            Encryptor::for_recipients(
+                message,
+                op.recipients.iter()
+                    .map(|(f, k)| Recipient::new(f.clone(), k.key_handle(), k)))
             .symmetric_algo(op.cipher.unwrap_or_default())
             .build()?;
 
@@ -162,21 +170,21 @@ fn rnp_op_encrypt_execute(op: *mut RnpOpEncrypt) -> RnpResult {
             let s =
                 op.ctx.decrypt_key_for(None, key, RnpPasswordFor::Sign)?
                 .into_keypair()?;
-            let mut signer = Signer::new(message, s)
+            let mut signer = Signer::new(message, s)?
                 .hash_algo(op.hash.unwrap_or_default())?;
             for key in op.signers.drain(..) {
                 let s =
                     op.ctx.decrypt_key_for(None, key, RnpPasswordFor::Sign)?
                     .into_keypair()?;
-                signer = signer.add_signer(s);
+                signer = signer.add_signer(s)?;
             }
 
             for (cert, key) in &op.agent_signers {
                 let s = gpg::agent_keypair(&*op.ctx.policy(), &cert, &key)?;
-                signer = signer.add_signer(s);
+                signer = signer.add_signer(s)?;
             }
 
-            for r in &op.recipients {
+            for (_, r) in &op.recipients {
                 if let Some(key) = op.ctx.cert_by_subkey_fp(&r.fingerprint()) {
                     signer = signer.add_intended_recipient(&key);
                 }
@@ -184,15 +192,15 @@ fn rnp_op_encrypt_execute(op: *mut RnpOpEncrypt) -> RnpResult {
             message = signer.build()?;
         } else if let Some((cert, key)) = op.agent_signers.get(0) {
             let s = gpg::agent_keypair(&*op.ctx.policy(), &cert, &key)?;
-            let mut signer = Signer::new(message, s)
+            let mut signer = Signer::new(message, s)?
                 .hash_algo(op.hash.unwrap_or_default())?;
 
             for (cert, key) in &op.agent_signers[1..] {
                 let s = gpg::agent_keypair(&*op.ctx.policy(), &cert, &key)?;
-                signer = signer.add_signer(s);
+                signer = signer.add_signer(s)?;
             }
 
-            for r in &op.recipients {
+            for (_, r) in &op.recipients {
                 if let Some(key) = op.ctx.cert_by_subkey_fp(&r.fingerprint()) {
                     signer = signer.add_intended_recipient(&key);
                 }
@@ -230,7 +238,6 @@ fn rnp_op_encrypt_add_recipient(op: *mut RnpOpEncrypt,
                                 key: *const RnpKey)
                                 -> RnpResult {
     rnp_function!(rnp_op_encrypt_add_recipient, crate::TRACE);
-    use std::ops::Deref;
     let op = assert_ptr_mut!(op);
     let key = assert_ptr_ref!(key);
     t!("Adding encryption-capable (sub)keys from {:X}", key.fingerprint());
@@ -245,8 +252,10 @@ fn rnp_op_encrypt_add_recipient(op: *mut RnpOpEncrypt,
             .supported()
             .alive()
         {
-            t!("Adding (sub)key {:X}", ka.fingerprint());
-            op.recipients.push(ka.key().clone().parts_into_unspecified());
+            t!("Adding (sub)key {:X}", ka.key().fingerprint());
+            op.recipients.push(
+                (ka.valid_cert().features().unwrap_or_else(Features::empty),
+                 ka.key().clone().parts_into_unspecified()));
             found_some = true;
         }
     }
@@ -415,7 +424,7 @@ mod tests {
     #[test]
     fn encrypt_no_wrap() -> openpgp::Result<()> {
         let (key, _) =
-            openpgp::cert::CertBuilder::general_purpose(None, Some("uid"))
+            openpgp::cert::CertBuilder::general_purpose(Some("uid"))
             .generate()?;
 
         let cert = key.to_vec()?;
@@ -494,15 +503,15 @@ mod tests {
             }
         }
         impl DecryptionHelper for Helper {
-            fn decrypt<D>(&mut self, pkesks: &[PKESK], skesks: &[SKESK],
-                          _sym_algo: Option<SymmetricAlgorithm>,
-                          mut decrypt: D) -> openpgp::Result<Option<openpgp::Fingerprint>>
-            where D: FnMut(SymmetricAlgorithm, &SessionKey) -> bool
+            fn decrypt(&mut self, pkesks: &[PKESK], skesks: &[SKESK],
+                       _sym_algo: Option<SymmetricAlgorithm>,
+                       decrypt: &mut dyn FnMut(Option<SymmetricAlgorithm>, &SessionKey) -> bool)
+                       -> openpgp::Result<Option<Cert>>
             {
                 assert_eq!(pkesks.len(), 1);
                 assert_eq!(skesks.len(), 0);
                 let mut key =
-                    self.key.keys().secret().key_handle(pkesks[0].recipient())
+                    self.key.keys().secret().key_handle(pkesks[0].recipient().unwrap())
                     .next().unwrap().key().clone().into_keypair()?;
                 pkesks[0].decrypt(&mut key, None)
                     .map(|(algo, session_key)| decrypt(algo, &session_key));

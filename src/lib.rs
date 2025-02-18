@@ -125,7 +125,7 @@ pub mod tbprofile;
 pub mod wot;
 pub mod parcimonie;
 
-pub const NP: &NullPolicy = &NullPolicy::new();
+pub const NP: &NullPolicy = unsafe { &NullPolicy::new() };
 
 #[allow(dead_code)]
 fn cert_dump(cert: &Cert) {
@@ -144,8 +144,8 @@ fn cert_dump(cert: &Cert) {
               .unwrap_or("<Invalid>".into()));
 
     for (i, k) in cert.keys().enumerate() {
-        eprint!("  {}. {}", i, k.fingerprint());
-        match k.optional_secret() {
+        eprint!("  {}. {}", i, k.key().fingerprint());
+        match k.key().optional_secret() {
             Some(SecretKeyMaterial::Unencrypted(_)) => {
                 eprint!(" has unencrypted secret key material");
             }
@@ -543,7 +543,6 @@ impl RnpContext {
                 return Ok(k.clone());
             }
 
-            let pk_algo = key.pk_algo();
             let rnp_key = if let Some(cert) = cert {
                 RnpKey::new(self, key.into(), cert)
             } else {
@@ -553,7 +552,8 @@ impl RnpContext {
             if let Some(pw) = self.request_password(Some(&rnp_key), reason) {
                 key = Key::<UnspecifiedParts, UnspecifiedRole>::from(rnp_key)
                     .parts_into_secret()?;
-                key.secret_mut().decrypt_in_place(pk_algo, &pw)
+                let k = key.clone();
+                key.secret_mut().decrypt_in_place(&k, &pw)
                     .map_err(|_| Error::BadPassword)?;
                 t!("Key decrypted successfully")
             } else {
@@ -591,12 +591,12 @@ impl RnpContext {
            if password.is_some() { "provided" } else { "None" });
 
         if ! key.has_unencrypted_secret() {
-            let pk_algo = key.pk_algo();
             if let Some(pw) = password
                 .or_else(|| self.request_password(
                     None, RnpPasswordFor::Unlock))
             {
-                key.secret_mut().decrypt_in_place(pk_algo, &pw)
+                let k = key.clone();
+                key.secret_mut().decrypt_in_place(&k, &pw)
                     .map_err(|_| Error::BadPassword)?;
             } else {
                 return Err(anyhow::anyhow!("no password given"));
@@ -794,8 +794,7 @@ fn rnp_get_public_key_count(ctx: *mut RnpContext,
 
     // Make sure the agent listing is up to date.
     let mut ks = ctx.certs.write();
-    ks.key_on_agent_hard(
-        &Fingerprint::from_bytes(b"0000 0000 0000 0000  0000 0000 0000 0000"));
+    ks.key_on_agent_hard(&Fingerprint::V4(Default::default()));
     drop(ks);
 
     let ks = ctx.certs.read();
@@ -826,8 +825,7 @@ fn rnp_get_secret_key_count(ctx: *mut RnpContext,
 
     // Make sure the agent listing is up to date.
     let mut ks = ctx.certs.write();
-    ks.key_on_agent_hard(
-        &Fingerprint::from_bytes(b"0000 0000 0000 0000  0000 0000 0000 0000"));
+    ks.key_on_agent_hard(&Fingerprint::V4(Default::default()));
     drop(ks);
 
     let ks = ctx.certs.read();

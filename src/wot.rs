@@ -264,7 +264,7 @@ impl WoT {
                 };
 
                 // All possible certification (sub)keys.
-                for skb in c.keys().filter(|k| k.pk_algo().for_signing()) {
+                for skb in c.keys().filter(|k| k.key().pk_algo().for_signing()) {
                     for sig in skb.signatures() {
                         consider(sig.signature_creation_time().unwrap());
                         if let Some(t) = sig.signature_expiration_time() {
@@ -282,7 +282,7 @@ impl WoT {
                     if let Some(t) = sig.signature_expiration_time() {
                         consider(t);
                     }
-                    if let Some(t) = sig.key_expiration_time(&c.primary_key()) {
+                    if let Some(t) = sig.key_expiration_time(c.primary_key().key()) {
                         consider(t);
                     }
                 }
@@ -293,7 +293,7 @@ impl WoT {
                     if let Some(t) = sig.signature_expiration_time() {
                         consider(t);
                     }
-                    if let Some(t) = sig.key_expiration_time(&c.primary_key()) {
+                    if let Some(t) = sig.key_expiration_time(c.primary_key().key()) {
                         consider(t);
                     }
                 }
@@ -421,7 +421,7 @@ impl WoT {
                 let userids: Vec<(String, Validity)> =
                     c.with_policy(&policy, reference_time).map(|vc| {
                         vc.userids().filter_map(|uid| {
-                            if let Ok(s) = String::from_utf8(uid.value().to_vec()) {
+                            if let Ok(s) = String::from_utf8(uid.userid().value().to_vec()) {
                                 let paths = network.authenticate(
                                     uid.userid(), &fp,
                                     sequoia_wot::FULLY_TRUSTED);
@@ -533,7 +533,7 @@ impl WoT {
             let key_validity: Vec<_> = key_validity
                 .into_iter()
                 .filter_map(|(uid, validity)| {
-                    match UserID::from(uid.clone()).email2() {
+                    match UserID::from(uid.clone()).email() {
                         Ok(Some(email)) => {
                             Some((email.to_ascii_lowercase(), validity))
                         },

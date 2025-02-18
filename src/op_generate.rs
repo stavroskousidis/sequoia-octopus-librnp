@@ -22,6 +22,7 @@ use openpgp::{
         Key,
         key::{
             Key4,
+            Key6,
             UnspecifiedParts,
             UnspecifiedRole,
         },
@@ -62,6 +63,7 @@ enum Mode {
         userids: Vec<UserID>,
     },
     SubKey {
+        version: u8,
         primary: Fingerprint,
     },
     Generated {
@@ -82,6 +84,7 @@ fn rnp_op_generate_create(op: *mut *mut RnpOpGenerate,
 
     let pk_algo = rnp_try!(PublicKeyAlgorithm::from_rnp_id(alg));
     use PublicKeyAlgorithm::*;
+    #[allow(deprecated)]
     match pk_algo {
         RSAEncryptSign | DSA | ECDSA | EdDSA => (), // Ok.
         _ => {
@@ -122,6 +125,7 @@ fn rnp_op_generate_subkey_create(op: *mut *mut RnpOpGenerate,
     *op = Box::into_raw(Box::new(RnpOpGenerate {
         ctx: &mut *ctx,
         mode: Mode::SubKey {
+            version: (*primary).version(),
             primary: (*primary).fingerprint(),
         },
         pk_algo,
@@ -194,9 +198,10 @@ fn rnp_op_generate_execute(op: *mut RnpOpGenerate) -> RnpResult {
                     .role_into_unspecified();
                 op.ctx.certs.write().insert(cert);
             },
-            Mode::SubKey { primary } => {
+            Mode::SubKey { version, primary } => {
                 use PublicKeyAlgorithm::*;
-                let mut key = Key::from(match op.pk_algo {
+                use openpgp::packet::key::SubordinateRole;
+                let mut key: Key<_, SubordinateRole> = match op.pk_algo {
                     RSAEncryptSign => {
                         let bits = match op.bits {
                             None => 3072,
@@ -204,14 +209,22 @@ fn rnp_op_generate_execute(op: *mut RnpOpGenerate) -> RnpResult {
                             Some(n) if n <= 3072 => 3072,
                             _ => 4096,
                         };
-                        Key4::generate_rsa(bits)?
+
+                        match version {
+                            4 => Key4::generate_rsa(bits)?.into(),
+                            6 | _ => Key6::generate_rsa(bits)?.into(),
+                        }
                     },
-                    ECDH =>
-                        Key4::generate_ecc(
+                    ECDH => match version {
+                        4 => Key4::generate_ecc(
                             false,
-                            op.curve.take().unwrap_or(Curve::Cv25519))?,
+                            op.curve.take().unwrap_or(Curve::Cv25519))?.into(),
+                        6 | _ => Key6::generate_ecc(
+                            false,
+                            op.curve.take().unwrap_or(Curve::Cv25519))?.into(),
+                    },
                     _ => return Err(anyhow::anyhow!("not a suitable algorithm")),
-                });
+                };
 
                 if let Some(p) = op.password.as_ref() {
                     key = key.encrypt_secret(p)?;
@@ -243,7 +256,7 @@ fn rnp_op_generate_execute(op: *mut RnpOpGenerate) -> RnpResult {
 
                 op.ctx.certs.write()
                     .insert(cert.insert_packets(vec![Packet::from(key.clone()),
-                                                     binding.into()])?);
+                                                      binding.into()])?.0);
                 generated_key =
                     key.parts_into_unspecified().role_into_unspecified();
             },
