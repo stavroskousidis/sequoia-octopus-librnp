@@ -251,12 +251,10 @@ fn rnp_op_encrypt_add_recipient(op: *mut RnpOpEncrypt,
         }
     }
 
-    // Fall back to pushing key to the recipients and hoping for the
-    // best.  This is what RNP does.
     if ! found_some {
         t!("Found no encryption-capable (sub)keys, adding primary key {:X}",
            key.fingerprint());
-        op.recipients.push(key.deref().clone());
+        rnp_return_status!(RNP_ERROR_KEY_NOT_FOUND);
     }
 
     rnp_success!()
