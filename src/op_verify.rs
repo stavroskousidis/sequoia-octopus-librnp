@@ -1034,20 +1034,34 @@ impl<'a> DecryptionHelper for Helper<'a> {
 
             t!("trying to decrypt PKESK with recipient {}", keyid);
             if let Some((cert, key)) = self.get_public_key(&keyid) {
-                let mut pair = sequoia_gpg_agent::KeyPair::new_for_gnupg_context(
-                    &gnupg::Context::new()?, key.parts_as_public())?;
-                if let Ok(vcert) = cert.with_policy(&*self.ctx.policy(), None) {
-                    pair = pair.with_cert(&vcert);
-                }
-                if pkesk.decrypt(&mut pair, algo)
-                    .map(|(algo, session_key)| decrypt(algo, &session_key))
-                    .unwrap_or(false)
-                {
-                    t!("success!");
-                    self.result.pkesk_used = Some(pkesk.clone());
-                    return Ok(Some(cert.clone()));
-                } else {
-                    t!("failure!");
+                match gnupg::Context::new() {
+                    Ok(ctx) =>
+                        match sequoia_gpg_agent::KeyPair::new_for_gnupg_context(
+                            &ctx, key.parts_as_public())
+                    {
+                        Ok(mut pair) => {
+                            if let Ok(vcert) = cert.with_policy(
+                                &*self.ctx.policy(), None)
+                            {
+                                pair = pair.with_cert(&vcert);
+                            }
+                            if pkesk.decrypt(&mut pair, algo)
+                                .map(|(algo, session_key)|
+                                     decrypt(algo, &session_key))
+                                .unwrap_or(false)
+                            {
+                                t!("success!");
+                                self.result.pkesk_used = Some(pkesk.clone());
+                                return Ok(Some(cert.clone()));
+                            } else {
+                                t!("failure!");
+                            }
+                        },
+                        Err(e) =>
+                            t!("but gpg-agent failed: {}", e),
+                    },
+                    Err(e) =>
+                        t!("but creating the GnuPG context failed: {}", e),
                 }
             } else {
                 t!("but we don't even have that cert!");
