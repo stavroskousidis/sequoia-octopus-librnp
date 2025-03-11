@@ -586,9 +586,9 @@ impl RnpContext {
                       -> openpgp::Result<()>
     {
         rnp_function!(RnpContext::key_unlock, crate::TRACE);
-        t!("key: {}; password: {:?}",
+        t!("key: {}; password: {}",
            key.fingerprint(),
-           if password.is_some() { "provided" } else { "None" });
+           if password.is_some() { "Some(_)" } else { "None" });
 
         if ! key.has_unencrypted_secret() {
             if let Some(pw) = password

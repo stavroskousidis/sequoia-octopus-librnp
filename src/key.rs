@@ -1033,7 +1033,7 @@ fn rnp_key_unlock(key: *mut RnpKey,
 
     rnp_return_status!(if let Some(k) = key.key.parts_as_secret().ok() {
         if let Err(e) = (*key.ctx).key_unlock(k.clone(), password) {
-            warn!("rnp_key_unlock: {}: e", e);
+            warn!("rnp_key_unlock: {}", e);
             RNP_ERROR_GENERIC
         } else {
             RNP_SUCCESS
