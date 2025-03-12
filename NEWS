@@ -2,6 +2,13 @@
 #+TITLE: sequoia-octopus-librnp NEWS – history of user-visible changes
 #+STARTUP: content hidestars
 
+* Changes in 1.11.0
+** Notable changes
+   - Ported to sequoia-openpgp 2.  This brings in the machinery to
+     support RFC9580, but without further changes to Thunderbird, it
+     will not be able to make use of newer keys.  It might be able to
+     decrypt SEIPDv2 messages, though.
+
 * Changes in 1.10.0
 ** Notable fixes
    - We now properly destroy background threads when a library context

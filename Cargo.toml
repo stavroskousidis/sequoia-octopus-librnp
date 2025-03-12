@@ -1,7 +1,7 @@
 [package]
 name = "sequoia-octopus-librnp"
 description = "Reimplementation of RNP's interface using Sequoia for use with Thunderbird"
-version = "1.10.0"
+version = "1.11.0"
 authors = [
     "Justus Winter <justus@sequoia-pgp.org>",
     "Neal H. Walfield <neal@sequoia-pgp.org>",
@@ -16,7 +16,7 @@ categories = ["cryptography", "authentication", "email"]
 license = "LGPL-2.0-or-later"
 edition = "2021"
 build = "build.rs"
-rust-version = "1.70"
+rust-version = "1.79"
 
 [badges]
 gitlab = { repository = "sequoia-pgp/sequoia-octopus-librnp" }
