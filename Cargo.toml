@@ -52,6 +52,15 @@ sequoia-ipc = { version = "0.36", default-features = false }
 rusqlite = { version = ">=0.24, <0.32", features = ["bundled"] }
 
 [build-dependencies]
+
+[target.'cfg(windows)'.build-dependencies]
+# Use the git command line tool to get the version.
+# https://docs.rs/vergen/8.3.2/vergen/index.html
+vergen = { version = "8", default-features = false, features = ["git", "gitcl"] }
+
+[target.'cfg(not(windows))'.build-dependencies]
+# Use the git library to get the version.
+# https://docs.rs/vergen/8.3.2/vergen/index.html
 vergen = { version = "8", default-features = false, features = ["git", "git2"] }
 
 [lib]
