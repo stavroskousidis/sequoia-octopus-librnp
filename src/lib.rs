@@ -171,12 +171,12 @@ pub struct RnpContext {
     plaintext_cache: recombine::PlaintextCache,
 }
 
-type RnpPasswordCb = unsafe extern fn(*mut RnpContext,
-                                      *mut c_void,
-                                      *const RnpKey,
-                                      *const c_char,
-                                      *mut c_char,
-                                      size_t) -> bool;
+type RnpPasswordCb = unsafe extern "C" fn(*mut RnpContext,
+                                          *mut c_void,
+                                          *const RnpKey,
+                                          *const c_char,
+                                          *mut c_char,
+                                          size_t) -> bool;
 
 #[no_mangle] pub unsafe extern "C"
 fn rnp_ffi_create(ctx: *mut *mut RnpContext,
