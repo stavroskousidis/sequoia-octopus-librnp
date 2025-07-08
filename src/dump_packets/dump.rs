@@ -106,12 +106,20 @@ pub enum Kind {
 #[allow(clippy::redundant_pattern_matching)]
 pub fn dump<W>(input: &mut (dyn io::Read + Sync + Send),
                output: &mut dyn io::Write,
+               max_decompressed_literal_data: Option<usize>,
                mpis: bool, hex: bool,
                sk: Option<&SessionKey>,
                width: W)
                -> Result<Kind>
     where W: Into<Option<usize>>
 {
+    rnp_function!(dump, crate::TRACE);
+
+    // If no limit is supplied, stop after 100 MB.
+    let max_decompressed_literal_data
+        = max_decompressed_literal_data.unwrap_or(100 * 1024 * 1024);
+    let mut saw_decompression_packet = false;
+
     let mut ppr
         = self::openpgp::parse::PacketParserBuilder::from_reader(input)?;
 
@@ -145,14 +153,55 @@ pub fn dump<W>(input: &mut (dyn io::Read + Sync + Send),
                 skesks.push(p.clone());
                 vec![]
             },
+            Packet::CompressedData(_) => {
+                t!("Encountered compressed data packet.  \
+                    Activating zip bomb protection.");
+                saw_decompression_packet = true;
+                Vec::new()
+            }
             Packet::Literal(_) => {
                 let mut prefix = vec![0; 40];
                 let n = pp.read(&mut prefix)?;
-                vec![
+                let summary = vec![
                     format!("Content: {:?}{}",
                             String::from_utf8_lossy(&prefix[..n]),
                             if n == prefix.len() { "..." } else { "" }),
-                ]
+                ];
+
+                if saw_decompression_packet {
+                    // Protect against a possible zip bomb.
+                    t!("Zip bomb protection activated.  Will abort after \
+                        reading more than {} bytes of literal data.",
+                       max_decompressed_literal_data);
+
+                    const BUFFER_SIZE: usize = 1024 * 1024;
+                    let mut buffer = vec![0; BUFFER_SIZE];
+                    let mut literal_data_read = prefix.len();
+                    while literal_data_read <= max_decompressed_literal_data {
+                        let remaining
+                            = max_decompressed_literal_data - literal_data_read + 1;
+
+                        let read = pp.read(
+                            &mut buffer[..remaining.min(BUFFER_SIZE)])?;
+                        if read == 0 {
+                            // EOF.
+                            break;
+                        }
+
+                        literal_data_read += read;
+                    }
+                    t!("Read {} bytes of literal data",
+                       literal_data_read);
+
+                    if literal_data_read > max_decompressed_literal_data {
+                        t!("Zip bomb detected");
+                        return Err(crate::Error::BadParameters.into());
+                    } else {
+                        t!("No zip bomb detected");
+                    }
+                }
+
+                summary
             },
             Packet::SEIP(ref s) => {
 		let version = s.version();

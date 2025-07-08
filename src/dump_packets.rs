@@ -30,7 +30,15 @@ fn rnp_dump_packets_to_output(input: *mut RnpInput,
     // Key grips are a proprietary GnuPG extension.  No.
     let _dump_grip = flags & RNP_DUMP_GRIP > 0;
 
-    rnp_try_or!(dump::dump(input, output, dump_mpis, dump_hex, None, None),
+    let max_decompressed_literal_data
+        = if let RnpOutput::Buf((_buf, Some(max))) = output {
+            Some(*max)
+        } else {
+            None
+        };
+
+    rnp_try_or!(dump::dump(input, output, max_decompressed_literal_data,
+                           dump_mpis, dump_hex, None, None),
                 RNP_ERROR_GENERIC);
     rnp_success!()
 }
