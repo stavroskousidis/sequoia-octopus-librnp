@@ -32,10 +32,12 @@ use openpgp::{
         UserID,
     },
     policy::{
+        HashAlgoSecurity,
         NullPolicy,
         StandardPolicy,
     },
     serialize::Serialize,
+    types::HashAlgorithm,
 };
 
 /// Controls tracing.
@@ -252,7 +254,29 @@ fn rnp_ffi_create(ctx: *mut *mut RnpContext,
     if let Err(e) = policy.parse_default_config() {
         global_warn!("Reading crypto policy: {}", e);
     }
-    let policy = policy.build();
+    let mut policy = policy.build();
+
+    // Thunderbird checks that MD5 and SHA-1 for self-signatures are
+    // disabled and refuses to fully initialize RNP otherwise.  Meet
+    // its expectations.
+
+    let now = std::time::SystemTime::now();
+    for (algo, prop) in [
+        (HashAlgorithm::MD5, HashAlgoSecurity::CollisionResistance),
+        (HashAlgorithm::MD5, HashAlgoSecurity::SecondPreImageResistance),
+        (HashAlgorithm::SHA1, HashAlgoSecurity::CollisionResistance),
+    ]
+    {
+        let cutoff = policy.hash_cutoff(algo, prop);
+        t!("{} for {:?}: {:?}", algo, prop, cutoff);
+        if cutoff.unwrap_or(now) >= now {
+            warn!("Your crypto policy enables {} in contexts where {:?} is \
+                   needed ({:?}).  Unconditionally rejecting it.",
+                  algo, prop, cutoff);
+            policy.reject_hash_property_at(
+                algo, prop, std::time::UNIX_EPOCH);
+        }
+    }
 
     *ctx = Box::into_raw(Box::new(RnpContext {
         policy: Arc::new(RwLock::new(policy)),
