@@ -11,6 +11,9 @@ stages:
   - tb_test
   - release
 
+include:
+  - component: "gitlab.com/sequoia-pgp/common-ci/wol@main"
+
 before_script:
   - if [ -d $CARGO_TARGET_DIR ]; then find $CARGO_TARGET_DIR | wc --lines; du -sh $CARGO_TARGET_DIR; fi
   - if [ -d $CARGO_HOME ]; then find $CARGO_HOME | wc --lines; du -sh $CARGO_HOME; fi
