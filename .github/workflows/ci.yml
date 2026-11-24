@@ -1,0 +1,145 @@
+# Fork-only file. It is not part of the upstream series: upstream's CI is
+# .gitlab-ci.yml. This workflow is the controlled environment of the
+# integration branch `pqc` in stavroskousidis/sequoia-octopus-librnp.
+# Master copy: stavroskousidis/pqc-octopus,
+# fork-files/sequoia-octopus-librnp/.github/workflows/ci.yml.
+#
+# Jobs:
+#   ubuntu     Ubuntu 24.04 runner, sequoia-openpgp's RustCrypto backend: the
+#              configuration the agent container uses for post-quantum tests.
+#   debian     Debian trixie container, default backend (Nettle), with the
+#              upstream gates of the job `trixie` in .gitlab-ci.yml: compiler
+#              warnings are errors, Cargo.lock is consistent, no needlessly
+#              exported symbols.
+#   codespell  Debian trixie container, the upstream job `codespell`.
+#
+# Not here yet: the Fedora 45 job with crypto-openssl, the shipping
+# configuration. The unchanged upstream tree does not build on Fedora 45: the
+# locked openssl-sys 0.9.109 refuses OpenSSL 4 (CI run 45441433174 of this
+# repository). The job comes with a pull request of its own, after the lock
+# file update.
+#
+# Not here: upstream's `deny` job (cargo deny with the configuration of
+# sequoia-pgp/common-ci), the Windows jobs, and the Thunderbird jobs.
+#
+# `-D warnings` is set only in the job `debian`, as upstream sets it for a
+# Debian trixie toolchain. The Rust compiler of the job `ubuntu` is newer and
+# reports warnings on the unchanged upstream code.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [pqc]
+  push:
+    branches: [pqc]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  # As in .gitlab-ci.yml.
+  QUICKCHECK_GENERATOR_SIZE: 500
+
+jobs:
+  ubuntu:
+    name: Ubuntu 24.04, crypto-rust
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      FEATURES: sequoia-openpgp/crypto-rust,sequoia-openpgp/allow-experimental-crypto,sequoia-openpgp/allow-variable-time-crypto,sequoia-openpgp/compression
+    steps:
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nettle-dev libsqlite3-dev libssl-dev \
+            pkg-config clang llvm libclang-dev capnproto
+      - uses: actions/checkout@v5
+      - name: Environment
+        run: |
+          cat /etc/os-release
+          rustc --version
+          cargo --version
+          openssl version
+          git rev-parse HEAD
+      - name: cargo test
+        run: cargo test --no-default-features --features "$FEATURES"
+      - name: Cargo.lock is unchanged
+        run: git diff --exit-code Cargo.lock
+
+  debian:
+    name: Debian trixie, default backend, upstream gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container: debian:trixie
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      # As in the job `trixie` of .gitlab-ci.yml.
+      RUSTFLAGS: -D warnings -A unused-parens
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y ca-certificates git rustc cargo gcc clang llvm \
+            libclang-dev pkg-config nettle-dev libssl-dev libsqlite3-dev \
+            capnproto binutils
+      - uses: actions/checkout@v5
+      - name: Environment
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cat /etc/os-release
+          rustc --version
+          cargo --version
+          clang --version
+          pkg-config --modversion nettle
+          git rev-parse HEAD
+      - name: cargo test
+        run: cargo test
+      - name: Cargo.lock is unchanged
+        run: |
+          if ! git diff --quiet Cargo.lock; then
+            echo "Cargo.lock changed.  Please add the change to the corresponding commit."
+            git diff Cargo.lock
+            exit 1
+          fi
+      - name: No needlessly exported symbols
+        run: |
+          SEQUOIA_OCTOPUS_DISABLE_TRACING=1 cargo build
+          NEEDLESSLY_EXPORTED_SYMBOLS="$(readelf --dyn-syms target/debug/libsequoia_octopus_librnp.so | grep -v UND | grep -v rnp_ | grep DEFAULT || true)"
+          echo "$NEEDLESSLY_EXPORTED_SYMBOLS"
+          if [ "$(echo "$NEEDLESSLY_EXPORTED_SYMBOLS" | wc --lines)" -gt 1 ]; then
+            echo "Regression in the number of needlessly exported symbols." >&2
+            exit 1
+          fi
+
+  codespell:
+    name: codespell
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container: debian:trixie
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Install codespell
+        run: |
+          apt-get update
+          apt-get install -y ca-certificates git codespell
+      - uses: actions/checkout@v5
+      - name: codespell
+        run: |
+          codespell --version
+          codespell --disable-colors \
+            -L "crate,ede,iff,mut,nd,te,uint,KeyServer,keyserver,Keyserver,keyservers,Keyservers,keypair,keypairs,KeyPair,fpr,dedup,tru" \
+            -S "*.bin,*.gpg,*.pgp,./.git,data,highlight.js,*/target,Makefile,Cargo.lock"
