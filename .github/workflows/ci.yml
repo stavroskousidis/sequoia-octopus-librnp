@@ -5,6 +5,8 @@
 # fork-files/sequoia-octopus-librnp/.github/workflows/ci.yml.
 #
 # Jobs:
+#   fedora     Fedora 45 container, feature crypto-openssl: the shipping
+#              configuration.
 #   ubuntu     Ubuntu 24.04 runner, sequoia-openpgp's RustCrypto backend: the
 #              configuration the agent container uses for post-quantum tests.
 #   debian     Debian trixie container, default backend (Nettle), with the
@@ -13,18 +15,12 @@
 #              exported symbols.
 #   codespell  Debian trixie container, the upstream job `codespell`.
 #
-# Not here yet: the Fedora 45 job with crypto-openssl, the shipping
-# configuration. The unchanged upstream tree does not build on Fedora 45: the
-# locked openssl-sys 0.9.109 refuses OpenSSL 4 (CI run 45441433174 of this
-# repository). The job comes with a pull request of its own, after the lock
-# file update.
-#
 # Not here: upstream's `deny` job (cargo deny with the configuration of
 # sequoia-pgp/common-ci), the Windows jobs, and the Thunderbird jobs.
 #
 # `-D warnings` is set only in the job `debian`, as upstream sets it for a
-# Debian trixie toolchain. The Rust compiler of the job `ubuntu` is newer and
-# reports warnings on the unchanged upstream code.
+# Debian trixie toolchain. The Rust compilers of the other two jobs are newer
+# and report warnings on the unchanged upstream code.
 
 name: CI
 
@@ -54,6 +50,36 @@ env:
   QUICKCHECK_GENERATOR_SIZE: 500
 
 jobs:
+  fedora:
+    name: Fedora 45, crypto-openssl
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container: quay.io/fedora/fedora:45
+    steps:
+      - name: Install build dependencies
+        run: |
+          dnf -y install git-core rust cargo gcc clang clang-devel llvm-devel \
+            pkgconf-pkg-config openssl openssl-devel sqlite-devel capnproto \
+            binutils
+      - uses: actions/checkout@v5
+      - name: Environment
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cat /etc/os-release
+          rpm -q rust cargo openssl-libs openssl-devel sqlite-devel
+          rustc --version
+          cargo --version
+          openssl version
+          git rev-parse HEAD
+      - name: cargo test
+        run: cargo test --no-default-features --features crypto-openssl
+      - name: Cargo.lock is unchanged
+        run: git diff --exit-code Cargo.lock
+      - name: cargo build
+        run: |
+          cargo build --no-default-features --features crypto-openssl
+          ldd target/debug/libsequoia_octopus_librnp.so
+
   ubuntu:
     name: Ubuntu 24.04, crypto-rust
     runs-on: ubuntu-24.04
