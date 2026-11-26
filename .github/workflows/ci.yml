@@ -14,6 +14,14 @@
 #              warnings are errors, Cargo.lock is consistent, no needlessly
 #              exported symbols.
 #   codespell  Debian trixie container, the upstream job `codespell`.
+#   probe      Fedora 45 container: prints the system crypto policy that
+#              the Octopus reads, then builds .github/sequoia-probe with
+#              sequoia-openpgp's OpenSSL backend and runs it with the test
+#              vectors of RFC 9980, Appendix A. The job passes only if
+#              every cell of the run has the status recorded in
+#              .github/sequoia-probe/expected-cells-openssl.txt. The probe
+#              is fork-only as well; its master copy is
+#              analysis/tools/sequoia-probe in stavroskousidis/pqc-octopus.
 #
 # Not here: upstream's `deny` job (cargo deny with the configuration of
 # sequoia-pgp/common-ci), the Windows jobs, and the Thunderbird jobs.
@@ -104,6 +112,13 @@ jobs:
         run: cargo test --no-default-features --features "$FEATURES"
       - name: Cargo.lock is unchanged
         run: git diff --exit-code Cargo.lock
+      - name: Resolved packages
+        # Cargo.lock does not pin the crates of the RustCrypto backend,
+        # because no feature of this crate enables it. Record what this
+        # run was built with.
+        run: |
+          cargo tree --locked --no-default-features --features "$FEATURES" \
+            --prefix none --edges normal,build | sort -u
 
   debian:
     name: Debian trixie, default backend, upstream gates
@@ -149,6 +164,77 @@ jobs:
             echo "Regression in the number of needlessly exported symbols." >&2
             exit 1
           fi
+
+  probe:
+    name: Fedora 45, sequoia-openpgp probe, OpenSSL backend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container: quay.io/fedora/fedora:45
+    env:
+      # SHA-256 of sources/rfc9980.txt in stavroskousidis/pqc-octopus.
+      RFC9980_SHA256: 3d2b30bdaecaf28bfde85545bd24e661a97f1e7b371a963778d4314a678c93ac
+    steps:
+      - name: Install build dependencies
+        run: |
+          dnf -y install git-core rust cargo gcc clang clang-devel llvm-devel \
+            pkgconf-pkg-config openssl openssl-devel capnproto python3 \
+            crypto-policies crypto-policies-scripts
+      - uses: actions/checkout@v5
+      - name: Environment
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cat /etc/os-release
+          rpm -q rust cargo openssl-libs openssl-devel clang-devel \
+            crypto-policies
+          rustc --version
+          cargo --version
+          openssl version
+          git rev-parse HEAD
+      - name: System crypto policy
+        # The file that rnp_ffi_create applies through
+        # sequoia-policy-config. The step fails if it does not exist.
+        run: |
+          update-crypto-policies --show
+          ls -l /etc/crypto-policies/back-ends/
+          echo "--- /etc/crypto-policies/back-ends/sequoia.config"
+          cat /etc/crypto-policies/back-ends/sequoia.config
+      - name: Packages in the Fedora 45 repositories (information)
+        run: |
+          dnf -q repoquery --latest-limit=1 \
+            --queryformat '%{name}-%{evr}.%{arch} %{repoid}\n' \
+            thunderbird thunderbird-librnp-rnp sequoia-octopus-librnp \
+            rust-sequoia-openpgp-devel rust-sequoia-policy-config-devel \
+            rust-ossl-devel rnp librnp openssl-libs crypto-policies rust
+      - name: RFC 9980, Appendix A test vectors
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/rfc9980.txt" \
+            https://www.rfc-editor.org/rfc/rfc9980.txt
+          echo "$RFC9980_SHA256  $RUNNER_TEMP/rfc9980.txt" | sha256sum -c -
+          python3 .github/sequoia-probe/extract-vectors.py \
+            "$RUNNER_TEMP/rfc9980.txt" "$RUNNER_TEMP/vectors"
+      - name: Build the probe
+        working-directory: .github/sequoia-probe
+        run: |
+          cargo build --release --locked --no-default-features --features openssl
+          git diff --exit-code Cargo.lock
+          ldd target/release/sequoia-probe
+      - name: Run the probe
+        working-directory: .github/sequoia-probe
+        run: |
+          # Exit status 0: no FAIL line. 1: at least one FAIL line, which
+          # is expected (see expected-cells-openssl.txt). Anything else:
+          # the probe itself broke.
+          status=0
+          target/release/sequoia-probe "$RUNNER_TEMP/vectors" \
+            > "$RUNNER_TEMP/probe-output.txt" || status=$?
+          cat "$RUNNER_TEMP/probe-output.txt"
+          echo "sequoia-probe: exit status $status"
+          if [ "$status" -gt 1 ]; then exit "$status"; fi
+      - name: Every cell is as expected
+        working-directory: .github/sequoia-probe
+        run: |
+          python3 check-cells.py expected-cells-openssl.txt \
+            "$RUNNER_TEMP/probe-output.txt"
 
   codespell:
     name: codespell

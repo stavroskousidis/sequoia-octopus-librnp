@@ -1,0 +1,262 @@
+# Expected cells of sequoia-probe with the RustCrypto backend (feature
+# rust): group | operation | status. Recorded from a run in the agent
+# container with sequoia-openpgp 2.5.0 and the Appendix A vectors of
+# RFC 9980, without a system crypto policy file, on 2026-11-26. This is
+# the reference. The 12 FAIL lines are findings F21 (no keygrip, 11
+# lines) and F23 (ML-KEM-1024+X448 with a SEIPDv1-only recipient); the 16
+# ACCEPTED lines are F22 and the creation cases of RFC 9980, section 7.2.
+backend | PublicKeyAlgorithm X25519 (ID 25) is_supported | info
+backend | PublicKeyAlgorithm X448 (ID 26) is_supported | info
+backend | PublicKeyAlgorithm Ed25519 (ID 27) is_supported | info
+backend | PublicKeyAlgorithm Ed448 (ID 28) is_supported | info
+backend | PublicKeyAlgorithm ML-DSA-65+Ed25519 (ID 30) is_supported | info
+backend | PublicKeyAlgorithm ML-DSA-87+Ed448 (ID 31) is_supported | info
+backend | PublicKeyAlgorithm SLHDSA128s (ID 32) is_supported | info
+backend | PublicKeyAlgorithm SLHDSA128f (ID 33) is_supported | info
+backend | PublicKeyAlgorithm SLHDSA256s (ID 34) is_supported | info
+backend | PublicKeyAlgorithm ML-KEM-768+X25519 (ID 35) is_supported | info
+backend | PublicKeyAlgorithm ML-KEM-1024+X448 (ID 36) is_supported | info
+backend | CipherSuite::MLDSA65_Ed25519 is_supported | info
+backend | CipherSuite::MLDSA87_Ed448 is_supported | info
+backend | AEAD OCB is_supported | info
+backend | AEAD GCM is_supported | info
+backend | AEAD EAX is_supported | info
+backend | default AEAD / symmetric algorithm | info
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | generate v6 certificate | ok
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | valid under StandardPolicy | ok
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | preferences set by CertBuilder | info
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | serialise and re-parse certificate | ok
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | serialise and re-parse secret key (unprotected) | ok
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | protect, serialise, re-parse, unlock secret key | ok
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | sign (inline) | ok
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | verify (inline) | ok
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | sign (detached) | ok
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | verify (detached) | ok
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | verify (detached) over different data | rejected
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | verify with one bit flipped in the ML-DSA part | rejected
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | verify with one bit flipped in the EdDSA part | rejected
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | sign (detached) with SHA256, the hash Thunderbird sets | ok
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | verify (detached) SHA256 signature | ok
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | encrypt | ok
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | decrypt | ok
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | sign and encrypt | ok
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | decrypt and verify | ok
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | Keygrip::of(primary key) | FAIL
+ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | Keygrip::of(encryption subkey) | FAIL
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | generate v6 certificate | ok
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | valid under StandardPolicy | ok
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | preferences set by CertBuilder | info
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | serialise and re-parse certificate | ok
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | serialise and re-parse secret key (unprotected) | ok
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | protect, serialise, re-parse, unlock secret key | ok
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | sign (inline) | ok
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | verify (inline) | ok
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | sign (detached) | ok
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | verify (detached) | ok
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | verify (detached) over different data | rejected
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | verify with one bit flipped in the ML-DSA part | rejected
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | verify with one bit flipped in the EdDSA part | rejected
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | sign (detached) with SHA256, the hash Thunderbird sets | ok
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | verify (detached) SHA256 signature | ok
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | encrypt | ok
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | decrypt | ok
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | sign and encrypt | ok
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | decrypt and verify | ok
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | Keygrip::of(primary key) | FAIL
+ML-DSA-87+Ed448 / ML-KEM-1024+X448 | Keygrip::of(encryption subkey) | FAIL
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | generate v6 certificate | ok
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | valid under StandardPolicy | ok
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | preferences set by CertBuilder | info
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | serialise and re-parse certificate | ok
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | serialise and re-parse secret key (unprotected) | ok
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | protect, serialise, re-parse, unlock secret key | ok
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | sign (inline) | ok
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | verify (inline) | ok
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | sign (detached) | ok
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | verify (detached) | ok
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | verify (detached) over different data | rejected
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | verify with one bit flipped in the signature | rejected
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | sign (detached) with SHA256, the hash Thunderbird sets | ok
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | verify (detached) SHA256 signature | ok
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | encrypt | ok
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | decrypt | ok
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | sign and encrypt | ok
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | decrypt and verify | ok
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | Keygrip::of(primary key) | FAIL
+SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | Keygrip::of(encryption subkey) | FAIL
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | generate v6 certificate | ok
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | valid under StandardPolicy | ok
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | preferences set by CertBuilder | info
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | serialise and re-parse certificate | ok
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | serialise and re-parse secret key (unprotected) | ok
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | protect, serialise, re-parse, unlock secret key | ok
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | sign (inline) | ok
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | verify (inline) | ok
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | sign (detached) | ok
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | verify (detached) | ok
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | verify (detached) over different data | rejected
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | verify with one bit flipped in the signature | rejected
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | sign (detached) with SHA256, the hash Thunderbird sets | ok
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | verify (detached) SHA256 signature | ok
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | encrypt | ok
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | decrypt | ok
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | sign and encrypt | ok
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | decrypt and verify | ok
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | Keygrip::of(primary key) | FAIL
+SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | Keygrip::of(encryption subkey) | FAIL
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | generate v6 certificate | ok
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | valid under StandardPolicy | ok
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | preferences set by CertBuilder | info
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | serialise and re-parse certificate | ok
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | serialise and re-parse secret key (unprotected) | ok
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | protect, serialise, re-parse, unlock secret key | ok
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | sign (inline) | ok
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | verify (inline) | ok
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | sign (detached) | ok
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | verify (detached) | ok
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | verify (detached) over different data | rejected
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | verify with one bit flipped in the signature | rejected
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | sign (detached) with SHA256, the hash Thunderbird sets | ok
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | verify (detached) SHA256 signature | ok
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | encrypt | ok
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | decrypt | ok
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | sign and encrypt | ok
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | decrypt and verify | ok
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | Keygrip::of(primary key) | FAIL
+SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | Keygrip::of(encryption subkey) | FAIL
+v4 + ML-KEM-768+X25519 | generate v4 certificate with ML-KEM subkey (CertBuilder) | ok
+v4 + ML-KEM-768+X25519 | valid under StandardPolicy | ok
+v4 + ML-KEM-768+X25519 | preferences set by CertBuilder | info
+v4 + ML-KEM-768+X25519 | serialise and re-parse secret key (unprotected) | ok
+v4 + ML-KEM-768+X25519 | protect, serialise, re-parse, unlock secret key | ok
+v4 + ML-KEM-768+X25519 | sign and encrypt (features as advertised) | ok
+v4 + ML-KEM-768+X25519 | decrypt and verify | ok
+v4 + ML-KEM-768+X25519 | sign and encrypt (recipient treated as SEIPDv1 only) | ok
+v4 + ML-KEM-768+X25519 | decrypt and verify (PKESK v3, SEIPD v1) | ok
+v4 + ML-KEM-768+X25519 | Keygrip::of(legacy EdDSA primary key) | ok
+v4 + ML-KEM-768+X25519 | Keygrip::of(ML-KEM subkey) | FAIL
+v4 + ML-KEM-768+X25519 | add ML-KEM subkey to an existing classic v4 certificate | ok
+v4 + ML-KEM-768+X25519 | generate v4 ML-KEM-1024+X448 key (RFC 9980, 4.3.2) | rejected
+v4 + ML-KEM-768+X25519 | generate v4 ML-DSA-65+Ed25519 key (RFC 9980, 5.3.2) | rejected
+v4 + ML-KEM-768+X25519 | generate v4 ML-DSA-87+Ed448 key (RFC 9980, 5.3.2) | rejected
+v4 + ML-KEM-768+X25519 | generate v4 SLH-DSA-SHAKE-128s key (RFC 9980, 6.2.2) | rejected
+v4 + ML-KEM-768+X25519 | generate v4 SLH-DSA-SHAKE-128f key (RFC 9980, 6.2.2) | rejected
+v4 + ML-KEM-768+X25519 | generate v4 SLH-DSA-SHAKE-256s key (RFC 9980, 6.2.2) | rejected
+negative | create ML-DSA-65+Ed25519 signature over SHA224 (RFC 9980, 5.3.1) | ACCEPTED
+negative | verify ML-DSA-65+Ed25519 signature over SHA224 (RFC 9980, 5.3.1) under StandardPolicy | ACCEPTED
+negative | create ML-DSA-65+Ed25519 signature over SHA1 (RFC 9980, 5.3.1) | rejected
+negative | create SLH-DSA-SHAKE-128f signature over SHA224 (RFC 9980, 6.2.1) | ACCEPTED
+negative | verify SLH-DSA-SHAKE-128f signature over SHA224 (RFC 9980, 6.2.1) under StandardPolicy | ACCEPTED
+negative | create SLH-DSA-SHAKE-128f signature over SHA1 (RFC 9980, 6.2.1) | rejected
+negative | build v4 certificate with ML-DSA-65+Ed25519 primary key (RFC 9980, 5.3.2) | ACCEPTED
+negative | re-parse that v4 ML-DSA certificate | ACCEPTED
+negative | v4 ML-DSA certificate valid under StandardPolicy | ACCEPTED
+negative | sign with the v4 ML-DSA key (RFC 9980, 5.3.1) | ACCEPTED
+negative | verify the v4 ML-DSA signature under StandardPolicy | ACCEPTED
+negative | create v3 PKESK for ML-KEM-768+X25519 with Camellia-256 (RFC 9980, 4.3.1) | ACCEPTED
+negative | decrypt v3 PKESK for ML-KEM-768+X25519 with Camellia-256 (RFC 9980, 4.3.1) | ACCEPTED
+negative | create v3 PKESK for ML-KEM-768+X25519 with Twofish (RFC 9980, 4.3.1) | ACCEPTED
+negative | decrypt v3 PKESK for ML-KEM-768+X25519 with Twofish (RFC 9980, 4.3.1) | ACCEPTED
+negative | create v4 ML-KEM-768+X25519 subkey bound with SHA1 (RFC 9980, 7.2) | ACCEPTED
+negative | use v4 ML-KEM-768+X25519 subkey bound with SHA1 (RFC 9980, 7.2) under StandardPolicy | rejected
+negative | create v4 ML-KEM-768+X25519 subkey bound with RipeMD160 (RFC 9980, 7.2) | ACCEPTED
+negative | use v4 ML-KEM-768+X25519 subkey bound with RipeMD160 (RFC 9980, 7.2) under StandardPolicy | rejected
+negative | create v4 ML-KEM-768+X25519 subkey bound with MD5 (RFC 9980, 7.2) | ACCEPTED
+negative | use v4 ML-KEM-768+X25519 subkey bound with MD5 (RFC 9980, 7.2) under StandardPolicy | rejected
+mixed recipients | v6 PQ + v4 with ML-KEM subkey + classic v4 | ok
+mixed recipients | v6 certificate with ML-KEM-768+X25519 subkey + classic v4 certificate that advertises only SEIPDv1 | ok
+mixed recipients | v6 certificate with ML-KEM-1024+X448 subkey + classic v4 certificate that advertises only SEIPDv1 | FAIL
+mixed recipients | ML-KEM-1024+X448 recipient treated as SEIPDv1 only | info
+unknown algorithm | certificate with an extra subkey of algorithm ID 37 | ok
+system policy | environment variable SEQUOIA_CRYPTO_POLICY | info
+system policy | file /etc/crypto-policies/back-ends/sequoia.config | info
+system policy | parse_default_config | ok
+system policy | asymmetric algorithm ML-DSA-65+Ed25519 accepted | ok
+system policy | asymmetric algorithm ML-DSA-87+Ed448 accepted | ok
+system policy | asymmetric algorithm SLH-DSA-SHAKE-128s accepted | ok
+system policy | asymmetric algorithm SLH-DSA-SHAKE-128f accepted | ok
+system policy | asymmetric algorithm SLH-DSA-SHAKE-256s accepted | ok
+system policy | asymmetric algorithm ML-KEM-768+X25519 accepted | ok
+system policy | asymmetric algorithm ML-KEM-1024+X448 accepted | ok
+system policy: ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | certificate valid | ok
+system policy: ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | signing-capable key usable | ok
+system policy: ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | encryption-capable key usable | ok
+system policy: ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | sign and verify | ok
+system policy: ML-DSA-65+Ed25519 / ML-KEM-768+X25519 | sign, encrypt, decrypt and verify | ok
+system policy: ML-DSA-87+Ed448 / ML-KEM-1024+X448 | certificate valid | ok
+system policy: ML-DSA-87+Ed448 / ML-KEM-1024+X448 | signing-capable key usable | ok
+system policy: ML-DSA-87+Ed448 / ML-KEM-1024+X448 | encryption-capable key usable | ok
+system policy: ML-DSA-87+Ed448 / ML-KEM-1024+X448 | sign and verify | ok
+system policy: ML-DSA-87+Ed448 / ML-KEM-1024+X448 | sign, encrypt, decrypt and verify | ok
+system policy: SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | certificate valid | ok
+system policy: SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | signing-capable key usable | ok
+system policy: SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | encryption-capable key usable | ok
+system policy: SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | sign and verify | ok
+system policy: SLH-DSA-SHAKE-128s / ML-KEM-768+X25519 | sign, encrypt, decrypt and verify | ok
+system policy: SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | certificate valid | ok
+system policy: SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | signing-capable key usable | ok
+system policy: SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | encryption-capable key usable | ok
+system policy: SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | sign and verify | ok
+system policy: SLH-DSA-SHAKE-128f / ML-KEM-768+X25519 | sign, encrypt, decrypt and verify | ok
+system policy: SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | certificate valid | ok
+system policy: SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | signing-capable key usable | ok
+system policy: SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | encryption-capable key usable | ok
+system policy: SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | sign and verify | ok
+system policy: SLH-DSA-SHAKE-256s / ML-KEM-1024+X448 | sign, encrypt, decrypt and verify | ok
+system policy: v4 + ML-KEM-768+X25519 | certificate valid | ok
+system policy: v4 + ML-KEM-768+X25519 | signing-capable key usable | ok
+system policy: v4 + ML-KEM-768+X25519 | encryption-capable key usable | ok
+system policy: v4 + ML-KEM-768+X25519 | sign and verify | ok
+system policy: v4 + ML-KEM-768+X25519 | sign, encrypt, decrypt and verify | ok
+RFC 9980 A.1.1 | parse Transferable Secret Key | ok
+RFC 9980 A.1.1 | Transferable Secret Key valid under StandardPolicy | ok
+RFC 9980 A.1.2 | parse Transferable Public Key | ok
+RFC 9980 A.1.2 | Transferable Public Key valid under StandardPolicy | ok
+RFC 9980 A.1.2 | public key equals the secret key's public part | ok
+RFC 9980 A.1.3 | structure of Encrypted and Signed Message | info
+RFC 9980 A.1.3 | decrypt and verify Encrypted and Signed Message | ok
+RFC 9980 A.2.1 | parse Transferable Secret Key | ok
+RFC 9980 A.2.1 | Transferable Secret Key valid under StandardPolicy | ok
+RFC 9980 A.2.2 | parse Transferable Public Key | ok
+RFC 9980 A.2.2 | Transferable Public Key valid under StandardPolicy | ok
+RFC 9980 A.2.2 | public key equals the secret key's public part | ok
+RFC 9980 A.2.3 | structure of Encrypted and Signed SEIPD v1 Message | info
+RFC 9980 A.2.3 | decrypt and verify Encrypted and Signed SEIPD v1 Message | ok
+RFC 9980 A.2.4 | structure of Encrypted and Signed SEIPD v2 Message | info
+RFC 9980 A.2.4 | decrypt and verify Encrypted and Signed SEIPD v2 Message | ok
+RFC 9980 A.3.1 | parse Transferable Secret Key | ok
+RFC 9980 A.3.1 | Transferable Secret Key valid under StandardPolicy | ok
+RFC 9980 A.3.2 | parse Transferable Public Key | ok
+RFC 9980 A.3.2 | Transferable Public Key valid under StandardPolicy | ok
+RFC 9980 A.3.2 | public key equals the secret key's public part | ok
+RFC 9980 A.3.3 | structure of Encrypted and Signed Message | info
+RFC 9980 A.3.3 | decrypt and verify Encrypted and Signed Message | ok
+RFC 9980 A.3.4 | verify Detached Signature | ok
+RFC 9980 A.4.1 | parse Transferable Secret Key | ok
+RFC 9980 A.4.1 | Transferable Secret Key valid under StandardPolicy | ok
+RFC 9980 A.4.2 | parse Transferable Public Key | ok
+RFC 9980 A.4.2 | Transferable Public Key valid under StandardPolicy | ok
+RFC 9980 A.4.2 | public key equals the secret key's public part | ok
+RFC 9980 A.4.3 | structure of Encrypted and Signed Message | info
+RFC 9980 A.4.3 | decrypt and verify Encrypted and Signed Message | ok
+RFC 9980 A.4.4 | verify Detached Signature | ok
+RFC 9980 A.5.1 | parse Transferable Secret Key | ok
+RFC 9980 A.5.1 | Transferable Secret Key valid under StandardPolicy | ok
+RFC 9980 A.5.2 | parse Transferable Public Key | ok
+RFC 9980 A.5.2 | Transferable Public Key valid under StandardPolicy | ok
+RFC 9980 A.5.2 | public key equals the secret key's public part | ok
+RFC 9980 A.5.3 | structure of Encrypted and Signed Message | info
+RFC 9980 A.5.3 | decrypt and verify Encrypted and Signed Message | ok
+RFC 9980 A.5.4 | verify Detached Signature | ok
+RFC 9980 A.6.1 | parse Transferable Secret Key | ok
+RFC 9980 A.6.1 | Transferable Secret Key valid under StandardPolicy | ok
+RFC 9980 A.6.2 | parse Transferable Public Key | ok
+RFC 9980 A.6.2 | Transferable Public Key valid under StandardPolicy | ok
+RFC 9980 A.6.2 | public key equals the secret key's public part | ok
+RFC 9980 A.6.3 | verify Detached Signature | ok
+RFC 9980 A.7.1 | parse Transferable Secret Key | ok
+RFC 9980 A.7.1 | Transferable Secret Key valid under StandardPolicy | ok
+RFC 9980 A.7.2 | parse Transferable Public Key | ok
+RFC 9980 A.7.2 | Transferable Public Key valid under StandardPolicy | ok
+RFC 9980 A.7.2 | public key equals the secret key's public part | ok
+RFC 9980 A.7.3 | verify Detached Signature | ok
