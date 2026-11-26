@@ -1,0 +1,30 @@
+[package]
+name = "sequoia-probe"
+description = "Capability probe: what sequoia-openpgp does for the RFC 9980 algorithms on one crypto backend"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "LGPL-2.0-or-later"
+
+# Keep this project out of any surrounding workspace.
+[workspace]
+
+[dependencies]
+anyhow = "1"
+sequoia-openpgp = { version = "=2.5.0", default-features = false, features = ["compression"] }
+# Only for the system crypto policy, read the way the Octopus reads it.
+sequoia-policy-config = { version = "=0.8.2", default-features = false }
+# Only for Keygrip::of.
+sequoia-ipc = { version = "0.36", default-features = false }
+
+[features]
+# Exactly one backend. RustCrypto is the one the agent container can use
+# for post-quantum algorithms (OpenSSL there is 3.0, Nettle has none).
+default = ["rust"]
+rust = [
+    "sequoia-openpgp/crypto-rust",
+    "sequoia-openpgp/allow-experimental-crypto",
+    "sequoia-openpgp/allow-variable-time-crypto",
+]
+nettle = ["sequoia-openpgp/crypto-nettle"]
+openssl = ["sequoia-openpgp/crypto-openssl"]
