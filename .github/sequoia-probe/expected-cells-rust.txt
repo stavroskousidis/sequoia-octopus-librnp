@@ -1,11 +1,10 @@
-# Expected cells of sequoia-probe: group | operation | status.
-# Recorded from a run with the RustCrypto backend (feature rust),
-# sequoia-openpgp 2.5.0, with the Appendix A vectors of RFC 9980 and
-# without a system crypto policy file, on 2026-11-26. The 12 FAIL
-# lines are findings F21 (no keygrip, 11 lines) and F23 (ML-KEM-1024
-# with a SEIPDv1-only recipient); the 16 ACCEPTED lines are F22 and
-# the creation cases of RFC 9980, section 7.2. check-cells.py compares
-# a run against this file.
+# Expected cells of sequoia-probe with the RustCrypto backend (feature
+# rust): group | operation | status. Recorded from a run in the agent
+# container with sequoia-openpgp 2.5.0 and the Appendix A vectors of
+# RFC 9980, without a system crypto policy file, on 2026-11-26. This is
+# the reference. The 12 FAIL lines are findings F21 (no keygrip, 11
+# lines) and F23 (ML-KEM-1024+X448 with a SEIPDv1-only recipient); the 16
+# ACCEPTED lines are F22 and the creation cases of RFC 9980, section 7.2.
 backend | PublicKeyAlgorithm X25519 (ID 25) is_supported | info
 backend | PublicKeyAlgorithm X448 (ID 26) is_supported | info
 backend | PublicKeyAlgorithm Ed25519 (ID 27) is_supported | info

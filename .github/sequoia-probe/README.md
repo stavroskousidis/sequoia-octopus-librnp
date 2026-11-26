@@ -48,13 +48,11 @@ The groups that start with `system policy` build the policy the way `rnp_ffi_cre
 
 ## Expected cells
 
-`expected-cells.txt` lists `group | operation | status` for every cell, recorded from a run with the RustCrypto backend and the Appendix A vectors. `check-cells.py` compares a run with it and ignores the detail column:
+`expected-cells-rust.txt` and `expected-cells-openssl.txt` list `group | operation | status` for every cell of a run with the Appendix A vectors: the first recorded with the RustCrypto backend in the agent container (the reference, 255 cells), the second with the OpenSSL backend and OpenSSL 4.0.3 in the Fedora 45 container (254 cells). They differ in one place: the OpenSSL backend has no Twofish, so the two Twofish cells of the RFC 9980, section 4.3.1 case are one `info` cell there. `check-cells.py` compares a run with one of the files and ignores the detail column:
 
 ```
 $CARGO_TARGET_DIR/release/sequoia-probe /home/claude/work/rfc9980-vectors > probe-output.txt
-python3 check-cells.py expected-cells.txt probe-output.txt
+python3 check-cells.py expected-cells-rust.txt probe-output.txt
 ```
 
-Its exit status is 0 only if the run has exactly the expected cells. That is the criterion of the CI job: the probe's own exit status is 1 as long as findings F21 and F23 hold, so it cannot be one. A backend that lacks the algorithms, or a crypto policy that rejects one of them, shows up as a difference.
-
-On the RustCrypto backend the SLH-DSA "s" parameter sets are slow: the whole run takes about 45 seconds in the agent container (2 cores, release build).
+Its exit status is 0 only if the run has exactly the expected cells. That is the criterion of the CI job, with `expected-cells-openssl.txt`: the probe's own exit status is 1 as long as findings F21 and F23 hold, so it cannot be one. A backend that lacks the algorithms, a failing test vector, or a crypto policy that rejects one of the algorithms shows up as a difference. When a cell changes for a good reason (for example because Sequoia fixes F22), the expected files change in the same commit, with the reason.

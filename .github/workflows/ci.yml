@@ -19,8 +19,8 @@
 #              sequoia-openpgp's OpenSSL backend and runs it with the test
 #              vectors of RFC 9980, Appendix A. The job passes only if
 #              every cell of the run has the status recorded in
-#              .github/sequoia-probe/expected-cells.txt. The probe is
-#              fork-only as well; its master copy is
+#              .github/sequoia-probe/expected-cells-openssl.txt. The probe
+#              is fork-only as well; its master copy is
 #              analysis/tools/sequoia-probe in stavroskousidis/pqc-octopus.
 #
 # Not here: upstream's `deny` job (cargo deny with the configuration of
@@ -222,8 +222,8 @@ jobs:
         working-directory: .github/sequoia-probe
         run: |
           # Exit status 0: no FAIL line. 1: at least one FAIL line, which
-          # is expected (see expected-cells.txt). Anything else: the probe
-          # itself broke.
+          # is expected (see expected-cells-openssl.txt). Anything else:
+          # the probe itself broke.
           status=0
           target/release/sequoia-probe "$RUNNER_TEMP/vectors" \
             > "$RUNNER_TEMP/probe-output.txt" || status=$?
@@ -233,7 +233,7 @@ jobs:
       - name: Every cell is as expected
         working-directory: .github/sequoia-probe
         run: |
-          python3 check-cells.py expected-cells.txt \
+          python3 check-cells.py expected-cells-openssl.txt \
             "$RUNNER_TEMP/probe-output.txt"
 
   codespell:
