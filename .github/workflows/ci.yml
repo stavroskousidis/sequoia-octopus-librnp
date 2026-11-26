@@ -177,7 +177,7 @@ jobs:
       - name: Install build dependencies
         run: |
           dnf -y install git-core rust cargo gcc clang clang-devel llvm-devel \
-            pkgconf-pkg-config openssl openssl-devel python3 \
+            pkgconf-pkg-config openssl openssl-devel capnproto python3 \
             crypto-policies crypto-policies-scripts
       - uses: actions/checkout@v5
       - name: Environment
