@@ -51,7 +51,7 @@ use crate::{
     RnpResult,
     RnpContext,
     RnpOutput,
-    Keygrip,
+    keygrip::keygrip_of,
     RnpSignature,
     RnpUserID,
     RnpPasswordFor,
@@ -268,7 +268,7 @@ fn rnp_locate_key(ctx: *mut RnpContext,
             Fingerprint(fp) => cert.keys().key_handle(fp)
                 .nth(0).expect("must exist in cert").key().clone(),
             Keygrip(grip) => cert.keys().filter(|k| {
-                crate::Keygrip::of(k.key().mpis()).map(|g| g == grip).unwrap_or(false)
+                keygrip_of(k.key().mpis()).map(|g| g == grip).unwrap_or(false)
             })
                 .nth(0).expect("must exist in cert").key().clone(),
         }.parts_into_unspecified();
@@ -418,7 +418,7 @@ fn rnp_key_get_grip(key: *const RnpKey,
     let key = assert_ptr_ref!(key);
     let grip = assert_ptr_mut!(grip);
 
-    rnp_return_status!(if let Ok(keygrip) = Keygrip::of((*key).mpis()) {
+    rnp_return_status!(if let Ok(keygrip) = keygrip_of((*key).mpis()) {
         *grip = str_to_rnp_buffer(keygrip.to_string());
         RNP_SUCCESS
     } else {
@@ -435,7 +435,7 @@ fn rnp_key_get_primary_grip(key: *mut RnpKey,
     let grip = assert_ptr_mut!(grip);
 
     rnp_return_status!(if let Some(cert) = (*key).cert() {
-        if let Ok(keygrip) = Keygrip::of(cert.primary_key().key().mpis()) {
+        if let Ok(keygrip) = keygrip_of(cert.primary_key().key().mpis()) {
             *grip = str_to_rnp_buffer(keygrip.to_string());
             RNP_SUCCESS
         } else {
@@ -493,12 +493,36 @@ fn rnp_key_get_bits(key: *const RnpKey,
     let key = assert_ptr_ref!(key);
     let bits = assert_ptr_mut!(bits);
 
-    rnp_return_status!(if let Some(b) = (*key).mpis().bits() {
+    rnp_return_status!(if let Some(b) = public_key_bits((*key).mpis()) {
         *bits = b as u32;
         RNP_SUCCESS
     } else {
         RNP_ERROR_NO_SUITABLE_KEY
     })
+}
+
+/// Returns the size of the public key in bits.
+///
+/// Sequoia does not define a size for the algorithms defined in RFC
+/// 9980.  Like RNP, we return the size of the algorithm-specific part
+/// of the public key, i.e. of the fixed-length octet strings in the
+/// key packet.  Note that this is not a security level.
+fn public_key_bits(mpis: &openpgp::crypto::mpi::PublicKey) -> Option<usize> {
+    use openpgp::crypto::mpi::PublicKey::*;
+    match mpis {
+        MLDSA65_Ed25519 { eddsa, mldsa } =>
+            Some((eddsa.len() + mldsa.len()) * 8),
+        MLDSA87_Ed448 { eddsa, mldsa } =>
+            Some((eddsa.len() + mldsa.len()) * 8),
+        SLHDSA128s { public } => Some(public.len() * 8),
+        SLHDSA128f { public } => Some(public.len() * 8),
+        SLHDSA256s { public } => Some(public.len() * 8),
+        MLKEM768_X25519 { ecdh, mlkem } =>
+            Some((ecdh.len() + mlkem.len()) * 8),
+        MLKEM1024_X448 { ecdh, mlkem } =>
+            Some((ecdh.len() + mlkem.len()) * 8),
+        _ => mpis.bits(),
+    }
 }
 
 /// Returns the version of the key packet.
@@ -3285,6 +3309,411 @@ Pnn+We1aTBhaGa86AQ==
             let r = unsafe { rnp_ffi_destroy(ctx) };
             assert_eq!(r, RNP_SUCCESS);
         }
+        Ok(())
+    }
+
+    const RNP_ERROR_GENERIC: u32 =
+        crate::error::RNP_ERROR_GENERIC.as_u32();
+    const RNP_ERROR_BAD_PARAMETERS: u32 =
+        crate::error::RNP_ERROR_BAD_PARAMETERS.as_u32();
+    const RNP_ERROR_NO_SUITABLE_KEY: u32 =
+        crate::error::RNP_ERROR_NO_SUITABLE_KEY.as_u32();
+
+    /// Calls a function that returns a string in a buffer that the
+    /// caller has to free.
+    fn get_string<F>(f: F) -> std::result::Result<String, RnpResult>
+        where F: FnOnce(*mut *mut c_char) -> RnpResult
+    {
+        let mut s: *mut c_char = std::ptr::null_mut();
+        let r = f(&mut s as *mut *mut _);
+        if r != RNP_SUCCESS {
+            assert!(s.is_null());
+            return Err(r);
+        }
+        assert!(! s.is_null());
+        let result = unsafe {
+            std::ffi::CStr::from_ptr(s).to_str().unwrap().to_string()
+        };
+        unsafe { crate::buffer::rnp_buffer_destroy(s as *mut _) };
+        Ok(result)
+    }
+
+    /// Looks up the key by the given kind of identifier.  Returns
+    /// NULL if there is no such key.
+    fn locate_by(ctx: *mut RnpContext, kind: &str, id: &str)
+                 -> *mut RnpKey
+    {
+        let kind = CString::new(kind).unwrap();
+        let id = CString::new(id).unwrap();
+        // Initialize it with something that is not NULL so that we
+        // notice that the function stores NULL.
+        let mut key = std::ptr::NonNull::<RnpKey>::dangling().as_ptr();
+        let r = unsafe {
+            rnp_locate_key(ctx, kind.as_ptr(), id.as_ptr(),
+                           &mut key as *mut *mut _)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        key
+    }
+
+    /// Returns all identifiers of the given kind.
+    fn identifiers(ctx: *mut RnpContext, kind: &str) -> Vec<String> {
+        use crate::iter::*;
+
+        let kind = CString::new(kind).unwrap();
+        let mut iter: *mut RnpIdentifierIterator = std::ptr::null_mut();
+        let r = unsafe {
+            rnp_identifier_iterator_create(
+                ctx, &mut iter as *mut *mut _, kind.as_ptr())
+        };
+        assert_eq!(r, RNP_SUCCESS);
+
+        let mut ids = Vec::new();
+        loop {
+            let mut id: *const c_char = std::ptr::null();
+            let r = unsafe {
+                rnp_identifier_iterator_next(iter, &mut id as *mut *const _)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+            if id.is_null() {
+                break;
+            }
+            ids.push(unsafe {
+                std::ffi::CStr::from_ptr(id).to_str().unwrap().to_string()
+            });
+            unsafe { crate::buffer::rnp_buffer_destroy(id as *mut _) };
+        }
+
+        let r = unsafe { rnp_identifier_iterator_destroy(iter) };
+        assert_eq!(r, RNP_SUCCESS);
+        ids
+    }
+
+    fn get_alg(key: *mut RnpKey) -> String {
+        get_string(|s| unsafe { rnp_key_get_alg(key, s) }).unwrap()
+    }
+
+    fn get_fprint(key: *mut RnpKey) -> String {
+        get_string(|s| unsafe { rnp_key_get_fprint(key, s) }).unwrap()
+    }
+
+    fn get_bits(key: *mut RnpKey) -> std::result::Result<u32, RnpResult> {
+        let mut bits: u32 = 0;
+        let r = unsafe { rnp_key_get_bits(key, &mut bits as *mut _) };
+        if r == RNP_SUCCESS { Ok(bits) } else { Err(r) }
+    }
+
+    fn is_sub(key: *mut RnpKey) -> bool {
+        let mut sub = false;
+        let r = unsafe { rnp_key_is_sub(key, &mut sub as *mut _) };
+        assert_eq!(r, RNP_SUCCESS);
+        sub
+    }
+
+    /// What the keys of RFC 9980, Appendix A report.
+    ///
+    /// Nothing here depends on whether the cryptographic backend
+    /// supports the algorithms: these are properties of the key
+    /// packets.  Whether the certificates are valid is a different
+    /// matter, and not tested here.
+    #[test]
+    fn rfc9980_key_properties() -> openpgp::Result<()> {
+        use crate::testdata::rfc9980;
+
+        for v in rfc9980::VECTORS {
+            let cert = v.cert();
+            assert_eq!(cert.keys().count(), 2, "{}", v.section);
+            let ctx = ctx_with_certs(&[&cert]);
+
+            for (i, expected) in v.keys().into_iter().enumerate() {
+                let key = locate_by(ctx, "fingerprint", expected.fingerprint);
+                assert!(! key.is_null(), "{}", v.section);
+
+                assert_eq!(is_sub(key), i == 1, "{}", v.section);
+                assert_eq!(get_fprint(key), expected.fingerprint,
+                           "{}", v.section);
+
+                // RFC 9580, Section 5.5.4.2 and 5.5.4.3.
+                let keyid = match v.version {
+                    4 => &expected.fingerprint[24..],
+                    6 => &expected.fingerprint[..16],
+                    _ => unreachable!(),
+                };
+                assert_eq!(
+                    get_string(|s| unsafe { rnp_key_get_keyid(key, s) }),
+                    Ok(keyid.to_string()), "{}", v.section);
+
+                let mut version: u32 = 0;
+                let r = unsafe {
+                    rnp_key_get_version(key, &mut version as *mut _)
+                };
+                assert_eq!(r, RNP_SUCCESS);
+                assert_eq!(version, v.version, "{}", v.section);
+
+                assert_eq!(get_alg(key), expected.name, "{}", v.section);
+                assert_eq!(get_bits(key), Ok(expected.bits),
+                           "{}", v.section);
+
+                assert_eq!(
+                    get_string(|s| unsafe { rnp_key_get_grip(key, s) }),
+                    Ok(expected.grip.to_string()), "{}", v.section);
+                assert_eq!(
+                    get_string(|s| unsafe {
+                        rnp_key_get_primary_grip(key, s)
+                    }),
+                    Ok(v.primary.grip.to_string()), "{}", v.section);
+
+                // Like RNP, we don't report a curve for the
+                // algorithms from RFC 9980.
+                if expected.algo >= 30 {
+                    assert_eq!(
+                        get_string(|s| unsafe { rnp_key_get_curve(key, s) }),
+                        Err(RNP_ERROR_BAD_PARAMETERS), "{}", v.section);
+                }
+
+                // The other identifiers find the same key.
+                for (kind, id) in [("grip", expected.grip), ("keyid", keyid)] {
+                    let other = locate_by(ctx, kind, id);
+                    assert!(! other.is_null(), "{}: {}", v.section, kind);
+                    assert_eq!(get_fprint(other), expected.fingerprint,
+                               "{}: {}", v.section, kind);
+                    let r = unsafe { rnp_key_handle_destroy(other) };
+                    assert_eq!(r, RNP_SUCCESS);
+                }
+
+                let r = unsafe { rnp_key_handle_destroy(key) };
+                assert_eq!(r, RNP_SUCCESS);
+            }
+
+            // Thunderbird enumerates the keys by keygrip.
+            assert_eq!(identifiers(ctx, "grip"), &[v.primary.grip],
+                       "{}", v.section);
+            assert_eq!(identifiers(ctx, "fingerprint"),
+                       &[v.primary.fingerprint],
+                       "{}", v.section);
+
+            let r = unsafe { rnp_ffi_destroy(ctx) };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+        Ok(())
+    }
+
+    /// Enumerates a keyring with certificates of all kinds by
+    /// keygrip.
+    #[test]
+    fn enumerate_by_keygrip() -> openpgp::Result<()> {
+        use std::collections::BTreeSet;
+        use openpgp::Profile;
+        use openpgp::cert::CertBuilder;
+        use sequoia_ipc::Keygrip;
+        use crate::testdata::rfc9980;
+
+        // A certificate with keys that GnuPG knows: the keygrips are
+        // GnuPG's.
+        let (v4, _) = CertBuilder::general_purpose(Some("v4"))
+            .set_profile(Profile::RFC4880)?
+            .generate()?;
+        assert!(v4.keys().count() > 1);
+        let v4_grip =
+            Keygrip::of(v4.primary_key().key().mpis())?.to_string();
+
+        // A v6 certificate with Ed25519 and X25519 keys.
+        let (v6, _) = CertBuilder::general_purpose(Some("v6"))
+            .set_profile(Profile::RFC9580)?
+            .generate()?;
+        assert!(v6.keys().count() > 1);
+        assert!(Keygrip::of(v6.primary_key().key().mpis()).is_err());
+
+        let mut certs = vec![v4.clone(), v6.clone()];
+        let mut expected_fprs = BTreeSet::new();
+        expected_fprs.insert(v4.fingerprint().to_hex());
+        expected_fprs.insert(v6.fingerprint().to_hex());
+        for v in rfc9980::VECTORS {
+            certs.push(v.cert());
+            expected_fprs.insert(v.primary.fingerprint.to_string());
+        }
+        let ctx = ctx_with_certs(&certs.iter().collect::<Vec<_>>());
+
+        // Every certificate is listed, exactly once, by the keygrip
+        // of its primary key.
+        let grips = identifiers(ctx, "grip");
+        assert_eq!(grips.len(), certs.len());
+        assert!(grips.contains(&v4_grip));
+        for v in rfc9980::VECTORS {
+            assert!(grips.contains(&v.primary.grip.to_string()),
+                    "{}", v.section);
+        }
+
+        let mut fprs = BTreeSet::new();
+        for grip in &grips {
+            let key = locate_by(ctx, "grip", grip);
+            assert!(! key.is_null());
+            assert!(! is_sub(key));
+            assert_eq!(
+                get_string(|s| unsafe { rnp_key_get_grip(key, s) }).as_ref(),
+                Ok(grip));
+            assert_eq!(
+                get_string(|s| unsafe { rnp_key_get_primary_grip(key, s) })
+                    .as_ref(),
+                Ok(grip));
+            // Thunderbird skips a key if this fails.
+            assert!(get_bits(key).is_ok());
+            fprs.insert(get_fprint(key));
+            let r = unsafe { rnp_key_handle_destroy(key) };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+        assert_eq!(fprs, expected_fprs);
+
+        // The subkeys are found by their keygrip, too, and know
+        // their primary key's.
+        for (cert, primary_grip) in
+            [(&v4, &v4_grip),
+             (&v6, &get_string(|s| unsafe {
+                 rnp_key_get_grip(locate(ctx, &v6.fingerprint()), s)
+             }).unwrap())]
+        {
+            for ka in cert.keys().subkeys() {
+                let key = locate(ctx, &ka.key().fingerprint());
+                let grip =
+                    get_string(|s| unsafe { rnp_key_get_grip(key, s) })
+                    .unwrap();
+                assert!(! grips.contains(&grip));
+                assert_eq!(
+                    get_string(|s| unsafe {
+                        rnp_key_get_primary_grip(key, s)
+                    }).as_ref(),
+                    Ok(primary_grip));
+
+                let other = locate_by(ctx, "grip", &grip);
+                assert!(! other.is_null());
+                assert!(is_sub(other));
+                assert_eq!(get_fprint(other), ka.key().fingerprint().to_hex());
+                let r = unsafe { rnp_key_handle_destroy(other) };
+                assert_eq!(r, RNP_SUCCESS);
+                let r = unsafe { rnp_key_handle_destroy(key) };
+                assert_eq!(r, RNP_SUCCESS);
+            }
+        }
+
+        // The keys of the v4 certificate report what they did before
+        // we knew the new algorithms.
+        let key = locate(ctx, &v4.fingerprint());
+        assert_eq!(get_alg(key), "EDDSA");
+        assert_eq!(get_bits(key), Ok(256));
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        // The keys of the v6 certificate now have a name.
+        let key = locate(ctx, &v6.fingerprint());
+        assert_eq!(get_alg(key), "ED25519");
+        assert_eq!(get_bits(key), Ok(256));
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+        let mut algs = BTreeSet::new();
+        for ka in v6.keys().subkeys() {
+            let key = locate(ctx, &ka.key().fingerprint());
+            algs.insert(get_alg(key));
+            assert_eq!(get_bits(key), Ok(256));
+            let r = unsafe { rnp_key_handle_destroy(key) };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+        assert_eq!(algs.into_iter().collect::<Vec<_>>(),
+                   &["ED25519", "X25519"]);
+
+        // A keygrip that no key has.
+        let key = locate_by(ctx, "grip",
+                            "0000000000000000000000000000000000000000");
+        assert!(key.is_null());
+
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+        Ok(())
+    }
+
+    /// A subkey using an algorithm that we do not know does no harm.
+    #[test]
+    fn unknown_algorithm_properties() -> openpgp::Result<()> {
+        use openpgp::Profile;
+        use openpgp::cert::CertBuilder;
+        use openpgp::cert::SubkeyBuilder;
+        use openpgp::crypto::mpi;
+        use openpgp::packet::key::{Key6, PublicParts, SubordinateRole};
+        use openpgp::types::{KeyFlags, PublicKeyAlgorithm};
+
+        let (cert, _) = CertBuilder::general_purpose(Some("alice"))
+            .set_profile(Profile::RFC9580)?
+            .generate()?;
+        let n = cert.keys().count();
+
+        // 37 is not assigned by RFC 9580 or RFC 9980.
+        let unknown: Key<PublicParts, SubordinateRole> =
+            Key6::new(std::time::SystemTime::now()
+                      - std::time::Duration::new(60, 0),
+                      PublicKeyAlgorithm::Unknown(37),
+                      mpi::PublicKey::Unknown {
+                          mpis: vec![].into_boxed_slice(),
+                          rest: vec![0x42; 64].into_boxed_slice(),
+                      })?.into();
+        let unknown_fp = unknown.fingerprint();
+        let signer = cert.primary_key().key().clone()
+            .parts_into_secret()?.into_keypair()?;
+        let cert = SubkeyBuilder::new(
+            cert.with_policy(crate::NP, None)?,
+            unknown.parts_into_unspecified(),
+            KeyFlags::empty().set_transport_encryption())?
+            .set_primary_key_signer(signer)
+            .attach_cert()?
+            .strip_secret_key_material();
+        assert_eq!(cert.keys().count(), n + 1);
+
+        let ctx = ctx_with_certs(&[&cert]);
+
+        // The certificate is listed, with all its keys.
+        let grips = identifiers(ctx, "grip");
+        assert_eq!(grips.len(), 1);
+        let key = locate_by(ctx, "grip", &grips[0]);
+        assert!(! key.is_null());
+        assert_eq!(get_fprint(key), cert.fingerprint().to_hex());
+        let mut subkeys: usize = 0;
+        let r = unsafe {
+            rnp_key_get_subkey_count(key, &mut subkeys as *mut _)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        assert_eq!(subkeys, n);
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        // The keys that we know report their properties.
+        for ka in cert.keys().filter(|ka| ka.key().fingerprint() != unknown_fp)
+        {
+            let key = locate(ctx, &ka.key().fingerprint());
+            assert!(["ED25519", "X25519"].contains(&get_alg(key).as_str()));
+            assert_eq!(get_bits(key), Ok(256));
+            assert!(get_string(|s| unsafe { rnp_key_get_grip(key, s) })
+                    .is_ok());
+            let r = unsafe { rnp_key_handle_destroy(key) };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+
+        // The key that we do not know has a fingerprint, and knows
+        // its primary key.  It has no name, no size, and no keygrip.
+        let key = locate(ctx, &unknown_fp);
+        assert!(is_sub(key));
+        assert_eq!(get_alg(key), "unknown");
+        assert_eq!(get_bits(key), Err(RNP_ERROR_NO_SUITABLE_KEY));
+        assert_eq!(get_string(|s| unsafe { rnp_key_get_grip(key, s) }),
+                   Err(RNP_ERROR_GENERIC));
+        assert_eq!(get_string(|s| unsafe { rnp_key_get_curve(key, s) }),
+                   Err(RNP_ERROR_BAD_PARAMETERS));
+        assert_eq!(
+            get_string(|s| unsafe { rnp_key_get_primary_grip(key, s) })
+                .as_ref(),
+            Ok(&grips[0]));
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
         Ok(())
     }
 }
