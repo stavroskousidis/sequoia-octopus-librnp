@@ -65,6 +65,12 @@ pub const RNP_KEY_SIGNATURE_REMOVE: RnpKeyRemoveSignatureAction = 1;
 pub type RnpEncryptFlags = u32;
 pub const RNP_ENCRYPT_NOWRAP: RnpEncryptFlags = 1 << 0;
 
+// Flags for rnp_op_verify_set_flags.
+pub type RnpVerifyFlags = u32;
+pub const RNP_VERIFY_IGNORE_SIGS_ON_DECRYPT: RnpVerifyFlags = 1 << 0;
+pub const RNP_VERIFY_REQUIRE_ALL_SIGS: RnpVerifyFlags = 1 << 1;
+pub const RNP_VERIFY_ALLOW_HIDDEN_RECIPIENT: RnpVerifyFlags = 1 << 2;
+
 // Flags for rnp_*_security_rule
 pub type RnpSecurityFlags = u32;
 pub const RNP_SECURITY_OVERRIDE: RnpSecurityFlags = 1 << 0;
