@@ -109,6 +109,17 @@ impl ToRnpId for PublicKeyAlgorithm {
             ECDSA => "ECDSA",
             ElGamalEncryptSign => "ELGAMAL",
             EdDSA => "EDDSA",
+            X25519 => "X25519",
+            X448 => "X448",
+            Ed25519 => "ED25519",
+            Ed448 => "ED448",
+            MLDSA65_Ed25519 => "ML-DSA-65+ED25519",
+            MLDSA87_Ed448 => "ML-DSA-87+ED448",
+            SLHDSA128s => "SLH-DSA-SHAKE-128s",
+            SLHDSA128f => "SLH-DSA-SHAKE-128f",
+            SLHDSA256s => "SLH-DSA-SHAKE-256s",
+            MLKEM768_X25519 => "ML-KEM-768+X25519",
+            MLKEM1024_X448 => "ML-KEM-1024+X448",
             _ => "unknown",
         }
     }
@@ -400,6 +411,55 @@ impl RnpKeyUsage {
             Encrypt => KeyFlags::empty().set_transport_encryption()
                 .set_storage_encryption(),
             Authenticate => KeyFlags::empty().set_authentication(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The names of the public key algorithms in RNP's interface.
+    #[test]
+    fn public_key_algorithm_names() {
+        for (id, name) in [
+            // RFC 9580, Section 9.1.
+            (1, "RSA"),
+            (2, "RSA"),
+            (3, "RSA"),
+            (16, "ELGAMAL"),
+            (17, "DSA"),
+            (18, "ECDH"),
+            (19, "ECDSA"),
+            (20, "ELGAMAL"),
+            (22, "EDDSA"),
+            (25, "X25519"),
+            (26, "X448"),
+            (27, "ED25519"),
+            (28, "ED448"),
+            // RFC 9980, Section 2.1.  RNP's names differ from the
+            // RFC's only in the capitalization of "ED".
+            (30, "ML-DSA-65+ED25519"),
+            (31, "ML-DSA-87+ED448"),
+            (32, "SLH-DSA-SHAKE-128s"),
+            (33, "SLH-DSA-SHAKE-128f"),
+            (34, "SLH-DSA-SHAKE-256s"),
+            (35, "ML-KEM-768+X25519"),
+            (36, "ML-KEM-1024+X448"),
+            // Not assigned by RFC 9580 or RFC 9980.
+            (0, "unknown"),
+            (21, "unknown"),
+            (23, "unknown"),
+            (24, "unknown"),
+            (29, "unknown"),
+            (37, "unknown"),
+            (44, "unknown"),
+            (100, "unknown"),
+            (110, "unknown"),
+            (255, "unknown"),
+        ] {
+            assert_eq!(PublicKeyAlgorithm::from(id).to_rnp_id(), name,
+                       "algorithm {}", id);
         }
     }
 }

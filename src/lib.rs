@@ -72,6 +72,8 @@ pub mod stubs;
 
 use sequoia_ipc::Keygrip;
 
+pub mod keygrip;
+
 pub mod keystore;
 use keystore::Keystore;
 
@@ -126,6 +128,9 @@ pub mod gpg;
 pub mod tbprofile;
 pub mod wot;
 pub mod parcimonie;
+
+#[cfg(test)]
+mod testdata;
 
 pub const NP: &NullPolicy = unsafe { &NullPolicy::new() };
 

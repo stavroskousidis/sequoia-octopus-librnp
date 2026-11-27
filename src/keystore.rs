@@ -43,6 +43,7 @@ use openpgp::{
 use crate::{
     gpg,
     Keygrip,
+    keygrip::keygrip_of,
     parcimonie::Parcimonie,
     wot::{WoT, WoTWorkerHandle},
 };
@@ -1117,7 +1118,7 @@ impl KeystoreData {
 
         let fp = cert.fingerprint();
         let id = KeyID::from(&fp);
-        let grip = Keygrip::of(cert.primary_key().key().mpis()).ok();
+        let grip = keygrip_of(cert.primary_key().key().mpis()).ok();
 
         t!("Inserting {}, {:?} (external: {})",
            fp, cert.userids().nth(0).map(|ua| ua.userid()), is_external);
@@ -1252,7 +1253,7 @@ impl KeystoreData {
                     .and_modify(|v| add!(v, ()))
                     .or_insert(vec![ MapEntry::new(&cert_cell) ]);
 
-                if let Ok(g) = Keygrip::of(sk.key().mpis()) {
+                if let Ok(g) = keygrip_of(sk.key().mpis()) {
                     t!("Adding subkey keygrip mapping for {}", g);
                     self.by_subkey_grip.entry(g)
                         .and_modify(|v| add!(v, sk.key().fingerprint()))
@@ -1314,7 +1315,7 @@ impl KeystoreData {
 
             // Remove other primary key indices.
             remove!(fp, self.by_primary_id.entry(KeyID::from(fp)));
-            if let Ok(g) = Keygrip::of(e.cert().primary_key().key().mpis()) {
+            if let Ok(g) = keygrip_of(e.cert().primary_key().key().mpis()) {
                 remove!(fp, self.by_primary_grip.entry(g));
             }
 
@@ -1322,7 +1323,7 @@ impl KeystoreData {
             for sk in e.cert().keys().subkeys() {
                 remove!(fp, self.by_subkey_fp.entry(sk.key().fingerprint()));
                 remove!(fp, self.by_subkey_id.entry(sk.key().keyid()));
-                if let Ok(g) = Keygrip::of(sk.key().mpis()) {
+                if let Ok(g) = keygrip_of(sk.key().mpis()) {
                     remove!(fp, self.by_subkey_grip.entry(g));
                 }
             }
@@ -1342,7 +1343,7 @@ impl KeystoreData {
                         removed_one = true;
 
                         remove!(&cert_fp, self.by_subkey_id.entry(ska.key().keyid()));
-                        if let Ok(g) = Keygrip::of(ska.key().mpis()) {
+                        if let Ok(g) = keygrip_of(ska.key().mpis()) {
                             remove!(&cert_fp, self.by_subkey_grip.entry(g));
                         }
 
@@ -1524,7 +1525,7 @@ mod tests {
             }
 
             // By grip.
-            if let Ok(grip) = Keygrip::of(key.mpis()) {
+            if let Ok(grip) = keygrip_of(key.mpis()) {
                 if ks.by_primary_grip(&grip).any(|c| c.fingerprint() == fpr)
                 {
                     if ! *as_primary {
@@ -1791,6 +1792,61 @@ mod tests {
         assert!(r);
 
         ks_count(&ks, 0, 0, false);
+
+        Ok(())
+    }
+
+    // The keys of RFC 9980, Appendix A are indexed by fingerprint,
+    // key ID, and keygrip, and the indices stay consistent when keys
+    // are removed.
+    #[test]
+    fn insert_remove_rfc9980() -> openpgp::Result<()> {
+        use crate::testdata::rfc9980;
+
+        let ks = Keystore::default();
+        let mut ks = ks.write();
+        ks_count(&ks, 0, 0, false);
+
+        let certs: Vec<Cert> =
+            rfc9980::VECTORS.iter().map(|v| v.cert()).collect();
+        for (i, cert) in certs.iter().enumerate() {
+            assert_eq!(cert.keys().subkeys().count(), 1);
+            ks.insert(cert.clone());
+            ks_count(&ks, i + 1, i + 1, false);
+        }
+
+        for (v, cert) in rfc9980::VECTORS.iter().zip(certs.iter()) {
+            let primary = cert.primary_key().key().role_as_unspecified();
+            let subkey = cert.keys().subkeys().nth(0).unwrap().key()
+                .role_as_unspecified();
+            ks_contains(&ks, &[ (primary, true, false),
+                                (subkey, false, true) ]);
+
+            // ks_contains only considers the keygrip index if the key
+            // has a keygrip.
+            let grip: Keygrip = v.primary.grip.parse()?;
+            assert_eq!(ks.by_primary_grip(&grip).count(), 1);
+            assert_eq!(ks.by_subkey_grip(&grip).count(), 0);
+            let grip: Keygrip = v.subkey.grip.parse()?;
+            assert_eq!(ks.by_primary_grip(&grip).count(), 0);
+            assert_eq!(ks.by_subkey_grip(&grip).count(), 1);
+        }
+
+        // Remove the subkeys, then the certificates.
+        let n = certs.len();
+        for (i, cert) in certs.iter().enumerate() {
+            let subkey = cert.keys().subkeys().nth(0).unwrap().key()
+                .role_as_unspecified();
+            assert!(ks.remove_all(&subkey.fingerprint()));
+            ks_is_missing(&ks, subkey);
+            ks_count(&ks, n, n - i - 1, false);
+        }
+        for (i, cert) in certs.iter().enumerate() {
+            let primary = cert.primary_key().key().role_as_unspecified();
+            assert!(ks.remove_all(&primary.fingerprint()));
+            ks_is_missing(&ks, primary);
+            ks_count(&ks, n - i - 1, 0, false);
+        }
 
         Ok(())
     }
