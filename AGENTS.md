@@ -6,6 +6,8 @@ This repository is a mirror of `sequoia-octopus-librnp`, the reimplementation of
 
 Scope of the work: the seven RFC 9980 algorithms (IDs 30 to 36) in v6 keys, plus ML-KEM-768+X25519 as a v4 encryption subkey. Out of scope: draft-ietf-openpgp-nist-bp-comp (IDs 37 to 44), any GnuPG or gpg-agent path for post-quantum keys, unrelated refactoring.
 
+Also in scope, by the owner's decision of 2026-11-27: fixes that make Thunderbird's OpenPGP tests pass with this library, that is compatibility with RNP where Thunderbird depends on it and defects that Thunderbird's tests expose, even where they are not post-quantum work. Each such fix is a pull request of its own, declares and justifies any change of behaviour for existing keys, and goes upstream as a topic separate from the post-quantum series. Do not report it as outside the scope.
+
 Treat as **P0**:
 - A verification, decryption or key-validity result reported through the FFI that is better than what `sequoia-openpgp` established (a bad or unverifiable signature reported as good, an unknown algorithm treated as valid, a policy check bypassed or weakened).
 - Acceptance or generation of a construction that RFC 9980 or RFC 9580 forbids, or an algorithm ID, parameter set, size or encoding that disagrees with the RFC. Name the section.
@@ -22,7 +24,7 @@ Treat as **P1**:
 - A certificate or message with an unknown algorithm that breaks import, listing, or the handling of the parts that are known.
 - Violations of the upstream gates: new compiler warnings (`RUSTFLAGS="-D warnings"`), `Cargo.lock` not matching `Cargo.toml`, new needlessly exported symbols, codespell findings.
 - New dependencies or feature flags without justification; version requirements that exclude the releases Fedora 45 ships.
-- Fork-only files (`AGENTS.md`, `.github/`) mixed into a code commit; they belong in commits whose message starts with `fork:`.
+- Fork-only files (`AGENTS.md`, `.github/`) mixed into a code commit; they belong in commits whose message starts with `fork:`. A pull request may carry such a commit next to code commits when the table of recorded Thunderbird results (`.github/thunderbird/expected-results.tsv`) must change with the code; it is then merged without squashing, so judge the commits of the branch, not the combined diff.
 - Material outside the scope above.
 
 Do not report formatting or naming unless it departs from the surrounding upstream code. Do not recommend generality beyond what RFC 9980 needs.
