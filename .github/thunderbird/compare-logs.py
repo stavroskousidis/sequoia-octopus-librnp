@@ -30,7 +30,17 @@ unified diff ("-" expected and missing, "+" new).  No test is ever
 excluded: a test that is expected to fail stays in the run and in the
 table.  --markdown writes a summary with the checks that failed.
 
-The exit status is also 1 if one of the logs contains no test at all.
+Independently of the table, the exit status is 1 if one of the logs
+
+  * contains no test at all,
+  * reports a crash, whether the harness attributes it to a test or not
+    (a crash at startup or shutdown belongs to no test),
+  * has a message of the harness at level ERROR or CRITICAL, or
+  * has a suite that started and did not end.
+
+The table records outcomes of test files only, so these would otherwise go
+unnoticed: `mach test` exits with status 1 in every run in which a test
+fails, which is why its exit status cannot be the criterion.
 """
 import argparse
 import collections
@@ -77,7 +87,8 @@ def first_line(text):
 
 def read(path):
     tests = collections.OrderedDict()
-    info = {"suites": [], "crashes": 0, "errors": [], "lines": 0, "bad_lines": 0}
+    info = {"suites": [], "suites_ended": 0, "crashes": [], "errors": [],
+            "lines": 0, "bad_lines": 0}
     with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
             line = line.strip()
@@ -95,8 +106,11 @@ def read(path):
             action = entry.get("action")
             if action == "suite_start":
                 info["suites"].append(entry.get("name") or entry.get("source") or "?")
+            elif action == "suite_end":
+                info["suites_ended"] += 1
             elif action == "crash":
-                info["crashes"] += 1
+                info["crashes"].append("%s: %s" % (entry.get("test") or "no test",
+                                                   first_line(entry.get("signature"))))
                 if entry.get("test"):
                     t = tests.setdefault(normalize(entry["test"]), Test())
                     t.unexpected.append(("crash", "CRASH", first_line(entry.get("signature"))))
@@ -163,7 +177,11 @@ def markdown(control, octopus, cinfo, oinfo, names):
         o = sum(1 for n in names if outcome(octopus.get(n)) == kind)
         out.append("| %s | %d | %d |" % (kind, c, o))
     out.append("| test files | %d | %d |" % (len(control), len(octopus)))
-    out.append("| crashes reported | %d | %d |" % (cinfo["crashes"], oinfo["crashes"]))
+    out.append("| crashes reported | %d | %d |"
+               % (len(cinfo["crashes"]), len(oinfo["crashes"])))
+    out.append("| suites started and ended | %d and %d | %d and %d |"
+               % (len(cinfo["suites"]), cinfo["suites_ended"],
+                  len(oinfo["suites"]), oinfo["suites_ended"]))
     out.append("| errors logged by the harness | %d | %d |"
                % (len(cinfo["errors"]), len(oinfo["errors"])))
     out.append("")
@@ -203,6 +221,11 @@ def markdown(control, octopus, cinfo, oinfo, names):
                                            " (" + escape(message) + ")" if message else ""))
             if len(t.unexpected) > MAX_DETAILS:
                 out.append("- ... and %d more" % (len(t.unexpected) - MAX_DETAILS))
+            out.append("")
+        if info["crashes"]:
+            out += ["### Crashes, %s" % title, ""]
+            for crash in info["crashes"][:MAX_DETAILS]:
+                out.append("- %s" % escape(crash))
             out.append("")
         if info["errors"]:
             out += ["### Errors logged by the harness, %s" % title, ""]
@@ -258,6 +281,18 @@ def main():
         print("compare-logs: a log without tests: control %d, octopus %d test files"
               % (len(control), len(octopus)))
         status = 1
+    for title, info in (("control", cinfo), ("octopus", oinfo)):
+        if info["crashes"]:
+            print("compare-logs: %s: %d crashes reported" % (title, len(info["crashes"])))
+            status = 1
+        if info["errors"]:
+            print("compare-logs: %s: %d errors logged by the harness"
+                  % (title, len(info["errors"])))
+            status = 1
+        if len(info["suites"]) != info["suites_ended"]:
+            print("compare-logs: %s: %d suites started, %d ended"
+                  % (title, len(info["suites"]), info["suites_ended"]))
+            status = 1
     if args.expected:
         expected = lines_of(args.expected)
         diff = list(difflib.unified_diff(expected, results, "expected", "this run",

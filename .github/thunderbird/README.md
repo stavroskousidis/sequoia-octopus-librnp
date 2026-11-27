@@ -9,8 +9,9 @@ The workflow runs Thunderbird's own OpenPGP tests twice with the same Thunderbir
 | File | Purpose |
 |---|---|
 | `find-artifact-task.py` | Finds the Taskcluster task of Mozilla's linux64 build for a Thunderbird commit, or checks a given task: name, Firefox and comm revisions, version, and the two archives an artifact build needs |
-| `run-tests.sh` | Runs `mach test --headless` on `comm/mail/extensions/openpgp/test` and `comm/mail/test/browser/openpgp` with whatever is installed as `dist/bin/librnp.so`, and records which library that was |
-| `compare-logs.py` | Reads the two structured logs, derives one outcome per test file and run (`pass`, `fail`, `skip`, `no-result`, `absent`), prints a summary with the checks that failed, and compares the outcomes with `expected-results.tsv` |
+| `run-tests.sh` | Runs `mach test --headless` on `comm/mail/extensions/openpgp/test` and `comm/mail/test/browser/openpgp` with whatever is installed as `dist/bin/librnp.so`, records which library that was, and fails if the output shows the wrong one (lines starting with `sequoia-octopus:` in the control, or none in the Octopus run) |
+| `compare-logs.py` | Reads the two structured logs, derives one outcome per test file and run (`pass`, `fail`, `skip`, `no-result`, `absent`), prints a summary with the checks that failed, and compares the outcomes with `expected-results.tsv`. Fails as well if a run reports a crash, an error of the harness or a suite that did not end, whatever the table says |
+| `test-compare-logs.py` | Self-test of `compare-logs.py` on small logs it writes itself: the cases in which the comparison must fail. The job runs it before it clones anything |
 | `expected-results.tsv` | The recorded outcomes. The job is green only if a run reproduces every line |
 
 ## How the job gets a Thunderbird without compiling one

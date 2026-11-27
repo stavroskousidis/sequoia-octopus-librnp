@@ -24,7 +24,9 @@
 #                dist/bin/librnp.so, as upstream's CI does. No test is
 #                excluded. The job passes only if every test file has, in
 #                both runs, the outcome recorded in
-#                .github/thunderbird/expected-results.tsv.
+#                .github/thunderbird/expected-results.tsv, and neither run
+#                reports a crash, an error of the harness or a suite that
+#                did not end.
 #
 # The pin (Thunderbird tag and commit, the Firefox tag that the tag's
 # .gecko_rev.yml names, and the Taskcluster task of Mozilla's build) is in
@@ -159,6 +161,8 @@ jobs:
         with:
           name: octopus-fedora45-openssl
           path: ${{ runner.temp }}/octopus
+      - name: Self-test of the comparison
+        run: python3 .github/thunderbird/test-compare-logs.py
       - name: Environment
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"

@@ -4,12 +4,16 @@
 #
 # Usage: run-tests.sh <label> <source directory> <object directory> <log directory>
 #
-# <label> names the run in the file names of the logs ("control",
-# "octopus").  The script records which file is in place before and after
-# the run (SHA-256 and the version string the library reports) and fails if
-# the file changed during the run.  The exit status of `mach test` is
-# printed, not returned: tests are expected to fail in some runs, and the
-# comparison of the structured logs (compare-logs.py) decides.
+# <label> names the run in the file names of the logs and says which
+# library is expected: "control" (Mozilla's librnp) or "octopus".  The
+# script records which file is in place before and after the run (SHA-256
+# and the version string the library reports) and fails if the file changed
+# during the run.  Thunderbird does not log which library it loaded, so the
+# script also counts the lines that only the Octopus writes
+# ("sequoia-octopus: ...") in the output of the run: it fails if the control
+# has such a line, or if the Octopus run has none.  The exit status of
+# `mach test` is printed, not returned: it is 1 whenever a test fails, and
+# the comparison of the structured logs (compare-logs.py) decides.
 #
 # The test selection is the one of upstream's CI (.gitlab-ci.yml, template
 # .thunderbird-tests), with the second path written out in full. Other
@@ -80,3 +84,20 @@ if [ ! -s "$logs/$label.raw.log" ]; then
   echo "$logs/$label.raw.log is missing or empty" >&2
   exit 1
 fi
+
+octopus_lines=$(cat "$logs/$label.out.log" "$logs/$label.raw.log" | grep -c "sequoia-octopus: " || true)
+echo "=== $label: $octopus_lines lines of the Octopus in the output and the structured log"
+case "$label" in
+  control)
+    if [ "$octopus_lines" -ne 0 ]; then
+      echo "The control run loaded the Octopus." >&2
+      exit 1
+    fi
+    ;;
+  octopus)
+    if [ "$octopus_lines" -eq 0 ]; then
+      echo "Nothing shows that this run loaded the Octopus." >&2
+      exit 1
+    fi
+    ;;
+esac
