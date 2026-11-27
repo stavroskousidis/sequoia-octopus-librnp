@@ -59,6 +59,7 @@ use crate::{
     c_str_to_rnp_buffer,
     c_str_to_rnp_buffer_lossy,
     cstr_to_str,
+    armor::CrLfWriter,
     flags::*,
     conversions::*,
     error::*,
@@ -1034,8 +1035,11 @@ fn rnp_key_export(key: *mut RnpKey,
         match (armored, export_secret) {
             (false, false) => cert.export(sink)?,
             (false,  true) => cert.as_tsk().export(sink)?,
-            ( true, false) => cert.armored().export(sink)?,
-            ( true,  true) => cert.as_tsk().armored().export(sink)?,
+            // Like RNP, end the lines of the armor with CRLF.
+            ( true, false) =>
+                cert.armored().export(&mut CrLfWriter::new(sink))?,
+            ( true,  true) =>
+                cert.as_tsk().armored().export(&mut CrLfWriter::new(sink))?,
         }
         Ok(())
     }

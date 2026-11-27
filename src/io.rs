@@ -11,6 +11,7 @@ use openpgp::{
 };
 
 use super::*;
+use crate::armor::CrLfWriter;
 
 pub enum RnpInput {
     Ref(io::Cursor<&'static [u8]>),
@@ -43,7 +44,7 @@ impl fmt::Debug for RnpInput {
 pub enum RnpOutput<'a> {
     Buf((Vec<u8>, Option<usize>)),
     File(File),
-    Armorer(Option<armor::Writer<&'a mut RnpOutput<'a>>>)
+    Armorer(Option<armor::Writer<CrLfWriter<&'a mut RnpOutput<'a>>>>)
 }
 
 impl RnpInput {
@@ -237,7 +238,8 @@ fn rnp_output_to_armor<'a>(sink: *mut RnpOutput<'a>,
     let kind = assert_str!(kind);
     let kind = rnp_try!(armor::Kind::from_rnp_id(kind));
 
-    *output = match armor::Writer::new(&mut *sink, kind) {
+    // Like RNP, end the lines with CRLF.
+    *output = match armor::Writer::new(CrLfWriter::new(&mut *sink), kind) {
         Ok(v) => Box::into_raw(Box::new(RnpOutput::Armorer(Some(v)))),
         Err(e) => {
             warn!("rnp_output_to_armor: {}", e);
@@ -361,7 +363,8 @@ fn rnp_enarmor(input: *mut RnpInput,
     fn f(input: &mut RnpInput, output: &mut RnpOutput, kind: armor::Kind)
          -> openpgp::Result<()>
     {
-        let mut w = armor::Writer::new(output, kind)?;
+        // Like RNP, end the lines with CRLF.
+        let mut w = armor::Writer::new(CrLfWriter::new(output), kind)?;
         io::copy(input, &mut w)?;
         w.finalize()?;
         Ok(())
