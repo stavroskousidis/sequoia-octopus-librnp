@@ -33,17 +33,14 @@
 # inputs; the Taskcluster task must be a build whose compiled code fits
 # that source.
 #
-# Runs on pushes to `pqc`, on request, and on pull requests that change
-# this workflow or .github/thunderbird/.
+# Runs on pull requests into `pqc`, on pushes to `pqc`, and on request.
+# One run takes about a quarter of an hour.
 
 name: Thunderbird
 
 on:
   pull_request:
     branches: [pqc]
-    paths:
-      - .github/workflows/thunderbird.yml
-      - .github/thunderbird/**
   push:
     branches: [pqc]
   workflow_dispatch:
@@ -56,6 +53,9 @@ on:
         default: THUNDERBIRD_161_0_RELEASE
       artifact_task:
         description: Taskcluster task id of Mozilla's linux64 build to use (empty means the pinned one)
+        default: ""
+      tests:
+        description: Test paths for mach test, separated by spaces (empty means the two OpenPGP directories; other paths are run for information and not compared with the recorded results)
         default: ""
 
 permissions:
@@ -75,9 +75,10 @@ env:
   PIN_TB_REF: THUNDERBIRD_161_0_RELEASE
   PIN_TB_COMMIT: a6a95fa575b4e78180adf3697c857a88e43a7b7f
   PIN_FX_COMMIT: 9c70d5d48c866afc2e581d6b7ff6de98a1371d99
-  # Taskcluster task of the shippable linux64 build of the pinned tag.
-  # Empty: look it up in the index (find-artifact-task.py).
-  PIN_ARTIFACT_TASK: ""
+  # Taskcluster task of the shippable linux64 build of the pinned tag
+  # (build id 20261120171716). find-artifact-task.py checks that it fits
+  # the source, and finds the task of another tag if this is left empty.
+  PIN_ARTIFACT_TASK: a4JNObAfTc67HQ7qnsPyTw
   CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
 
@@ -126,6 +127,7 @@ jobs:
       TB_REPOSITORY: ${{ inputs.thunderbird_repository || 'thunderbird/thunderbird-desktop' }}
       TB_REF: ${{ inputs.thunderbird_ref || 'THUNDERBIRD_161_0_RELEASE' }}
       INPUT_ARTIFACT_TASK: ${{ inputs.artifact_task }}
+      INPUT_TESTS: ${{ inputs.tests }}
       SRC: /mozilla/src
       OBJ: /mozilla/src/obj-artifact
       LOGS: /mozilla/logs
@@ -210,18 +212,20 @@ jobs:
             echo "GECKO_REV=$gecko_rev"
           } >> "$GITHUB_ENV"
           echo "clone: $(( $(date +%s) - start )) seconds"
-          du -sh "$SRC" "$SRC/.git" "$SRC/comm"
+          du -sh "$SRC"
+          du -sh "$SRC/.git"
+          du -sh "$SRC/comm"
           df -h /
       - name: Mozilla's build of this Thunderbird
         run: |
-          task="$INPUT_ARTIFACT_TASK"
-          if [ -z "$task" ] && [ "$TB_REPOSITORY" = "$PIN_TB_REPOSITORY" ] && [ "$TB_REF" = "$PIN_TB_REF" ]; then
-            task="$PIN_ARTIFACT_TASK"
-          fi
+          # Without an input, the pinned task: a branch that carries
+          # patches on top of the pinned tag is tested with the same build.
+          task="${INPUT_ARTIFACT_TASK:-$PIN_ARTIFACT_TASK}"
           "$PYTHON" .github/thunderbird/find-artifact-task.py \
             --comm-rev "$TB_COMMIT" --comm-tag "$PIN_TB_REF" \
             --gecko-rev "$GECKO_REV" --version "$TB_VERSION" \
             --task "$task" --output "$RUNNER_TEMP/artifact-task"
+          cat "$RUNNER_TEMP/artifact-task"
           echo "MOZ_ARTIFACT_TASK=$(cat "$RUNNER_TEMP/artifact-task")" >> "$GITHUB_ENV"
       - name: mach bootstrap
         run: |
@@ -275,10 +279,18 @@ jobs:
           fi
       - name: Compare the two runs with the recorded results
         run: |
+          # The recorded results are those of the pinned Thunderbird and
+          # the default tests. Anything else is compared, not judged.
+          expected=(--expected .github/thunderbird/expected-results.tsv)
+          if [ -n "$INPUT_TESTS" ] || [ "$TB_REPOSITORY" != "$PIN_TB_REPOSITORY" ] \
+             || [ "$TB_REF" != "$PIN_TB_REF" ]; then
+            echo "Not the pinned Thunderbird with the default tests: no comparison with the recorded results."
+            expected=()
+          fi
           "$PYTHON" .github/thunderbird/compare-logs.py \
             --control "$LOGS/control.raw.log" --octopus "$LOGS/octopus.raw.log" \
             --results "$LOGS/results.tsv" --markdown "$LOGS/summary.md" \
-            --expected .github/thunderbird/expected-results.tsv
+            "${expected[@]}"
       - name: Summary
         if: always()
         run: |

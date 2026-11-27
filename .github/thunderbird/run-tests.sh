@@ -12,7 +12,9 @@
 # comparison of the structured logs (compare-logs.py) decides.
 #
 # The test selection is the one of upstream's CI (.gitlab-ci.yml, template
-# .thunderbird-tests), with the second path written out in full.
+# .thunderbird-tests), with the second path written out in full. Other
+# paths can be given in the environment variable INPUT_TESTS, separated by
+# spaces.
 set -euo pipefail
 
 label=$1
@@ -28,6 +30,12 @@ export MOZ_NOSPAM=1
 export MACH_NO_TERMINAL_FOOTER=1
 
 mkdir -p "$logs"
+
+tests=(comm/mail/extensions/openpgp/test comm/mail/test/browser/openpgp)
+if [ -n "${INPUT_TESTS:-}" ]; then
+  read -r -a tests <<< "$INPUT_TESTS"
+fi
+echo "=== $label: tests: ${tests[*]}"
 
 identify() {
   sha256sum "$lib"
@@ -51,13 +59,14 @@ dbus-run-session -- "${PYTHON:-python3}" mach test \
   --log-raw "$logs/$label.raw.log" \
   --log-errorsummary "$logs/$label.errorsummary.log" \
   --headless \
-  comm/mail/extensions/openpgp/test \
-  comm/mail/test/browser/openpgp \
+  "${tests[@]}" \
   > "$logs/$label.out.log" 2>&1 || status=$?
 end=$(date +%s)
 
 echo "=== $label: last lines of the output"
 tail -n 150 "$logs/$label.out.log"
+echo "=== $label: tests that skipped tasks or were skipped"
+grep -E "TEST-SKIP|TEST_END: SKIP|skip_if|Skipping" "$logs/$label.out.log" | cut -c1-300 | sort | uniq -c | head -n 40 || true
 echo "=== $label: mach test exit status $status, $((end - start)) seconds"
 
 echo "=== $label: library after the run"

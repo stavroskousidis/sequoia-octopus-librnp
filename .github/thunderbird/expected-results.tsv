@@ -1,0 +1,66 @@
+# Outcome of every test file of Thunderbird's OpenPGP tests in the job
+# `thunderbird` of .github/workflows/thunderbird.yml, as compare-logs.py
+# derives it: test, outcome with Mozilla's librnp (control), outcome with
+# the Octopus. Separated by tabs, sorted by path. The job fails if a run
+# differs from this table in any line.
+#
+# Thunderbird 161.0 (THUNDERBIRD_161_0_RELEASE, a6a95fa5), Mozilla's build
+# 20261120171716 (Taskcluster task a4JNObAfTc67HQ7qnsPyTw), Fedora 45
+# container, headless. Octopus: branch `pqc` after work package C1, feature
+# crypto-openssl. Recorded from run 45934898368 (2026-11-27).
+#
+# A line changes only together with the change that causes it, and the
+# commit message says why. Nothing is removed from the test run to make a
+# line pass. What is known about the lines that are not "pass pass":
+#
+# test_pqcSubkey.js: skipped by its manifest (run-if nightly_build).
+# browser_keyWizard.js: skipped by its manifest (not headless, not Linux).
+# browser_keyAssistantCopyLink.js: fails with Mozilla's librnp as well
+#   ("resolve button should be shown" times out), so not caused by the
+#   Octopus.
+# test_secretKeys.js: testRejectImportUnsupportedKeys, "should reject sec
+#   v6 key": Thunderbird expects exit code -1 and gets 0.
+# browser_upload.js: testHKPUpload, "the end of the request body should be
+#   correctly formatted".
+# browser_viewMessageRemoteContent.js: test_aead_allowed, "remote image
+#   should load for rc-openpgp-aead.eml" times out.
+comm/mail/extensions/openpgp/test/unit/rnp/test_alias.js	pass	pass
+comm/mail/extensions/openpgp/test/unit/rnp/test_armor.js	pass	pass
+comm/mail/extensions/openpgp/test/unit/rnp/test_badKeys.js	pass	pass
+comm/mail/extensions/openpgp/test/unit/rnp/test_encryptAndOrSign.js	pass	pass
+comm/mail/extensions/openpgp/test/unit/rnp/test_externalGnuPGSigning.js	pass	pass
+comm/mail/extensions/openpgp/test/unit/rnp/test_externalSigningKey.js	pass	pass
+comm/mail/extensions/openpgp/test/unit/rnp/test_formatPlaintextMsg.js	pass	pass
+comm/mail/extensions/openpgp/test/unit/rnp/test_integrityProtection.js	pass	pass
+comm/mail/extensions/openpgp/test/unit/rnp/test_mimeTree.js	pass	pass
+comm/mail/extensions/openpgp/test/unit/rnp/test_pqcSubkey.js	skip	skip
+comm/mail/extensions/openpgp/test/unit/rnp/test_revocation.js	pass	pass
+comm/mail/extensions/openpgp/test/unit/rnp/test_secretKeys.js	pass	fail
+comm/mail/extensions/openpgp/test/unit/rnp/test_strip.js	pass	pass
+comm/mail/extensions/openpgp/test/unit/rnp/test_uid.js	pass	pass
+comm/mail/extensions/openpgp/test/unit/rnp/test_unlockTracker.js	pass	pass
+comm/mail/extensions/openpgp/test/unit/rnp/test_wkdLookup.js	pass	pass
+comm/mail/test/browser/openpgp/browser_collectKeys.js	pass	pass
+comm/mail/test/browser/openpgp/browser_encryptedRemoteContentFromFile.js	pass	pass
+comm/mail/test/browser/openpgp/browser_encryptedUriCleanup.js	pass	pass
+comm/mail/test/browser/openpgp/browser_inlineOpenPGP.js	pass	pass
+comm/mail/test/browser/openpgp/browser_keyDetailsPassphrase.js	pass	pass
+comm/mail/test/browser/openpgp/browser_keyWizard.js	skip	skip
+comm/mail/test/browser/openpgp/browser_keyserverSearch.js	pass	pass
+comm/mail/test/browser/openpgp/browser_openPGPDrafts.js	pass	pass
+comm/mail/test/browser/openpgp/browser_perm_decrypt.js	pass	pass
+comm/mail/test/browser/openpgp/browser_pgpSignedPartDispatch.js	pass	pass
+comm/mail/test/browser/openpgp/browser_upload.js	pass	fail
+comm/mail/test/browser/openpgp/browser_viewMessage.js	pass	pass
+comm/mail/test/browser/openpgp/browser_viewMessage2.js	pass	pass
+comm/mail/test/browser/openpgp/browser_viewMessageRemoteContent.js	pass	fail
+comm/mail/test/browser/openpgp/browser_viewMessageSecurity.js	pass	pass
+comm/mail/test/browser/openpgp/browser_viewPartialMessage.js	pass	pass
+comm/mail/test/browser/openpgp/composition/browser_composeEncrypted.js	pass	pass
+comm/mail/test/browser/openpgp/composition/browser_composeSigned.js	pass	pass
+comm/mail/test/browser/openpgp/composition/browser_composeSigned2.js	pass	pass
+comm/mail/test/browser/openpgp/composition/browser_composeSigned3.js	pass	pass
+comm/mail/test/browser/openpgp/composition/browser_composeSwitchIdentity.js	pass	pass
+comm/mail/test/browser/openpgp/composition/browser_editDraftTemplate.js	pass	pass
+comm/mail/test/browser/openpgp/composition/browser_expiredKey.js	pass	pass
+comm/mail/test/browser/openpgp/composition/browser_keyAssistantCopyLink.js	fail	fail
