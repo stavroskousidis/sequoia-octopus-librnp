@@ -4,7 +4,7 @@ use libc::{
     c_char
 };
 
-const CLAIMED_RNP_VERSION: [u32; 3] = [0, 17, 1];
+const CLAIMED_RNP_VERSION: [u32; 3] = [0, 18, 1];
 
 const RNP_VERSION_COMPONENT_MASK: u32 = 0x3ff;
 
@@ -88,4 +88,22 @@ pub unsafe extern "C" fn rnp_version_string_full() -> *const c_char {
             b
         })
         .as_ptr() as *const _
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn claimed_version() {
+        // Thunderbird compares rnp_version() with the result of
+        // rnp_version_for() for the version it requires, and does
+        // not use the library if it is older.
+        unsafe {
+            assert_eq!(rnp_version(), rnp_version_for(0, 18, 1));
+            assert_eq!(rnp_version(), 18 << 10 | 1);
+            assert!(rnp_version() > rnp_version_for(0, 17, 1));
+            assert!(rnp_version() < rnp_version_for(0, 18, 2));
+        }
+    }
 }
