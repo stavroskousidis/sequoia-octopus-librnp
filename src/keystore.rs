@@ -1832,21 +1832,41 @@ mod tests {
             assert_eq!(ks.by_subkey_grip(&grip).count(), 1);
         }
 
-        // Remove the subkeys, then the certificates.
-        let n = certs.len();
-        for (i, cert) in certs.iter().enumerate() {
+        // Remove every other certificate's subkey.
+        let mut n_pks = certs.len();
+        let mut n_sks = certs.len();
+        for cert in certs.iter().step_by(2) {
             let subkey = cert.keys().subkeys().nth(0).unwrap().key()
                 .role_as_unspecified();
             assert!(ks.remove_all(&subkey.fingerprint()));
+            n_sks -= 1;
             ks_is_missing(&ks, subkey);
-            ks_count(&ks, n, n - i - 1, false);
+            ks_count(&ks, n_pks, n_sks, false);
         }
-        for (i, cert) in certs.iter().enumerate() {
+        assert!(n_sks > 0);
+
+        // Remove the certificates, with and without subkey.
+        for (i, (v, cert)) in
+            rfc9980::VECTORS.iter().zip(certs.iter()).enumerate()
+        {
             let primary = cert.primary_key().key().role_as_unspecified();
+            let subkey = cert.keys().subkeys().nth(0).unwrap().key()
+                .role_as_unspecified();
             assert!(ks.remove_all(&primary.fingerprint()));
+            n_pks -= 1;
+            if i % 2 == 1 {
+                n_sks -= 1;
+            }
             ks_is_missing(&ks, primary);
-            ks_count(&ks, n - i - 1, 0, false);
+            ks_is_missing(&ks, subkey);
+            ks_count(&ks, n_pks, n_sks, false);
+
+            let grip: Keygrip = v.primary.grip.parse()?;
+            assert_eq!(ks.by_primary_grip(&grip).count(), 0);
+            let grip: Keygrip = v.subkey.grip.parse()?;
+            assert_eq!(ks.by_subkey_grip(&grip).count(), 0);
         }
+        ks_count(&ks, 0, 0, false);
 
         Ok(())
     }
