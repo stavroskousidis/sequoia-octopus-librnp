@@ -48,11 +48,11 @@ on:
   workflow_dispatch:
     inputs:
       thunderbird_repository:
-        description: Thunderbird repository on GitHub (owner/name)
-        default: thunderbird/thunderbird-desktop
+        description: Thunderbird repository on GitHub, owner/name (empty means the pinned one)
+        default: ""
       thunderbird_ref:
-        description: Branch or tag of that repository
-        default: THUNDERBIRD_161_0_RELEASE
+        description: Branch or tag of that repository (empty means the pinned one)
+        default: ""
       artifact_task:
         description: Taskcluster task id of Mozilla's linux64 build to use (empty means the pinned one)
         default: ""
@@ -126,8 +126,11 @@ jobs:
     timeout-minutes: 240
     container: quay.io/fedora/fedora:45
     env:
-      TB_REPOSITORY: ${{ inputs.thunderbird_repository || 'thunderbird/thunderbird-desktop' }}
-      TB_REF: ${{ inputs.thunderbird_ref || 'THUNDERBIRD_161_0_RELEASE' }}
+      # Empty unless the workflow was started by hand with inputs. The
+      # step "Environment" derives TB_REPOSITORY and TB_REF from these
+      # and from the pin above.
+      INPUT_TB_REPOSITORY: ${{ inputs.thunderbird_repository }}
+      INPUT_TB_REF: ${{ inputs.thunderbird_ref }}
       INPUT_ARTIFACT_TASK: ${{ inputs.artifact_task }}
       INPUT_TESTS: ${{ inputs.tests }}
       SRC: /mozilla/src
@@ -181,6 +184,12 @@ jobs:
           fi
           "$python" --version
           echo "PYTHON=$python" >> "$GITHUB_ENV"
+          # Which Thunderbird: the pin, unless an input names another.
+          tb_repository="${INPUT_TB_REPOSITORY:-$PIN_TB_REPOSITORY}"
+          tb_ref="${INPUT_TB_REF:-$PIN_TB_REF}"
+          echo "Thunderbird to test: $tb_repository at $tb_ref"
+          echo "TB_REPOSITORY=$tb_repository" >> "$GITHUB_ENV"
+          echo "TB_REF=$tb_ref" >> "$GITHUB_ENV"
           echo "--- /etc/crypto-policies/back-ends/sequoia.config"
           cat /etc/crypto-policies/back-ends/sequoia.config
           echo "--- the Octopus"
@@ -290,6 +299,11 @@ jobs:
              || [ "$TB_REF" != "$PIN_TB_REF" ]; then
             echo "Not the pinned Thunderbird with the default tests: no comparison with the recorded results."
             expected=()
+            # Only a run started by hand may go unjudged.
+            if [ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ]; then
+              echo "A run for a $GITHUB_EVENT_NAME event must be compared with the recorded results." >&2
+              exit 1
+            fi
           fi
           "$PYTHON" .github/thunderbird/compare-logs.py \
             --control "$LOGS/control.raw.log" --octopus "$LOGS/octopus.raw.log" \
