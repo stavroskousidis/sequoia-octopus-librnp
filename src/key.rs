@@ -498,6 +498,21 @@ fn rnp_key_get_bits(key: *const RnpKey,
     })
 }
 
+/// Returns the version of the key packet.
+///
+/// A subkey reports its own packet version.
+#[no_mangle] pub unsafe extern "C"
+fn rnp_key_get_version(key: *const RnpKey,
+                       version: *mut u32)
+                       -> RnpResult {
+    rnp_function!(rnp_key_get_version, crate::TRACE);
+    let key = assert_ptr_ref!(key);
+    let version = assert_ptr_mut!(version);
+
+    *version = (*key).version() as u32;
+    rnp_success!()
+}
+
 #[no_mangle] pub unsafe extern "C"
 fn rnp_key_get_creation(key: *const RnpKey,
                         creation: *mut u32)
@@ -818,6 +833,61 @@ fn rnp_key_is_revoked(key: *mut RnpKey,
     } else {
         // Not valid under the policy.  Treat as revoked.
         *result = true;
+    }
+    rnp_success!()
+}
+
+/// Returns the signature that revokes the key, if any.
+///
+/// Stores NULL if there is no valid revocation signature.  Like
+/// `rnp_key_is_revoked`, we rely on Sequoia to decide whether the
+/// key is revoked: we only return revocation signatures that
+/// Sequoia checked and that are acceptable under the policy, and we
+/// ignore third-party revocations.  If there are several such
+/// signatures, we return the first one that Sequoia reports.
+///
+/// Note: `rnp_key_is_revoked` also reports a key as revoked if it is
+/// not valid under the policy.  In that case, there need not be a
+/// revocation signature, and this function stores NULL.
+#[no_mangle] pub unsafe extern "C"
+fn rnp_key_get_revocation_signature(key: *mut RnpKey,
+                                    sig: *mut *mut RnpSignature)
+                                    -> RnpResult {
+    rnp_function!(rnp_key_get_revocation_signature, crate::TRACE);
+    let key = assert_ptr_mut!(key);
+    let sig = assert_ptr_mut!(sig);
+    let ctx = key.ctx;
+    let policy = (*ctx).policy().clone();
+
+    *sig = std::ptr::null_mut();
+
+    let fp = key.fingerprint();
+    let cert = if let Some(cert) = key.cert() {
+        cert
+    } else {
+        rnp_return_status!(RNP_ERROR_BAD_PARAMETERS);
+    };
+
+    fn first(status: RevocationStatus) -> Option<openpgp::packet::Signature> {
+        use openpgp::types::RevocationStatus::*;
+        match status {
+            Revoked(revs) => revs.into_iter().next().cloned(),
+            CouldBe(_) => None, // XXX
+            NotAsFarAsWeKnow => None,
+        }
+    }
+
+    let rev = if cert.fingerprint() == fp {
+        first(cert.revocation_status(&policy, None))
+    } else if let Some(ka) = cert.keys().subkeys().key_handle(fp).next() {
+        first(ka.revocation_status(&policy, None))
+    } else {
+        rnp_return_status!(RNP_ERROR_BAD_PARAMETERS);
+    };
+
+    if let Some(rev) = rev {
+        *sig = Box::into_raw(Box::new(
+            RnpSignature::new(ctx, rev, Some(true))));
     }
     rnp_success!()
 }
@@ -2344,6 +2414,523 @@ Pnn+We1aTBhaGa86AQ==
             assert_eq!(r, RNP_SUCCESS);
         }
 
+        Ok(())
+    }
+
+    const RNP_ERROR_NULL_POINTER: u32 =
+        crate::error::RNP_ERROR_NULL_POINTER.as_u32();
+
+    /// Creates a context and imports the certificates.
+    fn ctx_with_certs(certs: &[&Cert]) -> *mut RnpContext {
+        let mut ctx: *mut RnpContext = std::ptr::null_mut();
+        let r = unsafe {
+            rnp_ffi_create(
+                &mut ctx as *mut *mut _,
+                b"GPG\x00".as_ptr() as *const c_char,
+                b"GPG\x00".as_ptr() as *const c_char)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+
+        for cert in certs {
+            let buffer = cert.to_vec().unwrap();
+            let mut input: *mut RnpInput = std::ptr::null_mut();
+            let r = unsafe {
+                rnp_input_from_memory(
+                    &mut input as *mut *mut _,
+                    buffer.as_ptr(), buffer.len(), false)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let r = unsafe {
+                rnp_import_keys(
+                    ctx, input,
+                    RNP_LOAD_SAVE_PUBLIC_KEYS,
+                    std::ptr::null_mut() as *mut *mut _)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let r = unsafe { rnp_input_destroy(input) };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+
+        ctx
+    }
+
+    /// Looks up the key by its fingerprint.
+    fn locate(ctx: *mut RnpContext, fp: &openpgp::Fingerprint)
+              -> *mut RnpKey
+    {
+        let fp = CString::new(fp.to_hex()).unwrap();
+        let mut key: *mut RnpKey = std::ptr::null_mut();
+        let r = unsafe {
+            rnp_locate_key(ctx,
+                           b"fingerprint\x00".as_ptr() as *const c_char,
+                           fp.as_ptr(),
+                           &mut key as *mut *mut _)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        assert!(! key.is_null());
+        key
+    }
+
+    /// Returns the key's revocation signature, which may be NULL.
+    fn revocation_signature(key: *mut RnpKey) -> *mut RnpSignature {
+        // Initialize it with something that is not NULL so that we
+        // notice that the function stores NULL.
+        let mut sig = std::ptr::NonNull::<RnpSignature>::dangling().as_ptr();
+        let r = unsafe {
+            rnp_key_get_revocation_signature(key, &mut sig as *mut *mut _)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        sig
+    }
+
+    /// Returns whether the key is revoked according to
+    /// rnp_key_is_revoked.
+    fn is_revoked(key: *mut RnpKey) -> bool {
+        let mut revoked = false;
+        let r = unsafe { rnp_key_is_revoked(key, &mut revoked as *mut _) };
+        assert_eq!(r, RNP_SUCCESS);
+        revoked
+    }
+
+    /// Returns the code and the text of the signature's reason for
+    /// revocation.
+    fn get_revocation_reason(sig: *mut RnpSignature) -> (String, Vec<u8>) {
+        use std::ffi::CStr;
+        use crate::signature::rnp_signature_get_revocation_reason;
+
+        let mut code: *mut c_char = std::ptr::null_mut();
+        let mut reason: *mut c_char = std::ptr::null_mut();
+        let r = unsafe {
+            rnp_signature_get_revocation_reason(
+                sig, &mut code as *mut *mut _, &mut reason as *mut *mut _)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        assert!(! code.is_null());
+        assert!(! reason.is_null());
+        let result = unsafe {
+            (CStr::from_ptr(code).to_str().unwrap().to_string(),
+             CStr::from_ptr(reason).to_bytes().to_vec())
+        };
+        unsafe {
+            crate::buffer::rnp_buffer_destroy(code as *mut _);
+            crate::buffer::rnp_buffer_destroy(reason as *mut _);
+        }
+        result
+    }
+
+    #[test]
+    fn key_version() -> openpgp::Result<()> {
+        use openpgp::Profile;
+        use openpgp::cert::CertBuilder;
+
+        let (v4, _) = CertBuilder::general_purpose(Some("v4"))
+            .set_profile(Profile::RFC4880)?
+            .generate()?;
+        let (v6, _) = CertBuilder::general_purpose(Some("v6"))
+            .set_profile(Profile::RFC9580)?
+            .generate()?;
+
+        // Make sure that we test what we mean to test.
+        assert!(v4.keys().count() > 1);
+        assert!(v6.keys().count() > 1);
+        assert_eq!(v4.fingerprint().as_bytes().len(), 20);
+        assert_eq!(v6.fingerprint().as_bytes().len(), 32);
+
+        let ctx = ctx_with_certs(&[&v4, &v6]);
+
+        // The primary key and the subkeys report their own version.
+        for (cert, expected) in [(&v4, 4), (&v6, 6)] {
+            for ka in cert.keys() {
+                let key = locate(ctx, &ka.key().fingerprint());
+
+                let mut version: u32 = 0;
+                let r = unsafe {
+                    rnp_key_get_version(key, &mut version as *mut _)
+                };
+                assert_eq!(r, RNP_SUCCESS);
+                assert_eq!(version, expected);
+
+                let r = unsafe { rnp_key_handle_destroy(key) };
+                assert_eq!(r, RNP_SUCCESS);
+            }
+        }
+
+        // NULL pointers.
+        let key = locate(ctx, &v4.fingerprint());
+        let mut version: u32 = 0;
+        let r = unsafe {
+            rnp_key_get_version(std::ptr::null(), &mut version as *mut _)
+        };
+        assert_eq!(r, RNP_ERROR_NULL_POINTER);
+        let r = unsafe {
+            rnp_key_get_version(key, std::ptr::null_mut())
+        };
+        assert_eq!(r, RNP_ERROR_NULL_POINTER);
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+        Ok(())
+    }
+
+    #[test]
+    fn revocation_signature_none() -> openpgp::Result<()> {
+        use openpgp::cert::CertBuilder;
+
+        let (cert, _) = CertBuilder::general_purpose(Some("alice"))
+            .generate()?;
+        let ctx = ctx_with_certs(&[&cert]);
+
+        // Neither the primary key nor the subkeys are revoked.
+        assert!(cert.keys().count() > 1);
+        for ka in cert.keys() {
+            let key = locate(ctx, &ka.key().fingerprint());
+            assert!(! is_revoked(key));
+            assert!(revocation_signature(key).is_null());
+            let r = unsafe { rnp_key_handle_destroy(key) };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+
+        // NULL pointers.
+        let key = locate(ctx, &cert.fingerprint());
+        let mut sig: *mut RnpSignature = std::ptr::null_mut();
+        let r = unsafe {
+            rnp_key_get_revocation_signature(std::ptr::null_mut(),
+                                             &mut sig as *mut *mut _)
+        };
+        assert_eq!(r, RNP_ERROR_NULL_POINTER);
+        let r = unsafe {
+            rnp_key_get_revocation_signature(key, std::ptr::null_mut())
+        };
+        assert_eq!(r, RNP_ERROR_NULL_POINTER);
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+        Ok(())
+    }
+
+    #[test]
+    fn revocation_signature_primary() -> openpgp::Result<()> {
+        use openpgp::cert::CertBuilder;
+        use openpgp::packet::signature::SignatureBuilder;
+        use crate::signature::{
+            rnp_signature_handle_destroy,
+            rnp_signature_is_valid,
+        };
+
+        // The key is created, then revoked because it was
+        // compromised, and then the user ID is signed again.  A
+        // newer self-signature does not undo a hard revocation.
+        let day = Duration::new(24 * 60 * 60, 0);
+        let t0 = std::time::SystemTime::now() - 3 * day;
+
+        let (cert, _) = CertBuilder::general_purpose(Some("alice"))
+            .set_creation_time(t0)
+            .generate()?;
+        let mut signer = cert.primary_key().key().clone()
+            .parts_into_secret()?.into_keypair()?;
+
+        let rev = CertRevocationBuilder::new()
+            .set_signature_creation_time(t0 + day)?
+            .set_reason_for_revocation(ReasonForRevocation::KeyCompromised,
+                                       b"It was the maid :/")?
+            .build(&mut signer, &cert, None)?;
+
+        let uid = cert.userids().next().unwrap();
+        let binding = uid.userid().bind(
+            &mut signer, &cert,
+            SignatureBuilder::from(
+                uid.self_signatures().next().unwrap().clone())
+                .set_signature_creation_time(t0 + 2 * day)?)?;
+
+        let (cert, _) = cert.insert_packets(vec![
+            Packet::from(rev.clone()),
+            Packet::from(binding),
+        ])?;
+        assert_eq!(cert.userids().next().unwrap().self_signatures().count(),
+                   2);
+
+        let ctx = ctx_with_certs(&[&cert]);
+
+        // The primary key is revoked.
+        let key = locate(ctx, &cert.fingerprint());
+        assert!(is_revoked(key));
+        let sig = revocation_signature(key);
+        assert!(! sig.is_null());
+        assert_eq!(unsafe { &(*sig) }.mpis(), rev.mpis());
+        assert_eq!(get_revocation_reason(sig),
+                   ("compromised".to_string(),
+                    b"It was the maid :/".to_vec()));
+        let r = unsafe { rnp_signature_is_valid(sig, 0) };
+        assert_eq!(r, RNP_SUCCESS);
+        let r = unsafe { rnp_signature_handle_destroy(sig) };
+        assert_eq!(r, RNP_SUCCESS);
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        // The subkeys have no revocation signature of their own.
+        assert!(cert.keys().subkeys().count() > 0);
+        for ka in cert.keys().subkeys() {
+            let key = locate(ctx, &ka.key().fingerprint());
+            assert!(! is_revoked(key));
+            assert!(revocation_signature(key).is_null());
+            let r = unsafe { rnp_key_handle_destroy(key) };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+        Ok(())
+    }
+
+    #[test]
+    fn revocation_signature_subkey() -> openpgp::Result<()> {
+        use openpgp::cert::CertBuilder;
+        use crate::signature::rnp_signature_handle_destroy;
+
+        let (cert, _) = CertBuilder::general_purpose(Some("alice"))
+            .generate()?;
+        let mut signer = cert.primary_key().key().clone()
+            .parts_into_secret()?.into_keypair()?;
+
+        assert!(cert.keys().subkeys().count() > 1);
+        let revoked = cert.keys().subkeys().next().unwrap().key().clone();
+        let rev = SubkeyRevocationBuilder::new()
+            .set_reason_for_revocation(ReasonForRevocation::KeyRetired,
+                                       b"Not needed any more")?
+            .build(&mut signer, &cert, &revoked, None)?;
+        let (cert, _) = cert.insert_packets(rev.clone())?;
+
+        let ctx = ctx_with_certs(&[&cert]);
+
+        // Only that subkey is revoked.
+        for ka in cert.keys() {
+            let key = locate(ctx, &ka.key().fingerprint());
+            let sig = revocation_signature(key);
+            if ka.key().fingerprint() == revoked.fingerprint() {
+                assert!(is_revoked(key));
+                assert!(! sig.is_null());
+                assert_eq!(unsafe { &(*sig) }.mpis(), rev.mpis());
+                assert_eq!(get_revocation_reason(sig),
+                           ("retired".to_string(),
+                            b"Not needed any more".to_vec()));
+                let r = unsafe { rnp_signature_handle_destroy(sig) };
+                assert_eq!(r, RNP_SUCCESS);
+            } else {
+                assert!(! is_revoked(key));
+                assert!(sig.is_null());
+            }
+            let r = unsafe { rnp_key_handle_destroy(key) };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+        Ok(())
+    }
+
+    #[test]
+    fn revocation_signature_third_party() -> openpgp::Result<()> {
+        use openpgp::cert::CertBuilder;
+
+        // Mallory makes a signature that claims to revoke Alice's
+        // key.  We cannot tell whether that is a valid revocation,
+        // so there is no revocation signature to return.
+        let (alice, _) = CertBuilder::general_purpose(Some("alice"))
+            .generate()?;
+        let (mallory, _) = CertBuilder::general_purpose(Some("mallory"))
+            .generate()?;
+        let mut signer = mallory.primary_key().key().clone()
+            .parts_into_secret()?.into_keypair()?;
+
+        let rev = CertRevocationBuilder::new()
+            .set_reason_for_revocation(ReasonForRevocation::KeyCompromised,
+                                       b"Says Mallory")?
+            .build(&mut signer, &alice, None)?;
+        let (alice, _) = alice.insert_packets(rev)?;
+
+        // Make sure that the signature is part of the certificate.
+        assert_eq!(alice.primary_key().other_revocations().count(), 1);
+        assert_eq!(alice.primary_key().self_revocations().count(), 0);
+
+        let ctx = ctx_with_certs(&[&alice, &mallory]);
+
+        // ... and that we kept it when we imported the certificate.
+        assert_eq!(unsafe { &*ctx }.certs.read()
+                   .by_primary_fp(&alice.fingerprint()).unwrap()
+                   .primary_key().other_revocations().count(),
+                   1);
+
+        let key = locate(ctx, &alice.fingerprint());
+        assert!(! is_revoked(key));
+        assert!(revocation_signature(key).is_null());
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+        Ok(())
+    }
+
+    #[test]
+    fn revocation_reason_code_and_text() -> openpgp::Result<()> {
+        use openpgp::cert::CertBuilder;
+        use openpgp::packet::signature::SignatureBuilder;
+        use openpgp::types::SignatureType;
+        use crate::signature::{
+            rnp_signature_get_revocation_reason,
+            rnp_signature_handle_destroy,
+        };
+
+        // The codes are those of RFC 9580, Section 5.2.3.31, the
+        // names are those of RNP.
+        let reasons: &[(ReasonForRevocation, u8, &str, &[u8])] = &[
+            (ReasonForRevocation::Unspecified, 0, "no", b""),
+            (ReasonForRevocation::KeySuperseded, 1, "superseded",
+             b"See my new key"),
+            (ReasonForRevocation::KeyCompromised, 2, "compromised",
+             b"It was the maid :/"),
+            (ReasonForRevocation::KeyRetired, 3, "retired",
+             "Tsch\u{fc}ss".as_bytes()),
+            (ReasonForRevocation::UIDRetired, 32, "no longer valid",
+             b"Left the company"),
+            // RNP has no name for other codes.
+            (ReasonForRevocation::Private(100), 100, "", b"Private use"),
+            (ReasonForRevocation::Unknown(4), 4, "", b"Unknown code"),
+        ];
+
+        for (reason, code, name, text) in reasons {
+            assert_eq!(u8::from(*reason), *code);
+
+            let (cert, _) = CertBuilder::general_purpose(Some("alice"))
+                .generate()?;
+            let mut signer = cert.primary_key().key().clone()
+                .parts_into_secret()?.into_keypair()?;
+            let rev = CertRevocationBuilder::new()
+                .set_reason_for_revocation(*reason, text)?
+                .build(&mut signer, &cert, None)?;
+            let (cert, _) = cert.insert_packets(rev)?;
+
+            let ctx = ctx_with_certs(&[&cert]);
+            let key = locate(ctx, &cert.fingerprint());
+            let sig = revocation_signature(key);
+            assert!(! sig.is_null(), "code {}", code);
+            assert_eq!(get_revocation_reason(sig),
+                       (name.to_string(), text.to_vec()),
+                       "code {}", code);
+
+            let r = unsafe { rnp_signature_handle_destroy(sig) };
+            assert_eq!(r, RNP_SUCCESS);
+            let r = unsafe { rnp_key_handle_destroy(key) };
+            assert_eq!(r, RNP_SUCCESS);
+            let r = unsafe { rnp_ffi_destroy(ctx) };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+
+        // A revocation without a Reason for Revocation subpacket,
+        // and a reason that contains a NUL character.
+        let (cert, _) = CertBuilder::general_purpose(Some("alice"))
+            .generate()?;
+        let mut signer = cert.primary_key().key().clone()
+            .parts_into_secret()?.into_keypair()?;
+        let rev = SignatureBuilder::new(SignatureType::KeyRevocation)
+            .sign_direct_key(&mut signer, cert.primary_key().key())?;
+        assert!(rev.reason_for_revocation().is_none());
+        let subkey = cert.keys().subkeys().next().unwrap().key().clone();
+        let subkey_rev = SubkeyRevocationBuilder::new()
+            .set_reason_for_revocation(ReasonForRevocation::KeyCompromised,
+                                       b"NUL\x00NUL")?
+            .build(&mut signer, &cert, &subkey, None)?;
+        let (cert, _) = cert.insert_packets(vec![
+            Packet::from(rev),
+            Packet::from(subkey_rev),
+        ])?;
+
+        let ctx = ctx_with_certs(&[&cert]);
+
+        let key = locate(ctx, &cert.fingerprint());
+        let sig = revocation_signature(key);
+        assert!(! sig.is_null());
+        assert_eq!(get_revocation_reason(sig), ("".to_string(), b"".to_vec()));
+
+        // `code` and `reason` are optional.
+        let r = unsafe {
+            rnp_signature_get_revocation_reason(
+                sig, std::ptr::null_mut(), std::ptr::null_mut())
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        let mut code: *mut c_char = std::ptr::null_mut();
+        let r = unsafe {
+            rnp_signature_get_revocation_reason(
+                sig, &mut code as *mut *mut _, std::ptr::null_mut())
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        assert!(! code.is_null());
+        unsafe { crate::buffer::rnp_buffer_destroy(code as *mut _) };
+        let mut reason: *mut c_char = std::ptr::null_mut();
+        let r = unsafe {
+            rnp_signature_get_revocation_reason(
+                sig, std::ptr::null_mut(), &mut reason as *mut *mut _)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        assert!(! reason.is_null());
+        unsafe { crate::buffer::rnp_buffer_destroy(reason as *mut _) };
+
+        // The signature is not.
+        let r = unsafe {
+            rnp_signature_get_revocation_reason(
+                std::ptr::null(), &mut code as *mut *mut _,
+                &mut reason as *mut *mut _)
+        };
+        assert_eq!(r, RNP_ERROR_NULL_POINTER);
+
+        let r = unsafe { rnp_signature_handle_destroy(sig) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        // A signature that is not a revocation has no reason either.
+        let mut count = 0;
+        let r = unsafe {
+            rnp_key_get_signature_count(key, &mut count as *mut _)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        let mut direct_key_sigs = 0;
+        for i in 0..count {
+            let mut sig: *mut RnpSignature = std::ptr::null_mut();
+            let r = unsafe {
+                rnp_key_get_signature_at(key, i, &mut sig as *mut *mut _)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+            assert!(! sig.is_null());
+            if unsafe { &(*sig) }.typ() == SignatureType::DirectKey {
+                direct_key_sigs += 1;
+                assert_eq!(get_revocation_reason(sig),
+                           ("".to_string(), b"".to_vec()));
+            }
+            let r = unsafe { rnp_signature_handle_destroy(sig) };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+        assert!(direct_key_sigs > 0);
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        // We replace NUL characters.
+        let key = locate(ctx, &subkey.fingerprint());
+        let sig = revocation_signature(key);
+        assert!(! sig.is_null());
+        assert_eq!(get_revocation_reason(sig),
+                   ("compromised".to_string(), b"NUL_NUL".to_vec()));
+        let r = unsafe { rnp_signature_handle_destroy(sig) };
+        assert_eq!(r, RNP_SUCCESS);
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
         Ok(())
     }
 }

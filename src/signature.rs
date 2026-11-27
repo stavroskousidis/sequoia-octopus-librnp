@@ -21,6 +21,7 @@ use crate::{
     RnpContext,
     RnpKey,
     str_to_rnp_buffer,
+    c_str_to_rnp_buffer_lossy,
     conversions::ToRnpId,
     error::*,
 };
@@ -192,6 +193,35 @@ fn rnp_signature_get_features(sig: *const RnpSignature,
              | (*f.as_bitfield().as_ref().get(3).unwrap_or(&0) as u32) << 24)
         .unwrap_or(0);
 
+    rnp_success!()
+}
+
+/// Returns the code and the text of the signature's Reason for
+/// Revocation subpacket.
+///
+/// `code` and `reason` may each be NULL.  Like RNP, we return empty
+/// strings if the signature has no such subpacket, and an empty
+/// string for a code that RNP has no name for.  We do not check that
+/// the signature is a revocation.
+#[no_mangle] pub unsafe extern "C"
+fn rnp_signature_get_revocation_reason(sig: *const RnpSignature,
+                                       code: *mut *mut c_char,
+                                       reason: *mut *mut c_char)
+                                       -> RnpResult {
+    rnp_function!(rnp_signature_get_revocation_reason, crate::TRACE);
+    let sig = assert_ptr_ref!(sig);
+    arg!(code);
+    arg!(reason);
+
+    let rfr = sig.reason_for_revocation();
+    if ! code.is_null() {
+        *code = str_to_rnp_buffer(
+            rfr.as_ref().map(|(c, _)| c.to_rnp_id()).unwrap_or(""));
+    }
+    if ! reason.is_null() {
+        *reason = c_str_to_rnp_buffer_lossy(
+            rfr.as_ref().map(|(_, r)| *r).unwrap_or(&[]));
+    }
     rnp_success!()
 }
 

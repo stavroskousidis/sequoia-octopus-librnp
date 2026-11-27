@@ -49,6 +49,7 @@ use crate::{
     conversions::ToRnpId,
     key::RnpKey,
     error::*,
+    flags::*,
 };
 
 /// Controls tracing in this module.
@@ -58,7 +59,25 @@ pub struct RnpOpVerify<'a> {
     ctx: &'a mut RnpContext,
     input: &'a mut RnpInput,
     mode: SignatureMode<'a>,
+    flags: RnpOpVerifyFlags,
     result: RnpOpVerifyResult,
+}
+
+/// The flags set using rnp_op_verify_set_flags.
+#[derive(Clone, Copy, Debug, Default)]
+struct RnpOpVerifyFlags {
+    /// RNP_VERIFY_IGNORE_SIGS_ON_DECRYPT.
+    ///
+    /// We never fail a decryption because of the signatures, so we
+    /// only record this flag.
+    #[allow(dead_code)]
+    ignore_sigs_on_decrypt: bool,
+
+    /// RNP_VERIFY_REQUIRE_ALL_SIGS.
+    require_all_sigs: bool,
+
+    /// RNP_VERIFY_ALLOW_HIDDEN_RECIPIENT.
+    allow_hidden_recipient: bool,
 }
 
 enum SignatureMode<'a> {
@@ -84,6 +103,10 @@ pub struct RnpOpVerifyResult {
 
     // Any signatures.
     signatures: Vec<RnpOpVerifySignature>,
+
+    // The number of signatures that we could not make sense of, and
+    // that are hence not in `signatures`.
+    unknown_signatures: usize,
 }
 
 impl fmt::Debug for RnpOpVerifyResult {
@@ -103,6 +126,7 @@ impl fmt::Debug for RnpOpVerifyResult {
                 self.skesks.iter().position(|x| x == skesk).expect("added")
             }))
             .field("signatures", &self.signatures)
+            .field("unknown_signatures", &self.unknown_signatures)
             .finish()
     }
 }
@@ -194,6 +218,7 @@ fn rnp_op_verify_create<'a>(op: *mut *mut RnpOpVerify<'a>,
         ctx,
         input,
         mode: SignatureMode::Inline(output),
+        flags: Default::default(),
         result: Default::default(),
     }));
     rnp_success!()
@@ -216,6 +241,7 @@ fn rnp_op_verify_detached_create<'a>(op: *mut *mut RnpOpVerify<'a>,
         ctx,
         input,
         mode: SignatureMode::Detached(signature),
+        flags: Default::default(),
         result: Default::default(),
     }));
     rnp_success!()
@@ -232,6 +258,53 @@ fn rnp_op_verify_destroy(op: *mut RnpOpVerify) -> RnpResult {
     rnp_success!()
 }
 
+/// Sets flags that control the verification or decryption.
+///
+/// All flags are set at once: a flag that is not present is unset.
+///
+///   - `RNP_VERIFY_IGNORE_SIGS_ON_DECRYPT`: Don't fail the
+///     decryption because of invalid signatures.  This is what we
+///     always do: `rnp_op_verify_execute` reports the status of the
+///     signatures separately.
+///
+///   - `RNP_VERIFY_REQUIRE_ALL_SIGS`: Let `rnp_op_verify_execute`
+///     fail with `RNP_ERROR_SIGNATURE_INVALID` unless all signatures
+///     are valid.
+///
+///   - `RNP_VERIFY_ALLOW_HIDDEN_RECIPIENT`: When decrypting a
+///     message with a hidden recipient, also try the secret keys
+///     that are password protected, asking for their passwords.
+///     Note: unlike RNP, we always try the secret keys that are not
+///     password protected, whether or not this flag is set.
+#[no_mangle] pub unsafe extern "C"
+fn rnp_op_verify_set_flags(op: *mut RnpOpVerify,
+                           flags: RnpVerifyFlags)
+                           -> RnpResult {
+    rnp_function!(rnp_op_verify_set_flags, crate::TRACE);
+    let op = assert_ptr_mut!(op);
+    arg!(flags);
+
+    op.flags = RnpOpVerifyFlags {
+        ignore_sigs_on_decrypt:
+            flags & RNP_VERIFY_IGNORE_SIGS_ON_DECRYPT > 0,
+        require_all_sigs:
+            flags & RNP_VERIFY_REQUIRE_ALL_SIGS > 0,
+        allow_hidden_recipient:
+            flags & RNP_VERIFY_ALLOW_HIDDEN_RECIPIENT > 0,
+    };
+
+    // Like RNP, we apply the flags that we know before we complain
+    // about those that we don't.
+    let unknown = flags & ! (RNP_VERIFY_IGNORE_SIGS_ON_DECRYPT
+                             | RNP_VERIFY_REQUIRE_ALL_SIGS
+                             | RNP_VERIFY_ALLOW_HIDDEN_RECIPIENT);
+    if unknown > 0 {
+        warn!("unknown flags: {:x}", unknown);
+        rnp_return_status!(RNP_ERROR_BAD_PARAMETERS);
+    }
+    rnp_success!()
+}
+
 #[no_mangle] pub unsafe extern "C"
 fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
     rnp_function!(rnp_op_verify_execute, crate::TRACE);
@@ -239,6 +312,7 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
 
     fn f(op: &mut RnpOpVerify) -> openpgp::Result<()> {
         let policy = op.ctx.policy().clone();
+        let allow_hidden_recipient = op.flags.allow_hidden_recipient;
         match &mut op.mode {
             SignatureMode::Inline(output) => {
                 t!("Inline signature verification or decryption");
@@ -251,6 +325,7 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
                 let h = Helper {
                     ctx: op.ctx,
                     result: &mut op.result,
+                    allow_hidden_recipient,
                 };
                 if VerifierBuilder::from_reader(&mut input)
                     .and_then(|b| b.with_policy(&policy, None, h))
@@ -266,6 +341,7 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
                 let h = Helper {
                     ctx: op.ctx,
                     result: &mut op.result,
+                    allow_hidden_recipient,
                 };
 
                 let mut v = DecryptorBuilder::from_reader(&mut op.input)?
@@ -278,6 +354,7 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
                 let h = Helper {
                     ctx: op.ctx,
                     result: &mut op.result,
+                    allow_hidden_recipient,
                 };
                 let mut v = DetachedVerifierBuilder::from_reader(signature)?
                     .with_policy(&policy, None, h)?;
@@ -307,6 +384,14 @@ fn rnp_op_verify_execute(op: *mut RnpOpVerify) -> RnpResult {
             // https://searchfox.org/comm-central/rev/35c9e2929a5ae37d07192315db3787dc01f73441/mail/extensions/openpgp/content/modules/RNP.jsm#953
             RNP_ERROR_DECRYPT_FAILED
         }
+    } else if op.flags.require_all_sigs
+        && (op.result.verification_error().is_some()
+            || op.result.unknown_signatures > 0)
+    {
+        // The caller requires all signatures to be valid.  That
+        // includes those that we could not make sense of.
+        warn!("not all signatures are valid");
+        RNP_ERROR_SIGNATURE_INVALID
     } else {
         RNP_SUCCESS
     })
@@ -555,6 +640,8 @@ fn rnp_op_verify_get_symenc_count(op: *const RnpOpVerify,
 struct Helper<'a> {
     ctx: &'a mut RnpContext,
     result: &'a mut RnpOpVerifyResult,
+    /// Whether RNP_VERIFY_ALLOW_HIDDEN_RECIPIENT is set.
+    allow_hidden_recipient: bool,
 }
 
 impl<'a> VerificationHelper for Helper<'a> {
@@ -713,10 +800,12 @@ impl<'a> VerificationHelper for Helper<'a> {
                                 t!("Signature {}.{}: unknown signature: {}",
                                    i, signo, sig.error());
                                 // XXX: Not sure what to do with it.
+                                self.result.unknown_signatures += 1;
                             },
                             Err(e) => {
                                 t!("Signature {}.{}: {}", i, signo, e);
                                 // XXX: Not sure what to do with it.
+                                self.result.unknown_signatures += 1;
                             },
                         }
                     }
@@ -1023,6 +1112,75 @@ impl<'a> DecryptionHelper for Helper<'a> {
             }
         }
 
+        // Fourth, if the caller allows hidden recipients, we try to
+        // decrypt PKESK packets with wildcard recipients using those
+        // keys that are encrypted.  Like RNP, we ask for the password
+        // of every secret key that could decrypt the PKESK.
+        if self.allow_hidden_recipient
+            && pkesks.iter().any(|p| p.recipient().is_none())
+        {
+            t!("trying to decrypt PKESKs using wildcard recipients with \
+                encrypted keys");
+
+            // Get all possible decryption keys from the context.  We
+            // must not hold the lock on the keystore while we ask for
+            // passwords.
+            let mut keys = Vec::new();
+            let ks = self.ctx.certs.read();
+            for cert in ks.iter().filter(|cert| cert.is_tsk()) {
+                for key in cert.with_policy(&*self.ctx.policy(), None).ok()
+                    .iter()
+                    .flat_map(|vcert| vcert.keys()
+                              .secret()
+                              .for_storage_encryption()
+                              .for_transport_encryption()
+                              .map(|vka| vka.key().clone()))
+                {
+                    if key.secret().is_encrypted() {
+                        keys.push(key);
+                    }
+                }
+            }
+            drop(ks);
+
+            for pkesk in pkesks.iter().filter(|p| p.recipient().is_none()) {
+                // Don't ask the user to decrypt a key if we don't
+                // support the algorithm.
+                if ! pkesk.pk_algo().is_supported() {
+                    continue;
+                }
+
+                t!("trying to decrypt PKESK with wildcard recipient...");
+                for key in keys.iter()
+                    .filter(|key| key.pk_algo() == pkesk.pk_algo())
+                {
+                    t!("... using key {}", key.fingerprint());
+                    let mut keypair = match self.ctx.decrypt_key_for(
+                        None, // XXX
+                        key.clone(),
+                        RnpPasswordFor::Decrypt)
+                        .and_then(|k| k.into_keypair())
+                    {
+                        Ok(k) => k,
+                        Err(_) => {
+                            t!("failed to decrypt the key!");
+                            continue;
+                        },
+                    };
+
+                    if let Some((_algo, _sk, fp)) =
+                        self.try_decrypt(pkesk, algo, &mut keypair, decrypt)
+                    {
+                        t!("success!");
+                        self.result.pkesk_used = Some(pkesk.clone());
+                        return Ok(fp);
+                    } else {
+                        t!("failure!");
+                    }
+                }
+            }
+        }
+
         t!("trying to decrypt PKESKs with gpg-agent");
         for pkesk in pkesks {
             let keyid = if let Some(r) = pkesk.recipient() {
@@ -1094,5 +1252,537 @@ impl<'a> DecryptionHelper for Helper<'a> {
             giving up");
 
         Err(anyhow::anyhow!("Decryption failed"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+    use std::ptr::null_mut;
+
+    use super::*;
+    use libc::c_void;
+
+    use openpgp::{
+        cert::CertBuilder,
+        policy::StandardPolicy,
+        serialize::{
+            MarshalInto,
+            stream::{
+                Encryptor,
+                LiteralWriter,
+                Message,
+                Recipient,
+                Signer,
+            },
+        },
+        types::Features,
+    };
+
+    use crate::rnp_ffi_create;
+    use crate::rnp_ffi_destroy;
+    use crate::rnp_ffi_set_pass_provider;
+    use crate::rnp_input_destroy;
+    use crate::rnp_input_from_memory;
+    use crate::rnp_output_destroy;
+    use crate::rnp_output_memory_get_buf;
+    use crate::rnp_output_to_memory;
+    use crate::import::rnp_import_keys;
+
+    const MESSAGE: &[u8] = b"Hello World :)";
+
+    macro_rules! rnp_try {
+        ($e: expr) => {{
+            let r = unsafe { $e };
+            assert_eq!(r, RNP_SUCCESS.as_u32());
+        }}
+    }
+
+    /// Creates a context and imports the certificates, including any
+    /// secret key material.
+    fn ctx_with_certs(certs: &[&Cert]) -> *mut RnpContext {
+        let mut ctx: *mut RnpContext = null_mut();
+        rnp_try!(rnp_ffi_create(
+            &mut ctx as *mut *mut _,
+            b"GPG\x00".as_ptr() as *const c_char,
+            b"GPG\x00".as_ptr() as *const c_char));
+
+        for cert in certs {
+            let buffer = cert.as_tsk().to_vec().unwrap();
+            let mut input: *mut RnpInput = null_mut();
+            rnp_try!(rnp_input_from_memory(
+                &mut input as *mut *mut _,
+                buffer.as_ptr(), buffer.len(), false));
+            rnp_try!(rnp_import_keys(
+                ctx, input,
+                RNP_LOAD_SAVE_PUBLIC_KEYS
+                    | RNP_LOAD_SAVE_SECRET_KEYS,
+                null_mut() as *mut *mut _));
+            rnp_try!(rnp_input_destroy(input));
+        }
+
+        ctx
+    }
+
+    /// The result of a verification or decryption operation.
+    #[derive(Debug, PartialEq, Eq)]
+    struct Outcome {
+        /// What rnp_op_verify_execute returned.
+        status: RnpResult,
+        /// What rnp_op_verify_signature_get_status returned for each
+        /// signature.
+        signatures: Vec<RnpResult>,
+        /// The content of the output.
+        output: Vec<u8>,
+    }
+
+    /// Verifies or decrypts `message`.
+    ///
+    /// If `detached` is given, `message` is the signed data and
+    /// `detached` the signature.  If `flags` is given, they are set
+    /// using rnp_op_verify_set_flags.
+    fn execute(ctx: *mut RnpContext, message: &[u8],
+               detached: Option<&[u8]>, flags: Option<RnpVerifyFlags>)
+               -> Outcome
+    {
+        let mut input: *mut RnpInput = null_mut();
+        rnp_try!(rnp_input_from_memory(
+            &mut input as *mut *mut _,
+            message.as_ptr(), message.len(), false));
+
+        let mut output: *mut RnpOutput = null_mut();
+        rnp_try!(rnp_output_to_memory(&mut output as *mut *mut _, 0));
+
+        let mut signature: *mut RnpInput = null_mut();
+        let mut op: *mut RnpOpVerify = null_mut();
+        if let Some(detached) = detached {
+            rnp_try!(rnp_input_from_memory(
+                &mut signature as *mut *mut _,
+                detached.as_ptr(), detached.len(), false));
+            rnp_try!(rnp_op_verify_detached_create(
+                &mut op as *mut *mut _, ctx, input, signature));
+        } else {
+            rnp_try!(rnp_op_verify_create(
+                &mut op as *mut *mut _, ctx, input, output));
+        }
+
+        if let Some(flags) = flags {
+            rnp_try!(rnp_op_verify_set_flags(op, flags));
+        }
+
+        let status = unsafe { rnp_op_verify_execute(op) };
+
+        let mut count = 0;
+        rnp_try!(rnp_op_verify_get_signature_count(op, &mut count as *mut _));
+        let mut signatures = Vec::new();
+        for i in 0..count {
+            let mut sig: *const RnpOpVerifySignature = std::ptr::null();
+            rnp_try!(rnp_op_verify_get_signature_at(
+                op, i, &mut sig as *mut *const _));
+            signatures.push(
+                unsafe { rnp_op_verify_signature_get_status(sig) });
+        }
+
+        let mut buf: *mut u8 = null_mut();
+        let mut len: size_t = 0;
+        rnp_try!(rnp_output_memory_get_buf(
+            output,
+            &mut buf as *mut *mut _,
+            &mut len as *mut _,
+            false));
+        let output_data = if len > 0 {
+            unsafe { std::slice::from_raw_parts(buf, len) }.to_vec()
+        } else {
+            Vec::new()
+        };
+
+        rnp_try!(rnp_op_verify_destroy(op));
+        if ! signature.is_null() {
+            rnp_try!(rnp_input_destroy(signature));
+        }
+        rnp_try!(rnp_input_destroy(input));
+        rnp_try!(rnp_output_destroy(output));
+
+        Outcome {
+            status,
+            signatures,
+            output: output_data,
+        }
+    }
+
+    /// Returns a signer for the certificate's signing subkey.
+    fn signer(cert: &Cert) -> openpgp::crypto::KeyPair {
+        let p = &StandardPolicy::new();
+        cert.keys().with_policy(p, None).secret().for_signing()
+            .next().unwrap().key().clone().into_keypair().unwrap()
+    }
+
+    /// Signs MESSAGE using the certificates' signing subkeys.
+    fn sign(certs: &[&Cert], detached: bool) -> openpgp::Result<Vec<u8>> {
+        let mut sink = Vec::new();
+        let message = Message::new(&mut sink);
+        let mut signer_ = Signer::new(message, signer(certs[0]))?;
+        for cert in &certs[1..] {
+            signer_ = signer_.add_signer(signer(cert))?;
+        }
+        if detached {
+            let mut message = signer_.detached().build()?;
+            message.write_all(MESSAGE)?;
+            message.finalize()?;
+        } else {
+            let mut message =
+                LiteralWriter::new(signer_.build()?).build()?;
+            message.write_all(MESSAGE)?;
+            message.finalize()?;
+        }
+        Ok(sink)
+    }
+
+    /// Encrypts MESSAGE to the certificates' encryption subkeys
+    /// without naming the recipients in the PKESK packets.
+    fn encrypt_hidden(certs: &[&Cert]) -> openpgp::Result<Vec<u8>> {
+        let p = &StandardPolicy::new();
+        let mut keys = Vec::new();
+        for cert in certs {
+            keys.push(
+                cert.keys().with_policy(p, None).for_transport_encryption()
+                    .next().unwrap().key().clone());
+        }
+        let recipients = keys.iter()
+            .map(|key| Recipient::new(None::<Features>,
+                                      None::<KeyHandle>,
+                                      key))
+            .collect::<Vec<_>>();
+
+        let mut sink = Vec::new();
+        let message = Message::new(&mut sink);
+        let message =
+            Encryptor::for_recipients(message, recipients).build()?;
+        let mut message = LiteralWriter::new(message).build()?;
+        message.write_all(MESSAGE)?;
+        message.finalize()?;
+
+        // Make sure that we test what we mean to test.
+        let ppr = openpgp::PacketPile::from_bytes(&sink)?;
+        let mut pkesks = 0;
+        for packet in ppr.descendants() {
+            if let openpgp::Packet::PKESK(pkesk) = packet {
+                assert!(pkesk.recipient().is_none());
+                pkesks += 1;
+            }
+        }
+        assert_eq!(pkesks, certs.len());
+
+        Ok(sink)
+    }
+
+    #[test]
+    fn set_flags() -> openpgp::Result<()> {
+        let ctx = ctx_with_certs(&[]);
+
+        let mut input: *mut RnpInput = null_mut();
+        rnp_try!(rnp_input_from_memory(
+            &mut input as *mut *mut _,
+            MESSAGE.as_ptr(), MESSAGE.len(), false));
+        let mut output: *mut RnpOutput = null_mut();
+        rnp_try!(rnp_output_to_memory(&mut output as *mut *mut _, 0));
+        let mut op: *mut RnpOpVerify = null_mut();
+        rnp_try!(rnp_op_verify_create(
+            &mut op as *mut *mut _, ctx, input, output));
+
+        let flags = |op: *mut RnpOpVerify| {
+            let f = unsafe { &*op }.flags;
+            (f.ignore_sigs_on_decrypt,
+             f.require_all_sigs,
+             f.allow_hidden_recipient)
+        };
+
+        // By default, no flag is set.
+        assert_eq!(flags(op), (false, false, false));
+
+        // All flags are set at once: a flag that is not present is
+        // unset.
+        for f in 0..8u32 {
+            rnp_try!(rnp_op_verify_set_flags(op, f));
+            assert_eq!(flags(op), (f & 1 > 0, f & 2 > 0, f & 4 > 0));
+        }
+        rnp_try!(rnp_op_verify_set_flags(
+            op,
+            RNP_VERIFY_IGNORE_SIGS_ON_DECRYPT
+                | RNP_VERIFY_REQUIRE_ALL_SIGS
+                | RNP_VERIFY_ALLOW_HIDDEN_RECIPIENT));
+        assert_eq!(flags(op), (true, true, true));
+        rnp_try!(rnp_op_verify_set_flags(op, 0));
+        assert_eq!(flags(op), (false, false, false));
+
+        // The values are those of RNP's rnp.h.
+        assert_eq!(RNP_VERIFY_IGNORE_SIGS_ON_DECRYPT, 1);
+        assert_eq!(RNP_VERIFY_REQUIRE_ALL_SIGS, 2);
+        assert_eq!(RNP_VERIFY_ALLOW_HIDDEN_RECIPIENT, 4);
+
+        // Unknown flags are an error, but like RNP we apply the
+        // known ones first.
+        let r = unsafe {
+            rnp_op_verify_set_flags(op, 8 | RNP_VERIFY_REQUIRE_ALL_SIGS)
+        };
+        assert_eq!(r, RNP_ERROR_BAD_PARAMETERS.as_u32());
+        assert_eq!(flags(op), (false, true, false));
+        let r = unsafe { rnp_op_verify_set_flags(op, 1 << 31) };
+        assert_eq!(r, RNP_ERROR_BAD_PARAMETERS.as_u32());
+        assert_eq!(flags(op), (false, false, false));
+
+        let r = unsafe { rnp_op_verify_set_flags(null_mut(), 0) };
+        assert_eq!(r, RNP_ERROR_NULL_POINTER.as_u32());
+
+        rnp_try!(rnp_op_verify_destroy(op));
+        rnp_try!(rnp_input_destroy(input));
+        rnp_try!(rnp_output_destroy(output));
+        rnp_try!(rnp_ffi_destroy(ctx));
+        Ok(())
+    }
+
+    #[test]
+    fn require_all_sigs() -> openpgp::Result<()> {
+        let ok = RNP_SUCCESS.as_u32();
+        let invalid = RNP_ERROR_SIGNATURE_INVALID.as_u32();
+        let not_found = RNP_ERROR_KEY_NOT_FOUND.as_u32();
+
+        let (alice, _) = CertBuilder::general_purpose(Some("alice"))
+            .generate()?;
+        let (bob, _) = CertBuilder::general_purpose(Some("bob"))
+            .generate()?;
+
+        // We know Alice's certificate, but not Bob's.
+        let alice_pub = alice.clone().strip_secret_key_material();
+        let ctx = ctx_with_certs(&[&alice_pub]);
+
+        let without = [
+            None,
+            Some(0),
+            Some(RNP_VERIFY_IGNORE_SIGS_ON_DECRYPT),
+            Some(RNP_VERIFY_ALLOW_HIDDEN_RECIPIENT),
+        ];
+        let with = [
+            Some(RNP_VERIFY_REQUIRE_ALL_SIGS),
+            Some(RNP_VERIFY_REQUIRE_ALL_SIGS
+                 | RNP_VERIFY_IGNORE_SIGS_ON_DECRYPT),
+        ];
+
+        // One good signature: the flag makes no difference.
+        let by_alice = sign(&[&alice], false)?;
+        for flags in without.iter().chain(with.iter()) {
+            assert_eq!(execute(ctx, &by_alice, None, *flags),
+                       Outcome {
+                           status: ok,
+                           signatures: vec![ok],
+                           output: MESSAGE.to_vec(),
+                       },
+                       "flags {:?}", flags);
+        }
+
+        // One good signature, and one that we cannot check.
+        let by_both = sign(&[&alice, &bob], false)?;
+        for flags in without {
+            let outcome = execute(ctx, &by_both, None, flags);
+            assert_eq!(outcome.status, ok, "flags {:?}", flags);
+            let mut signatures = outcome.signatures.clone();
+            signatures.sort();
+            assert_eq!(signatures, vec![ok, not_found], "flags {:?}", flags);
+        }
+        for flags in with {
+            let outcome = execute(ctx, &by_both, None, flags);
+            assert_eq!(outcome.status, invalid, "flags {:?}", flags);
+            let mut signatures = outcome.signatures.clone();
+            signatures.sort();
+            assert_eq!(signatures, vec![ok, not_found], "flags {:?}", flags);
+        }
+
+        // A detached signature over different data.
+        let detached = sign(&[&alice], true)?;
+        for flags in without.iter().chain(with.iter()) {
+            assert_eq!(execute(ctx, MESSAGE, Some(&detached), *flags),
+                       Outcome {
+                           status: ok,
+                           signatures: vec![ok],
+                           output: vec![],
+                       },
+                       "flags {:?}", flags);
+        }
+        for flags in without {
+            assert_eq!(execute(ctx, b"Other data", Some(&detached), flags),
+                       Outcome {
+                           status: ok,
+                           signatures: vec![invalid],
+                           output: vec![],
+                       },
+                       "flags {:?}", flags);
+        }
+        for flags in with {
+            assert_eq!(execute(ctx, b"Other data", Some(&detached), flags),
+                       Outcome {
+                           status: invalid,
+                           signatures: vec![invalid],
+                           output: vec![],
+                       },
+                       "flags {:?}", flags);
+        }
+
+        // A good signature followed by a signature packet that we
+        // cannot parse.  We do not report the latter, but it is not
+        // a valid signature.
+        let mut unknown = openpgp::packet::Unknown::new(
+            openpgp::packet::Tag::Signature,
+            anyhow::anyhow!("unsupported version"));
+        unknown.set_body(vec![23, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        let unknown = openpgp::Packet::from(unknown).to_vec()?;
+        let mut with_unknown = detached.clone();
+        with_unknown.extend_from_slice(&unknown);
+        for flags in without {
+            assert_eq!(execute(ctx, MESSAGE, Some(&with_unknown), flags),
+                       Outcome {
+                           status: ok,
+                           signatures: vec![ok],
+                           output: vec![],
+                       },
+                       "flags {:?}", flags);
+        }
+        for flags in with {
+            assert_eq!(execute(ctx, MESSAGE, Some(&with_unknown), flags),
+                       Outcome {
+                           status: invalid,
+                           signatures: vec![ok],
+                           output: vec![],
+                       },
+                       "flags {:?}", flags);
+        }
+
+        rnp_try!(rnp_ffi_destroy(ctx));
+        Ok(())
+    }
+
+    /// What the password callback is supposed to do.
+    struct Passwords {
+        /// The password to return, if any.
+        password: Option<&'static str>,
+        /// How often the callback was invoked.
+        calls: usize,
+    }
+
+    unsafe extern "C" fn password_cb(_ctx: *mut RnpContext,
+                                     cookie: *mut c_void,
+                                     _key: *const RnpKey,
+                                     _pgp_context: *const c_char,
+                                     buf: *mut c_char,
+                                     buf_len: size_t)
+                                     -> bool {
+        let passwords = &mut *(cookie as *mut Passwords);
+        passwords.calls += 1;
+        if let Some(password) = passwords.password {
+            assert!(password.len() < buf_len);
+            std::ptr::copy_nonoverlapping(
+                password.as_ptr(), buf as *mut u8, password.len());
+            *buf.add(password.len()) = 0;
+            true
+        } else {
+            false
+        }
+    }
+
+    #[test]
+    fn hidden_recipient() -> openpgp::Result<()> {
+        let ok = RNP_SUCCESS.as_u32();
+        let failed = RNP_ERROR_DECRYPT_FAILED.as_u32();
+        let decrypted = Outcome {
+            status: ok,
+            signatures: vec![],
+            output: MESSAGE.to_vec(),
+        };
+        let not_decrypted = Outcome {
+            status: failed,
+            signatures: vec![],
+            output: vec![],
+        };
+
+        // Alice's and Bob's secret keys are password protected,
+        // Carol's are not.
+        let (alice, _) = CertBuilder::general_purpose(Some("alice"))
+            .set_password(Some("alice's password".into()))
+            .generate()?;
+        let (bob, _) = CertBuilder::general_purpose(Some("bob"))
+            .set_password(Some("bob's password".into()))
+            .generate()?;
+        let (carol, _) = CertBuilder::general_purpose(Some("carol"))
+            .generate()?;
+        for cert in [&alice, &bob] {
+            assert!(cert.keys().secret()
+                    .all(|ka| ka.key().secret().is_encrypted()));
+        }
+        assert!(carol.keys().secret()
+                .all(|ka| ! ka.key().secret().is_encrypted()));
+
+        let for_alice = encrypt_hidden(&[&alice])?;
+        let for_carol = encrypt_hidden(&[&carol])?;
+
+        let without = [
+            None,
+            Some(0),
+            Some(RNP_VERIFY_IGNORE_SIGS_ON_DECRYPT
+                 | RNP_VERIFY_REQUIRE_ALL_SIGS),
+        ];
+        let with = [
+            Some(RNP_VERIFY_ALLOW_HIDDEN_RECIPIENT),
+            Some(RNP_VERIFY_ALLOW_HIDDEN_RECIPIENT
+                 | RNP_VERIFY_REQUIRE_ALL_SIGS),
+        ];
+
+        let ctx = ctx_with_certs(&[&alice, &bob, &carol]);
+        let mut passwords = Passwords { password: None, calls: 0 };
+        rnp_try!(rnp_ffi_set_pass_provider(
+            ctx, password_cb, &mut passwords as *mut _ as *mut c_void));
+
+        // Without the flag, we try the keys that are not password
+        // protected and never ask for a password.  This is what we
+        // did before rnp_op_verify_set_flags existed.
+        passwords.password = Some("alice's password");
+        for flags in without {
+            assert_eq!(execute(ctx, &for_carol, None, flags), decrypted,
+                       "flags {:?}", flags);
+            assert_eq!(execute(ctx, &for_alice, None, flags), not_decrypted,
+                       "flags {:?}", flags);
+        }
+        assert_eq!(passwords.calls, 0);
+
+        for flags in with {
+            // With the flag, we don't need a password for the keys
+            // that are not password protected.
+            passwords.calls = 0;
+            passwords.password = None;
+            assert_eq!(execute(ctx, &for_carol, None, flags), decrypted,
+                       "flags {:?}", flags);
+            assert_eq!(passwords.calls, 0);
+
+            // We ask for the password of every password protected
+            // key that could decrypt the message: Alice's and Bob's.
+            assert_eq!(execute(ctx, &for_alice, None, flags), not_decrypted,
+                       "flags {:?}", flags);
+            assert_eq!(passwords.calls, 2);
+
+            // A wrong password does not help.
+            passwords.calls = 0;
+            passwords.password = Some("not the password");
+            assert_eq!(execute(ctx, &for_alice, None, flags), not_decrypted,
+                       "flags {:?}", flags);
+            assert_eq!(passwords.calls, 2);
+
+            // The right one does.
+            passwords.calls = 0;
+            passwords.password = Some("alice's password");
+            assert_eq!(execute(ctx, &for_alice, None, flags), decrypted,
+                       "flags {:?}", flags);
+            assert!(passwords.calls >= 1 && passwords.calls <= 2);
+        }
+
+        rnp_try!(rnp_ffi_destroy(ctx));
+        Ok(())
     }
 }

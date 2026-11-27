@@ -278,8 +278,9 @@ impl ToRnpId for ReasonForRevocation {
             KeySuperseded => "superseded",
             KeyCompromised => "compromised",
             KeyRetired => "retired",
-            UIDRetired => "uid retired", // XXX: RNP doesn't support that afaics
-            _ => "unknown",
+            UIDRetired => "no longer valid",
+            // Like RNP, map all other codes to the empty string.
+            _ => "",
         }
     }
 }
