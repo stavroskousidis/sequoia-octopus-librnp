@@ -9,7 +9,9 @@
 # container, headless. Octopus: branch `pqc` after work package C1, feature
 # crypto-openssl. Recorded from run 45934898368 (2026-11-27). Changed since:
 # browser_upload.js, fail to pass with the Octopus, with work package C2
-# (the Octopus ends the lines of ASCII Armor with CR LF, as RNP does).
+# (the Octopus ends the lines of ASCII Armor with CR LF, as RNP does);
+# test_secretKeys.js, fail to pass with the Octopus, with work package W2
+# (v6 keys have a keygrip, so Thunderbird sees them and refuses them).
 #
 # A line changes only together with the change that causes it, and the
 # commit message says why. Nothing is removed from the test run to make a
@@ -20,8 +22,6 @@
 # browser_keyAssistantCopyLink.js: fails with Mozilla's librnp as well
 #   ("resolve button should be shown" times out), so not caused by the
 #   Octopus.
-# test_secretKeys.js: testRejectImportUnsupportedKeys, "should reject sec
-#   v6 key": Thunderbird expects exit code -1 and gets 0.
 # browser_viewMessageRemoteContent.js: test_aead_allowed, "remote image
 #   should load for rc-openpgp-aead.eml" times out.
 comm/mail/extensions/openpgp/test/unit/rnp/test_alias.js	pass	pass
@@ -35,7 +35,7 @@ comm/mail/extensions/openpgp/test/unit/rnp/test_integrityProtection.js	pass	pass
 comm/mail/extensions/openpgp/test/unit/rnp/test_mimeTree.js	pass	pass
 comm/mail/extensions/openpgp/test/unit/rnp/test_pqcSubkey.js	skip	skip
 comm/mail/extensions/openpgp/test/unit/rnp/test_revocation.js	pass	pass
-comm/mail/extensions/openpgp/test/unit/rnp/test_secretKeys.js	pass	fail
+comm/mail/extensions/openpgp/test/unit/rnp/test_secretKeys.js	pass	pass
 comm/mail/extensions/openpgp/test/unit/rnp/test_strip.js	pass	pass
 comm/mail/extensions/openpgp/test/unit/rnp/test_uid.js	pass	pass
 comm/mail/extensions/openpgp/test/unit/rnp/test_unlockTracker.js	pass	pass
