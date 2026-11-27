@@ -29,8 +29,8 @@ The workflow passes the task to `mach` in `MOZ_ARTIFACT_TASK`. For the pinned ta
 
 ## Moving the pin
 
-Change `PIN_TB_REF` and `PIN_TB_COMMIT` in the workflow, set `PIN_FX_COMMIT` to the commit of the Firefox tag that the new `.gecko_rev.yml` names, and empty `PIN_ARTIFACT_TASK`. The next run prints the task it finds; write that id into the workflow, and record the new outcomes from the section "results" of the step "Compare the two runs with the recorded results".
+Change `PIN_TB_REF` and `PIN_TB_COMMIT` in the workflow, set `PIN_FX_COMMIT` to the commit of the Firefox tag that the new `.gecko_rev.yml` names, and empty `PIN_ARTIFACT_TASK`. These four lines are the only place that names the pin: what a run checks out follows from them. The next run prints the task it finds; write that id into the workflow, and record the new outcomes from the section "results" of the step "Compare the two runs with the recorded results", together with the header of `expected-results.tsv`.
 
 ## Starting a run by hand
 
-`workflow_dispatch` with the inputs `thunderbird_repository`, `thunderbird_ref`, `artifact_task` and `tests`. With another Thunderbird or other test paths the job compares the two runs and prints the table, and does not judge them against `expected-results.tsv`.
+`workflow_dispatch` with the inputs `thunderbird_repository`, `thunderbird_ref`, `artifact_task` and `tests`; an empty input means the pin, or the two OpenPGP directories. With another Thunderbird or other test paths the job compares the two runs and prints the table, and does not judge them against `expected-results.tsv`. Only a run started by hand can be unjudged: on a push or a pull request the job fails if it would not compare.
