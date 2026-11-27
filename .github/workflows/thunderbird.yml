@@ -1,0 +1,310 @@
+# Fork-only file. It is not part of the upstream series: upstream runs
+# Thunderbird's tests in .gitlab-ci.yml, in prebuilt images. This workflow
+# is the Thunderbird part of the controlled environment of the integration
+# branch `pqc` in stavroskousidis/sequoia-octopus-librnp.
+# Master copy: stavroskousidis/pqc-octopus,
+# fork-files/sequoia-octopus-librnp/.github/workflows/thunderbird.yml.
+#
+# What it does: runs Thunderbird's own OpenPGP tests twice in one job, with
+# the same Thunderbird: once with the librnp that Mozilla ships (control),
+# once with the Octopus installed in its place, and compares the two runs
+# test file by test file with a recorded table.
+#
+# Jobs:
+#   octopus      Fedora 45 container, feature crypto-openssl (the shipping
+#                configuration): builds the library the way upstream's job
+#                `trixie` builds it for its Thunderbird jobs (debug build,
+#                tracing disabled) and passes it on as a workflow artifact.
+#   thunderbird  Fedora 45 container: an artifact build of the pinned
+#                Thunderbird (nothing is compiled; `mach` downloads Mozilla's
+#                Linux build and its test archive from Taskcluster), then
+#                `mach test --headless` on comm/mail/extensions/openpgp/test
+#                and comm/mail/test/browser/openpgp, first with Mozilla's
+#                librnp.so, then with the Octopus copied over
+#                dist/bin/librnp.so, as upstream's CI does. No test is
+#                excluded. The job passes only if every test file has, in
+#                both runs, the outcome recorded in
+#                .github/thunderbird/expected-results.tsv, and neither run
+#                reports a crash, an error of the harness or a suite that
+#                did not end.
+#
+# The pin (Thunderbird tag and commit, the Firefox tag that the tag's
+# .gecko_rev.yml names, and the Taskcluster task of Mozilla's build) is in
+# `env` below. To test another Thunderbird, for example the branch `pqc` of
+# stavroskousidis/thunderbird-desktop, start the workflow by hand with the
+# inputs; the Taskcluster task must be a build whose compiled code fits
+# that source.
+#
+# Runs on pull requests into `pqc`, on pushes to `pqc`, and on request.
+# One run takes about a quarter of an hour.
+
+name: Thunderbird
+
+on:
+  pull_request:
+    branches: [pqc]
+  push:
+    branches: [pqc]
+  workflow_dispatch:
+    inputs:
+      thunderbird_repository:
+        description: Thunderbird repository on GitHub (owner/name)
+        default: thunderbird/thunderbird-desktop
+      thunderbird_ref:
+        description: Branch or tag of that repository
+        default: THUNDERBIRD_161_0_RELEASE
+      artifact_task:
+        description: Taskcluster task id of Mozilla's linux64 build to use (empty means the pinned one)
+        default: ""
+      tests:
+        description: Test paths for mach test, separated by spaces (empty means the two OpenPGP directories; other paths are run for information and not compared with the recorded results)
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: thunderbird-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # The pin. Work package A0, question 1 of the design questionnaire.
+  PIN_TB_REPOSITORY: thunderbird/thunderbird-desktop
+  PIN_TB_REF: THUNDERBIRD_161_0_RELEASE
+  PIN_TB_COMMIT: a6a95fa575b4e78180adf3697c857a88e43a7b7f
+  PIN_FX_COMMIT: 9c70d5d48c866afc2e581d6b7ff6de98a1371d99
+  # Taskcluster task of the shippable linux64 build of the pinned tag
+  # (build id 20261120171716). find-artifact-task.py checks that it fits
+  # the source, and finds the task of another tag if this is left empty.
+  PIN_ARTIFACT_TASK: a4JNObAfTc67HQ7qnsPyTw
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+
+jobs:
+  octopus:
+    name: Octopus, Fedora 45, crypto-openssl
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container: quay.io/fedora/fedora:45
+    steps:
+      - name: Install build dependencies
+        run: |
+          dnf -y install git-core rust cargo gcc clang clang-devel llvm-devel \
+            pkgconf-pkg-config openssl openssl-devel sqlite-devel capnproto \
+            binutils
+      - uses: actions/checkout@v5
+      - name: Environment
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          rpm -q rust cargo openssl-libs
+          git rev-parse HEAD
+      - name: cargo build
+        # As the job `trixie` of .gitlab-ci.yml builds the library for the
+        # Thunderbird jobs, with the shipping backend.
+        run: |
+          SEQUOIA_OCTOPUS_DISABLE_TRACING=1 \
+            cargo build --no-default-features --features crypto-openssl
+          git diff --exit-code Cargo.lock
+          ls -l target/debug/libsequoia_octopus_librnp.so
+          sha256sum target/debug/libsequoia_octopus_librnp.so
+          ldd target/debug/libsequoia_octopus_librnp.so
+      - uses: actions/upload-artifact@v7
+        with:
+          name: octopus-fedora45-openssl
+          path: target/debug/libsequoia_octopus_librnp.so
+          if-no-files-found: error
+          retention-days: 14
+
+  thunderbird:
+    name: Thunderbird OpenPGP tests, Mozilla's librnp and the Octopus
+    needs: octopus
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    container: quay.io/fedora/fedora:45
+    env:
+      TB_REPOSITORY: ${{ inputs.thunderbird_repository || 'thunderbird/thunderbird-desktop' }}
+      TB_REF: ${{ inputs.thunderbird_ref || 'THUNDERBIRD_161_0_RELEASE' }}
+      INPUT_ARTIFACT_TASK: ${{ inputs.artifact_task }}
+      INPUT_TESTS: ${{ inputs.tests }}
+      SRC: /mozilla/src
+      OBJ: /mozilla/src/obj-artifact
+      LOGS: /mozilla/logs
+      MOZCONFIG: /mozilla/mozconfig
+      MOZBUILD_STATE_PATH: /mozilla/mozbuild
+      MOZ_NOSPAM: 1
+      MACH_NO_TERMINAL_FOOTER: 1
+    steps:
+      - name: Install packages
+        # What `mach` needs to bootstrap and build in artifact mode, what a
+        # headless Thunderbird needs at run time, and GnuPG with GPGME so
+        # that test_externalGnuPGSigning.js runs instead of skipping itself.
+        run: |
+          dnf -y install git-core python3 python3-pip python3-devel gcc make \
+            tar xz bzip2 gzip zstd unzip zip findutils diffutils which file \
+            procps-ng psmisc hostname perl-interpreter curl binutils \
+            gtk3 dbus-daemon dbus-libs alsa-lib libXt libX11-xcb libXtst \
+            libXcomposite libXdamage libXrandr libXcursor libXi \
+            pulseaudio-libs pciutils-libs fontconfig dejavu-sans-fonts \
+            dejavu-serif-fonts dejavu-sans-mono-fonts \
+            openssl-libs sqlite-libs crypto-policies gnupg2 gpgme
+          # Useful if present; a different package name in a later Fedora
+          # must not stop the job.
+          dnf -y install --skip-unavailable mesa-libgbm mesa-dri-drivers \
+            libglvnd-glx libglvnd-egl xorg-x11-server-Xvfb liberation-fonts \
+            python3.14 || true
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v8
+        with:
+          name: octopus-fedora45-openssl
+          path: ${{ runner.temp }}/octopus
+      - name: Self-test of the comparison
+        run: python3 .github/thunderbird/test-compare-logs.py
+      - name: Environment
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cat /etc/os-release
+          nproc
+          free -g
+          df -h / /mozilla 2>/dev/null || df -h /
+          id
+          git rev-parse HEAD
+          rpm -q gtk3 openssl-libs gnupg2 gpgme crypto-policies
+          # mach accepts Python 3.10 and later and looks for interpreters
+          # up to 3.14. Use the system's python3 unless it is newer.
+          python=python3
+          if ! python3 -c 'import sys; sys.exit(0 if sys.version_info[:2] <= (3, 14) else 1)'; then
+            python=python3.14
+          fi
+          "$python" --version
+          echo "PYTHON=$python" >> "$GITHUB_ENV"
+          echo "--- /etc/crypto-policies/back-ends/sequoia.config"
+          cat /etc/crypto-policies/back-ends/sequoia.config
+          echo "--- the Octopus"
+          sha256sum "$RUNNER_TEMP/octopus/libsequoia_octopus_librnp.so"
+          ldd "$RUNNER_TEMP/octopus/libsequoia_octopus_librnp.so"
+          mkdir -p /mozilla "$LOGS"
+      - name: Thunderbird and Firefox sources
+        run: |
+          start=$(date +%s)
+          git clone --quiet --depth 1 --branch "$TB_REF" \
+            "https://github.com/$TB_REPOSITORY" /mozilla/comm
+          tb_commit=$(git -C /mozilla/comm rev-parse HEAD)
+          echo "Thunderbird: $TB_REPOSITORY $TB_REF at $tb_commit"
+          if [ "$TB_REPOSITORY" = "$PIN_TB_REPOSITORY" ] && [ "$TB_REF" = "$PIN_TB_REF" ]; then
+            test "$tb_commit" = "$PIN_TB_COMMIT"
+          fi
+          cat /mozilla/comm/.gecko_rev.yml | grep -v '^#' | grep .
+          fx_ref=$(sed -n 's/^GECKO_HEAD_REF: *//p' /mozilla/comm/.gecko_rev.yml)
+          gecko_rev=$(sed -n 's/^GECKO_HEAD_REV: *//p' /mozilla/comm/.gecko_rev.yml)
+          tb_version=$(cat /mozilla/comm/mail/config/version.txt)
+          echo "Thunderbird version: $tb_version (display: $(cat /mozilla/comm/mail/config/version_display.txt))"
+          git clone --quiet --depth 1 --branch "$fx_ref" \
+            https://github.com/mozilla-firefox/firefox "$SRC"
+          fx_commit=$(git -C "$SRC" rev-parse HEAD)
+          echo "Firefox: mozilla-firefox/firefox $fx_ref at $fx_commit"
+          if [ "$TB_REPOSITORY" = "$PIN_TB_REPOSITORY" ] && [ "$TB_REF" = "$PIN_TB_REF" ]; then
+            test "$fx_commit" = "$PIN_FX_COMMIT"
+          fi
+          mv /mozilla/comm "$SRC/comm"
+          {
+            echo "TB_COMMIT=$tb_commit"
+            echo "TB_VERSION=$tb_version"
+            echo "GECKO_REV=$gecko_rev"
+          } >> "$GITHUB_ENV"
+          echo "clone: $(( $(date +%s) - start )) seconds"
+          du -sh "$SRC"
+          du -sh "$SRC/.git"
+          du -sh "$SRC/comm"
+          df -h /
+      - name: Mozilla's build of this Thunderbird
+        run: |
+          # Without an input, the pinned task: a branch that carries
+          # patches on top of the pinned tag is tested with the same build.
+          task="${INPUT_ARTIFACT_TASK:-$PIN_ARTIFACT_TASK}"
+          "$PYTHON" .github/thunderbird/find-artifact-task.py \
+            --comm-rev "$TB_COMMIT" --comm-tag "$PIN_TB_REF" \
+            --gecko-rev "$GECKO_REV" --version "$TB_VERSION" \
+            --task "$task" --output "$RUNNER_TEMP/artifact-task"
+          cat "$RUNNER_TEMP/artifact-task"
+          echo "MOZ_ARTIFACT_TASK=$(cat "$RUNNER_TEMP/artifact-task")" >> "$GITHUB_ENV"
+      - name: mach bootstrap
+        run: |
+          export HOME=/root
+          start=$(date +%s)
+          {
+            echo "ac_add_options --enable-project=comm/mail"
+            echo "ac_add_options --enable-artifact-builds"
+            echo "mk_add_options MOZ_OBJDIR=$OBJ"
+          } > "$MOZCONFIG"
+          cat "$MOZCONFIG"
+          cd "$SRC"
+          "$PYTHON" mach --no-interactive bootstrap \
+            --application-choice "Firefox for Desktop Artifact Mode" \
+            --no-agentic-tools
+          echo "bootstrap: $(( $(date +%s) - start )) seconds"
+          du -sh "$MOZBUILD_STATE_PATH"
+          df -h /
+      - name: mach build (artifact mode)
+        run: |
+          export HOME=/root
+          start=$(date +%s)
+          cd "$SRC"
+          echo "MOZ_ARTIFACT_TASK=$MOZ_ARTIFACT_TASK"
+          "$PYTHON" mach build
+          echo "build: $(( $(date +%s) - start )) seconds"
+          du -sh "$OBJ" "$MOZBUILD_STATE_PATH"
+          df -h /
+          cat "$OBJ/dist/bin/application.ini"
+          cat "$OBJ/dist/bin/platform.ini" || true
+          ls -l "$OBJ/dist/bin/librnp.so" "$OBJ/dist/bin/xpcshell"
+          ls -l "$OBJ/dist/bin/" | grep -i thunderbird || true
+          echo "--- libraries that are not found"
+          missing=$(for f in "$OBJ/dist/bin/thunderbird-bin" "$OBJ/dist/bin/libxul.so" \
+                             "$OBJ/dist/bin/librnp.so" "$OBJ/dist/bin/xpcshell"; do
+                      LD_LIBRARY_PATH="$OBJ/dist/bin" ldd "$f" | grep "not found" || true
+                    done | sort -u)
+          echo "$missing"
+          test -z "$missing"
+          cp "$OBJ/dist/bin/librnp.so" /mozilla/librnp-mozilla.so
+      - name: Tests with Mozilla's librnp (control)
+        run: |
+          .github/thunderbird/run-tests.sh control "$SRC" "$OBJ" "$LOGS"
+      - name: Tests with the Octopus
+        run: |
+          cp "$RUNNER_TEMP/octopus/libsequoia_octopus_librnp.so" "$OBJ/dist/bin/librnp.so"
+          .github/thunderbird/run-tests.sh octopus "$SRC" "$OBJ" "$LOGS"
+          if cmp -s /mozilla/librnp-mozilla.so "$OBJ/dist/bin/librnp.so"; then
+            echo "The control run and this run used the same library." >&2
+            exit 1
+          fi
+      - name: Compare the two runs with the recorded results
+        run: |
+          # The recorded results are those of the pinned Thunderbird and
+          # the default tests. Anything else is compared, not judged.
+          expected=(--expected .github/thunderbird/expected-results.tsv)
+          if [ -n "$INPUT_TESTS" ] || [ "$TB_REPOSITORY" != "$PIN_TB_REPOSITORY" ] \
+             || [ "$TB_REF" != "$PIN_TB_REF" ]; then
+            echo "Not the pinned Thunderbird with the default tests: no comparison with the recorded results."
+            expected=()
+          fi
+          "$PYTHON" .github/thunderbird/compare-logs.py \
+            --control "$LOGS/control.raw.log" --octopus "$LOGS/octopus.raw.log" \
+            --results "$LOGS/results.tsv" --markdown "$LOGS/summary.md" \
+            "${expected[@]}"
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f "$LOGS/summary.md" ]; then cat "$LOGS/summary.md" >> "$GITHUB_STEP_SUMMARY"; fi
+          df -h /
+          mkdir -p "$RUNNER_TEMP/logs"
+          cp -r "$LOGS"/. "$RUNNER_TEMP/logs/" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: thunderbird-test-logs
+          path: ${{ runner.temp }}/logs
+          retention-days: 30
