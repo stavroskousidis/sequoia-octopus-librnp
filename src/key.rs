@@ -10,6 +10,7 @@ use std::{
     },
     time::{
         Duration,
+        SystemTime,
         UNIX_EPOCH,
     },
 };
@@ -29,6 +30,7 @@ use openpgp::{
     },
     packet::{
         Packet,
+        Signature,
         UserID,
         Key,
         key::{
@@ -1498,6 +1500,54 @@ fn rnp_key_revoke(key: *mut RnpKey,
     })
 }
 
+/// Returns how long to wait at `now` until a signature can be made
+/// that is newer than one made at `superseded`.
+///
+/// The creation time of a signature has a resolution of one second.
+/// Returns `None` if a signature made at `now` is newer than one made
+/// at `superseded`.  Also returns `None` if `superseded` is ahead of
+/// `now`, which means that the clock was set back: we never wait for
+/// more than a second.
+fn time_to_supersede(superseded: SystemTime, now: SystemTime)
+                     -> Option<Duration>
+{
+    let second = Duration::new(1, 0);
+    match superseded.checked_add(second)?.duration_since(now) {
+        Ok(d) if d > Duration::new(0, 0) && d <= second => Some(d),
+        _ => None,
+    }
+}
+
+/// Makes sure that a signature made from now on is newer than the
+/// given signatures, by waiting for the next second if necessary.
+///
+/// Sequoia uses the newest self signature, and if two have the same
+/// creation time, which one it uses depends on the signatures'
+/// values.  A new self signature must therefore be strictly newer
+/// than the one it supersedes, or it takes effect only by chance.
+fn wait_to_supersede<'a, I>(sigs: I)
+    where I: Iterator<Item = &'a Signature>
+{
+    let superseded = if let Some(t) = sigs
+        .filter_map(|sig| sig.signature_creation_time())
+        .max()
+    {
+        t
+    } else {
+        return;
+    };
+
+    // The clock may be set while we wait, so look at it again
+    // afterwards, but don't insist.
+    for _ in 0..2 {
+        if let Some(d) = time_to_supersede(superseded, SystemTime::now()) {
+            std::thread::sleep(d);
+        } else {
+            break;
+        }
+    }
+}
+
 #[no_mangle] pub unsafe extern "C"
 fn rnp_key_set_expiration(key: *mut RnpKey,
                           expiry: u32)
@@ -1550,7 +1600,16 @@ fn rnp_key_set_expiration(key: *mut RnpKey,
         let policy = ctx.policy().clone();
         let vcert = cert.with_policy(&policy, None)?;
         let sigs = if is_primary {
-            vcert.primary_key()
+            // The new signatures supersede the direct key signature
+            // and the binding signatures of the user IDs that are not
+            // revoked.
+            let primary = vcert.primary_key();
+            wait_to_supersede(
+                primary.direct_key_signature().ok().into_iter()
+                    .chain(vcert.userids().revoked(false)
+                           .map(|ua| ua.binding_signature())));
+
+            primary
                 .set_expiration_time(
                     &mut primary_signer,
                     absolute_expiration_time)?
@@ -1582,6 +1641,10 @@ fn rnp_key_set_expiration(key: *mut RnpKey,
                 } else {
                     None
                 };
+
+            // The new signature supersedes the subkey's binding
+            // signature.
+            wait_to_supersede(std::iter::once(vka.binding_signature()));
 
             vka.set_expiration_time(
                 &mut primary_signer,
@@ -2931,6 +2994,293 @@ Pnn+We1aTBhaGa86AQ==
 
         let r = unsafe { rnp_ffi_destroy(ctx) };
         assert_eq!(r, RNP_SUCCESS);
+        Ok(())
+    }
+
+    #[test]
+    fn time_to_supersede_cases() {
+        let second = Duration::new(1, 0);
+        let t = UNIX_EPOCH + Duration::new(1_800_000_000, 0);
+
+        // Within the second of the superseded signature, we have to
+        // wait for the next one.
+        assert_eq!(time_to_supersede(t, t), Some(second));
+        assert_eq!(time_to_supersede(t, t + Duration::new(0, 250_000_000)),
+                   Some(Duration::new(0, 750_000_000)));
+        assert_eq!(time_to_supersede(t, t + Duration::new(0, 999_999_999)),
+                   Some(Duration::new(0, 1)));
+
+        // From the next second on, a new signature is newer.
+        assert_eq!(time_to_supersede(t, t + second), None);
+        assert_eq!(time_to_supersede(t, t + Duration::new(1, 1)), None);
+        assert_eq!(time_to_supersede(t, t + Duration::new(24 * 60 * 60, 0)),
+                   None);
+
+        // If the superseded signature is ahead of the clock, we
+        // don't wait.
+        assert_eq!(time_to_supersede(t, t - Duration::new(0, 1)), None);
+        assert_eq!(time_to_supersede(t, t - second), None);
+        assert_eq!(time_to_supersede(t, t - Duration::new(24 * 60 * 60, 0)),
+                   None);
+    }
+
+    const DAY: u32 = 24 * 60 * 60;
+
+    /// Creates a certificate with secret keys whose signatures are a
+    /// day old.
+    fn day_old_key() -> openpgp::Result<Cert> {
+        use openpgp::cert::CertBuilder;
+
+        let (cert, _) = CertBuilder::new()
+            .set_creation_time(
+                SystemTime::now() - Duration::new(DAY as u64, 0))
+            .add_userid("alice")
+            .add_userid("alice@example.org")
+            .add_signing_subkey()
+            .add_transport_encryption_subkey()
+            .generate()?;
+        assert_eq!(cert.keys().count(), 3);
+        Ok(cert)
+    }
+
+    /// Creates a context and imports the certificate with its secret
+    /// keys.
+    fn ctx_with_tsk(cert: &Cert) -> openpgp::Result<*mut RnpContext> {
+        let mut ctx: *mut RnpContext = std::ptr::null_mut();
+        let r = unsafe {
+            rnp_ffi_create(
+                &mut ctx as *mut *mut _,
+                b"GPG\x00".as_ptr() as *const c_char,
+                b"GPG\x00".as_ptr() as *const c_char)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+
+        let buffer = cert.as_tsk().to_vec()?;
+        let mut input: *mut RnpInput = std::ptr::null_mut();
+        let r = unsafe {
+            rnp_input_from_memory(
+                &mut input as *mut *mut _,
+                buffer.as_ptr(), buffer.len(), false)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        let r = unsafe {
+            rnp_import_keys(
+                ctx, input,
+                RNP_LOAD_SAVE_PUBLIC_KEYS | RNP_LOAD_SAVE_SECRET_KEYS,
+                std::ptr::null_mut() as *mut *mut _)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        let r = unsafe { rnp_input_destroy(input) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        Ok(ctx)
+    }
+
+    /// Changes the key's expiration using a new key handle, like
+    /// Thunderbird does.
+    fn set_expiration(ctx: *mut RnpContext, fp: &openpgp::Fingerprint,
+                      expiry: u32)
+    {
+        let key = locate(ctx, fp);
+        let r = unsafe { rnp_key_set_expiration(key, expiry) };
+        assert_eq!(r, RNP_SUCCESS);
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+    }
+
+    /// Returns the key's expiration using a new key handle.
+    fn get_expiration(ctx: *mut RnpContext, fp: &openpgp::Fingerprint)
+                      -> u32
+    {
+        let key = locate(ctx, fp);
+        let mut expiration = u32::MAX;
+        let r = unsafe {
+            rnp_key_get_expiration(key, &mut expiration as *mut _)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+        expiration
+    }
+
+    /// Waits for the start of a second, if we are not near it.
+    ///
+    /// The changes a test makes after it take a few milliseconds.
+    /// They fall into the same second unless rnp_key_set_expiration
+    /// waits.
+    fn wait_for_start_of_second() {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
+            .subsec_nanos();
+        if nanos > 100_000_000 {
+            std::thread::sleep(Duration::new(0, 1_000_000_000 - nanos));
+        }
+    }
+
+    /// Asserts that there are `n` signatures, and that no two of
+    /// them have the same creation time.
+    fn assert_distinct_creation_times<'a, I>(sigs: I, n: usize)
+        where I: Iterator<Item = &'a Signature>
+    {
+        let mut times = sigs
+            .map(|sig| sig.signature_creation_time().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(times.len(), n);
+        times.sort();
+        times.dedup();
+        assert_eq!(times.len(), n, "signatures with the same creation time");
+    }
+
+    #[test]
+    fn set_expiration_twice_within_a_second() -> openpgp::Result<()> {
+        // Thunderbird's test browser_expiredKey.js sets a key's
+        // expiration to ten days and then to none, for the primary
+        // key and a subkey.  If both changes happen within a second,
+        // the second change must take effect nevertheless.
+        let cert = day_old_key()?;
+        let ctx = ctx_with_tsk(&cert)?;
+        let fps = cert.keys().map(|ka| ka.key().fingerprint())
+            .collect::<Vec<_>>();
+
+        for fp in fps.iter() {
+            assert_eq!(get_expiration(ctx, fp), 0);
+        }
+
+        wait_for_start_of_second();
+
+        let expirations = [10 * DAY, 0, 20 * DAY];
+        for expiry in expirations {
+            for fp in fps.iter() {
+                set_expiration(ctx, fp, expiry);
+            }
+            for fp in fps.iter() {
+                assert_eq!(get_expiration(ctx, fp), expiry);
+            }
+        }
+
+        // Every change added a self signature to each component, and
+        // each of them is newer than the one it superseded.
+        {
+            let n = 1 + expirations.len();
+            let ks = unsafe { &mut *ctx }.certs.read();
+            let cert = ks.by_primary_fp(&cert.fingerprint()).unwrap();
+            assert_distinct_creation_times(
+                cert.primary_key().self_signatures(), n);
+            assert_eq!(cert.userids().count(), 2);
+            for ua in cert.userids() {
+                assert_distinct_creation_times(ua.self_signatures(), n);
+            }
+            assert_eq!(cert.keys().subkeys().count(), 2);
+            for ka in cert.keys().subkeys() {
+                assert_distinct_creation_times(ka.self_signatures(), n);
+            }
+        }
+
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+        Ok(())
+    }
+
+    #[test]
+    fn set_subkey_expiration_twice_within_a_second() -> openpgp::Result<()> {
+        // Like set_expiration_twice_within_a_second, but only a
+        // subkey's expiration changes, so the primary key's
+        // signatures don't make us wait.
+        let cert = day_old_key()?;
+        let ctx = ctx_with_tsk(&cert)?;
+
+        for ka in cert.keys().subkeys() {
+            let fp = ka.key().fingerprint();
+            assert_eq!(get_expiration(ctx, &fp), 0);
+
+            wait_for_start_of_second();
+
+            let expirations = [10 * DAY, 0, 20 * DAY];
+            for expiry in expirations {
+                set_expiration(ctx, &fp, expiry);
+                assert_eq!(get_expiration(ctx, &fp), expiry);
+            }
+
+            let ks = unsafe { &mut *ctx }.certs.read();
+            let cert = ks.by_primary_fp(&cert.fingerprint()).unwrap();
+            let ka = cert.keys().subkeys().key_handle(fp.clone()).nth(0)
+                .unwrap();
+            assert_distinct_creation_times(
+                ka.self_signatures(), 1 + expirations.len());
+        }
+
+        // The primary key was not changed.
+        assert_eq!(get_expiration(ctx, &cert.fingerprint()), 0);
+        {
+            let ks = unsafe { &mut *ctx }.certs.read();
+            let cert = ks.by_primary_fp(&cert.fingerprint()).unwrap();
+            assert_eq!(cert.primary_key().self_signatures().count(), 1);
+        }
+
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+        Ok(())
+    }
+
+    #[test]
+    fn set_expiration_after_another_self_signature() -> openpgp::Result<()> {
+        use openpgp::packet::signature::SignatureBuilder;
+        use openpgp::types::SignatureType;
+
+        // The signatures that a change of the primary key's
+        // expiration supersedes need not have the same age.  We have
+        // to wait if any of them was made in this second.
+        for new_userid in [true, false] {
+            let cert = day_old_key()?;
+            let mut signer = cert.primary_key().key().clone()
+                .parts_into_secret()?.into_keypair()?;
+
+            wait_for_start_of_second();
+
+            let now = SystemTime::now();
+            let (cert, userids) = if new_userid {
+                // A new user ID.  The direct key signature and the
+                // binding signatures of the other user IDs are a day
+                // old.
+                let userid = UserID::from("bob");
+                let sig =
+                    SignatureBuilder::new(SignatureType::PositiveCertification)
+                    .set_signature_creation_time(now)?
+                    .sign_userid_binding(&mut signer, None, &userid)?;
+                (cert.insert_packets(
+                    vec![Packet::from(userid), sig.into()])?.0, 3)
+            } else {
+                // A new direct key signature.  The binding signatures
+                // of the user IDs are a day old.
+                let template =
+                    cert.primary_key().self_signatures().next().unwrap();
+                let sig = SignatureBuilder::from(template.clone())
+                    .set_signature_creation_time(now)?
+                    .sign_direct_key(&mut signer, None)?;
+                (cert.insert_packets(vec![Packet::from(sig)])?.0, 2)
+            };
+
+            let ctx = ctx_with_tsk(&cert)?;
+            let fp = cert.fingerprint();
+            assert_eq!(get_expiration(ctx, &fp), 0);
+
+            set_expiration(ctx, &fp, 10 * DAY);
+            assert_eq!(get_expiration(ctx, &fp), 10 * DAY);
+
+            {
+                let ks = unsafe { &mut *ctx }.certs.read();
+                let cert = ks.by_primary_fp(&fp).unwrap();
+                assert_distinct_creation_times(
+                    cert.primary_key().self_signatures(),
+                    if new_userid { 2 } else { 3 });
+                assert_eq!(cert.userids().count(), userids);
+                for ua in cert.userids() {
+                    assert_distinct_creation_times(ua.self_signatures(), 2);
+                }
+            }
+
+            let r = unsafe { rnp_ffi_destroy(ctx) };
+            assert_eq!(r, RNP_SUCCESS);
+        }
         Ok(())
     }
 }
