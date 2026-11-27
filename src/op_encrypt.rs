@@ -35,6 +35,7 @@ use crate::{
     RnpInput,
     RnpOutput,
     RnpPasswordFor,
+    armor::CrLfWriter,
     conversions::FromRnpId,
     gpg,
     key::RnpKey,
@@ -148,10 +149,13 @@ fn rnp_op_encrypt_execute(op: *mut RnpOpEncrypt) -> RnpResult {
             None
         };
 
-        let mut message = Message::new(&mut op.output);
-        if op.armor {
-            message = Armorer::new(message).build()?;
-        }
+        let message = if op.armor {
+            // Like RNP, end the lines of the armor with CRLF.
+            Armorer::new(Message::new(CrLfWriter::new(&mut op.output)))
+                .build()?
+        } else {
+            Message::new(&mut op.output)
+        };
 
         // Encrypt the message.
         let mut message =

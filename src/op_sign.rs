@@ -28,6 +28,7 @@ use crate::{
     RnpInput,
     RnpOutput,
     RnpPasswordFor,
+    armor::CrLfWriter,
     conversions::FromRnpId,
     gpg,
     key::RnpKey,
@@ -118,12 +119,14 @@ fn rnp_op_sign_execute(op: *mut RnpOpSign) -> RnpResult {
         assert!(! op.csf);
 
         let mut signature = Vec::new();
-        let mut message = Message::new(&mut signature);
-        if op.armor {
-            message = Armorer::new(message)
+        let mut message = if op.armor {
+            // Like RNP, end the lines of the armor with CRLF.
+            Armorer::new(Message::new(CrLfWriter::new(&mut signature)))
                 .kind(openpgp::armor::Kind::Signature)
-                .build()?;
-        }
+                .build()?
+        } else {
+            Message::new(&mut signature)
+        };
 
         // Maybe sign the message.
         if let Some(key) = op.secret_keys.pop() {
