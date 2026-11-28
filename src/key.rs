@@ -4785,8 +4785,9 @@ Pnn+We1aTBhaGa86AQ==
     /// also allowed in v4 encryption subkeys.
     ///
     /// A v4 subkey using one of the other algorithms is kept, it is
-    /// listed, and it is never usable, although its binding signature
-    /// is valid.  The rest of the certificate is not affected.
+    /// listed, and it is reported as unusable, although its binding
+    /// signature is valid.  The rest of the certificate is not
+    /// affected.
     ///
     /// The subkeys in this test are not keys, so this test does the
     /// same with every cryptographic backend, with one exception that
@@ -4817,9 +4818,10 @@ Pnn+We1aTBhaGa86AQ==
                 assert!(is_sub(key));
                 assert_eq!(get_version(key), version as u32);
 
-                // Thunderbird shows it, because its binding signature
-                // is valid.  Whether it can be used is a question to
-                // the policy.
+                // rnp_key_valid_till64 does not ask the policy, see
+                // there.  The binding signature is valid, so the
+                // result is not 0.  Whether the key can be used is a
+                // question to the policy.
                 let state = KeyState::of(key);
                 assert!(state.valid_till > 0, "v{} {}", version, algo);
                 assert_eq!(state.primary_uid.as_deref(), Some(USERID));
@@ -4890,8 +4892,8 @@ Pnn+We1aTBhaGa86AQ==
     ///
     /// If the cryptographic backend supports the algorithms, a v4
     /// certificate with such a primary key and valid self-signatures
-    /// can be made.  It is kept, it is listed, and it is never
-    /// usable.
+    /// can be made.  It is kept, it is listed, and it is reported as
+    /// unusable.
     ///
     /// Without valid self-signatures, which is all that we can make
     /// with the other backends, and all that there can be for the
@@ -4954,9 +4956,10 @@ Pnn+We1aTBhaGa86AQ==
             assert!(! is_sub(key));
             assert_eq!(get_version(key), 4);
             assert!(have_secret(key));
-            // The self-signature is valid, so Thunderbird shows the
-            // key.  The policy rejects the key, so it is reported as
-            // revoked and expired, and it allows nothing.
+            // The self-signature is valid, and rnp_key_valid_till64
+            // does not ask the policy, see there.  The policy
+            // rejects the key, so it is reported as revoked and
+            // expired, and it allows nothing.
             assert_eq!(KeyState::of(key),
                        KeyState {
                            revoked: true,
