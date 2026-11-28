@@ -588,21 +588,29 @@ pub mod signatures {
 
     use sequoia_openpgp as openpgp;
     use openpgp::{
+        Cert,
         Fingerprint,
         Packet,
         Result,
         packet::{
             Key,
             Signature,
+            UserID,
             key::{
                 Key4,
                 PrimaryRole,
                 SecretKeyMaterial,
                 SecretParts,
             },
+            signature::SignatureBuilder,
         },
         parse::Parse,
-        types::HashAlgorithm,
+        types::{
+            HashAlgorithm,
+            KeyFlags,
+            PublicKeyAlgorithm,
+            SignatureType,
+        },
     };
 
     /// Returns the size of a signature using the given algorithm in
@@ -689,6 +697,67 @@ pub mod signatures {
             },
             p => Err(anyhow::anyhow!("expected a signature, got: {:?}", p)),
         }
+    }
+
+    /// Returns whether the tests can make signatures using the
+    /// algorithm: the cryptographic backend supports it, and making a
+    /// signature does not take too long.
+    ///
+    /// Making one signature using SLH-DSA-SHAKE-128s or
+    /// SLH-DSA-SHAKE-256s takes minutes in a debug build using the
+    /// RustCrypto backend.
+    pub fn can_sign_using(algo: PublicKeyAlgorithm) -> bool {
+        let slow = matches!(algo,
+                            PublicKeyAlgorithm::SLHDSA128s
+                            | PublicKeyAlgorithm::SLHDSA256s);
+        algo.is_supported()
+            && (! slow || openpgp::crypto::backend().starts_with("OpenSSL"))
+    }
+
+    /// Returns the algorithm IDs of the primary keys of RFC 9980,
+    /// Appendix A that are v6 keys and that `can_sign_using` must
+    /// have accepted, if we know that without asking Sequoia.
+    pub fn expected_signers() -> Option<Vec<u8>> {
+        let openssl = openpgp::crypto::backend().starts_with("OpenSSL");
+        match super::rfc9980::backend_has_rfc9980() {
+            Some(true) if openssl => Some(vec![27, 30, 31, 32, 33, 34]),
+            Some(true) => Some(vec![27, 30, 31, 33]),
+            Some(false) => Some(vec![27]),
+            None => None,
+        }
+    }
+
+    /// Returns a certificate without secret key material: the
+    /// primary key of the Transferable Secret Key, a user ID, and a
+    /// self-signature using the given hash algorithm.
+    ///
+    /// Making the self-signature requires a cryptographic backend
+    /// that supports the algorithm of the primary key.
+    pub fn cert_with_self_signature(tsk: &[u8], hash_algo: HashAlgorithm)
+                                    -> Result<Cert>
+    {
+        let key = Cert::from_bytes(tsk)?.primary_key().key().clone()
+            .parts_into_secret()?;
+        let mut signer = key.clone().into_keypair()?;
+        let cert = Cert::try_from(vec![Packet::SecretKey(key)])?;
+        let userid = UserID::from(super::key_version_binding::USERID);
+        let sig = userid.bind(
+            &mut signer, &cert,
+            SignatureBuilder::new(SignatureType::PositiveCertification)
+                .set_hash_algo(hash_algo)
+                .set_key_flags(
+                    KeyFlags::empty().set_certification().set_signing())?)?;
+        assert_eq!(sig.pk_algo(), cert.primary_key().key().pk_algo());
+        assert_eq!(sig.hash_algo(), hash_algo);
+        let (cert, _) =
+            cert.insert_packets(vec![Packet::from(userid), sig.into()])?;
+        // The self-signature is valid, and it is the only one.
+        assert_eq!(cert.with_policy(crate::NP, None)?.userids().count(), 1);
+        assert_eq!(cert.userids().next().unwrap().self_signatures().count(),
+                   1);
+        assert_eq!(cert.primary_key().self_signatures().count(), 0);
+        assert_eq!(cert.bad_signatures().count(), 0);
+        Ok(cert.strip_secret_key_material())
     }
 
     /// Returns a v4 key with the key material of the given key.

@@ -4189,6 +4189,248 @@ Pnn+We1aTBhaGa86AQ==
         Ok(())
     }
 
+    /// Returns what rnp_signature_is_valid reports for the signatures
+    /// over the key's user IDs, and for the signatures over the key.
+    fn signature_validity(key: *mut RnpKey) -> (Vec<u32>, Vec<u32>) {
+        use crate::signature::{
+            rnp_signature_handle_destroy,
+            rnp_signature_is_valid,
+        };
+        use crate::userid::{
+            rnp_uid_get_signature_at,
+            rnp_uid_get_signature_count,
+            rnp_uid_handle_destroy,
+        };
+
+        let validity = |sig: *mut RnpSignature| {
+            assert!(! sig.is_null());
+            let valid = unsafe { rnp_signature_is_valid(sig, 0) };
+            let r = unsafe { rnp_signature_handle_destroy(sig) };
+            assert_eq!(r, RNP_SUCCESS);
+            valid
+        };
+
+        let mut over_userids = Vec::new();
+        let mut uids = 0;
+        let r = unsafe { rnp_key_get_uid_count(key, &mut uids as *mut _) };
+        assert_eq!(r, RNP_SUCCESS);
+        for i in 0..uids {
+            let mut uid: *mut RnpUserID = std::ptr::null_mut();
+            let r = unsafe {
+                rnp_key_get_uid_handle_at(key, i, &mut uid as *mut *mut _)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let mut count = 0;
+            let r = unsafe {
+                rnp_uid_get_signature_count(uid, &mut count as *mut _)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+            for j in 0..count {
+                let mut sig: *mut RnpSignature = std::ptr::null_mut();
+                let r = unsafe {
+                    rnp_uid_get_signature_at(uid, j, &mut sig as *mut *mut _)
+                };
+                assert_eq!(r, RNP_SUCCESS);
+                over_userids.push(validity(sig));
+            }
+
+            let r = unsafe { rnp_uid_handle_destroy(uid) };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+
+        let mut over_key = Vec::new();
+        let mut count = 0;
+        let r = unsafe {
+            rnp_key_get_signature_count(key, &mut count as *mut _)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        for i in 0..count {
+            let mut sig: *mut RnpSignature = std::ptr::null_mut();
+            let r = unsafe {
+                rnp_key_get_signature_at(key, i, &mut sig as *mut *mut _)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+            over_key.push(validity(sig));
+        }
+
+        (over_userids, over_key)
+    }
+
+    /// rnp_signature_is_valid reports whether Sequoia verified a
+    /// signature of a certificate, and does not ask the policy.  It
+    /// must reject the signatures that RFC 9980 forbids nevertheless:
+    /// those using a signature algorithm of RFC 9980 and a hash
+    /// algorithm with a digest size of less than 256 bits, or a
+    /// signature version older than 6 (RFC 9980, Sections 5.3.1 and
+    /// 6.2.1).
+    ///
+    /// Thunderbird uses this function to decide whether a user ID has
+    /// a good self-signature.
+    ///
+    /// Making the signatures requires a cryptographic backend that
+    /// supports the algorithms.  With the other backends, this only
+    /// tests that the rules do not affect other algorithms, and that
+    /// a signature that we cannot verify is not reported.
+    #[test]
+    fn rfc9980_self_signatures() -> openpgp::Result<()> {
+        use openpgp::types::{HashAlgorithm, PublicKeyAlgorithm};
+        use crate::testdata::key_version_binding::*;
+        use crate::testdata::rfc9980::*;
+        use crate::testdata::signatures::*;
+
+        const RNP_ERROR_SIGNATURE_INVALID: u32 =
+            crate::error::RNP_ERROR_SIGNATURE_INVALID.as_u32();
+
+        // Returns what rnp_signature_is_valid reports for the
+        // signatures over the user IDs of the certificate, and for
+        // the signatures over each of its keys.
+        let validity = |cert: &Cert| {
+            let ctx = ctx_with_certs(&[cert]);
+            let mut result = Vec::new();
+            for (i, ka) in cert.keys().enumerate() {
+                let key = locate(ctx, &ka.key().fingerprint());
+                let (over_userids, over_key) = signature_validity(key);
+                if i == 0 {
+                    // The primary key.
+                    result.push(over_userids);
+                }
+                result.push(over_key);
+                let r = unsafe { rnp_key_handle_destroy(key) };
+                assert_eq!(r, RNP_SUCCESS);
+            }
+            let r = unsafe { rnp_ffi_destroy(ctx) };
+            assert_eq!(r, RNP_SUCCESS);
+            result
+        };
+
+        // The certificates of Appendix A.  Their signatures are all
+        // made by the primary key: a self-signature over the user ID,
+        // a direct key signature in the v6 certificates, and the
+        // binding signature of the subkey.
+        for v in VECTORS {
+            let algo = PublicKeyAlgorithm::from(v.primary.algo);
+            let expected = if algo.is_supported() {
+                vec![RNP_SUCCESS]
+            } else {
+                // We cannot verify them, and they are not listed.
+                vec![]
+            };
+            if let (true, Some(has)) =
+                ((30..=34).contains(&v.primary.algo), backend_has_rfc9980())
+            {
+                assert_eq!(algo.is_supported(), has, "{}", v.section);
+            }
+
+            let direct = if v.version == 6 { expected.clone() } else { vec![] };
+            assert_eq!(validity(&v.cert()),
+                       vec![expected.clone(), direct, expected],
+                       "{}", v.section);
+        }
+
+        // A self-signature using the given hash algorithm, made by
+        // the v6 primary keys of Appendix A.
+        let mut tested = Vec::new();
+        for v in VECTORS {
+            let algo = PublicKeyAlgorithm::from(v.primary.algo);
+            let rfc9980 = (30..=34).contains(&v.primary.algo);
+            if v.version != 6 {
+                assert!(! rfc9980);
+                continue;
+            }
+            if ! can_sign_using(algo) {
+                assert!(rfc9980);
+                eprintln!("not making signatures using {} with {}, not \
+                           testing a self-signature",
+                          algo, openpgp::crypto::backend());
+                continue;
+            }
+
+            for (hash_algo, good) in [(HashAlgorithm::SHA256, true),
+                                      (HashAlgorithm::SHA224, ! rfc9980)]
+            {
+                let cert = cert_with_self_signature(v.tsk, hash_algo)?;
+                let sig = cert.userids().next().unwrap()
+                    .self_signatures().next().unwrap();
+                assert_eq!(sig.version(), 6);
+                assert_eq!(validity(&cert),
+                           vec![vec![if good {
+                               RNP_SUCCESS
+                           } else {
+                               RNP_ERROR_SIGNATURE_INVALID
+                           }], vec![]],
+                           "{}, {}", v.section, hash_algo);
+
+                // And what we report about the key.  If the policy
+                // rejects the self-signature, the certificate is not
+                // valid: the key is reported as revoked and expired,
+                // and it allows nothing.  rnp_key_valid_till64 and
+                // rnp_key_get_primary_uid do not ask the policy, see
+                // there.
+                let ctx = ctx_with_certs(&[&cert]);
+                let key = locate(ctx, &cert.fingerprint());
+                let state = KeyState::of(key);
+                if good {
+                    assert_eq!(state,
+                               KeyState::valid(true, true, false, USERID),
+                               "{}, {}", v.section, hash_algo);
+                } else {
+                    assert_eq!(state,
+                               KeyState {
+                                   revoked: true,
+                                   expiration: 1,
+                                   valid_till: u32::MAX as u64,
+                                   sign: false,
+                                   certify: false,
+                                   encrypt: false,
+                                   primary_uid: Some(USERID.into()),
+                               },
+                               "{}, {}", v.section, hash_algo);
+                }
+                let r = unsafe { rnp_key_handle_destroy(key) };
+                assert_eq!(r, RNP_SUCCESS);
+                let r = unsafe { rnp_ffi_destroy(ctx) };
+                assert_eq!(r, RNP_SUCCESS);
+            }
+            tested.push(v.primary.algo);
+        }
+        match expected_signers() {
+            Some(expected) => assert_eq!(tested, expected),
+            None => assert!(tested.contains(&27)),
+        }
+
+        // A v4 self-signature, made by a v4 primary key.
+        let mut tested = 0;
+        for algo in FAST_SIGNATURE_ALGORITHMS {
+            if ! algo.is_supported() {
+                eprintln!("{} is not supported by the cryptographic \
+                           backend, not testing a v4 self-signature", algo);
+                continue;
+            }
+
+            let cert = v4_cert_with_primary_key(algo)?
+                .strip_secret_key_material();
+            // The self-signature is cryptographically valid.
+            assert_eq!(cert.with_policy(crate::NP, None)?.userids().count(),
+                       1);
+            let sig = cert.userids().next().unwrap()
+                .self_signatures().next().unwrap();
+            assert_eq!(sig.version(), 4);
+            assert_eq!(sig.pk_algo(), algo);
+            assert!(sig.hash_algo().digest_size()? * 8 >= 256);
+            assert_eq!(validity(&cert),
+                       vec![vec![RNP_ERROR_SIGNATURE_INVALID], vec![]],
+                       "{}", algo);
+            tested += 1;
+        }
+        match backend_has_rfc9980() {
+            Some(true) => assert_eq!(tested, 3),
+            Some(false) => assert_eq!(tested, 0),
+            None => assert!(tested == 0 || tested == 3),
+        }
+        Ok(())
+    }
+
     /// Exports the keys of RFC 9980, Appendix A, and imports what has
     /// been exported.
     #[test]

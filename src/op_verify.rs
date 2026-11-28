@@ -2375,6 +2375,7 @@ mod tests {
     fn rfc9980_digest_size() -> openpgp::Result<()> {
         use openpgp::types::{HashAlgorithm, PublicKeyAlgorithm};
         use crate::testdata::rfc9980::*;
+        use crate::testdata::signatures::{can_sign_using, expected_signers};
 
         let ok = RNP_SUCCESS.as_u32();
         let invalid = RNP_ERROR_SIGNATURE_INVALID.as_u32();
@@ -2401,10 +2402,6 @@ mod tests {
             (outcome.signatures[0], all.status)
         };
 
-        let slow = [PublicKeyAlgorithm::SLHDSA128s,
-                    PublicKeyAlgorithm::SLHDSA256s];
-        let openssl = openpgp::crypto::backend().starts_with("OpenSSL");
-
         let mut tested = Vec::new();
         for v in VECTORS {
             let algo = PublicKeyAlgorithm::from(v.primary.algo);
@@ -2420,9 +2417,7 @@ mod tests {
                            backend, not testing the digest size", algo);
                 continue;
             }
-            if slow.contains(&algo) && ! openssl {
-                // Making one signature takes minutes in a debug build
-                // using the RustCrypto backend.
+            if ! can_sign_using(algo) {
                 eprintln!("{}: signing is too slow with {}, not testing \
                            the digest size",
                           algo, openpgp::crypto::backend());
@@ -2492,13 +2487,9 @@ mod tests {
         }
 
         // Make sure that we tested what we mean to test.
-        let ed25519 = 27;
-        match backend_has_rfc9980() {
-            Some(true) if openssl =>
-                assert_eq!(tested, vec![ed25519, 30, 31, 32, 33, 34]),
-            Some(true) => assert_eq!(tested, vec![ed25519, 30, 31, 33]),
-            Some(false) => assert_eq!(tested, vec![ed25519]),
-            None => assert!(tested.contains(&ed25519)),
+        match expected_signers() {
+            Some(expected) => assert_eq!(tested, expected),
+            None => assert!(tested.contains(&27)),
         }
         Ok(())
     }

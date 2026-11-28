@@ -152,6 +152,16 @@ fn rnp_signature_is_valid(sig: *const RnpSignature,
 
     if let Some(valid) = sig.valid {
         if valid {
+            // We know that the signature is cryptographically valid,
+            // but whoever established that did not necessarily ask
+            // the policy: for the signatures of a certificate, we
+            // report what Sequoia verified.  RFC 9980 requires us to
+            // reject signatures that violate its rules.
+            if let Err(err) = crate::policy::check_signature(sig) {
+                warn!("{}", err);
+                rnp_return_status!(RNP_ERROR_SIGNATURE_INVALID);
+            }
+
             // The signature could have expired in the meantime.  (In
             // fact, the key that created the signature could have
             // expired, but we ignore that :/.)
