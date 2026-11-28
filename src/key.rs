@@ -4115,6 +4115,80 @@ Pnn+We1aTBhaGa86AQ==
         Ok(())
     }
 
+    /// What rnp_supports_feature says about the algorithm of a
+    /// primary key must agree with what we report about its
+    /// certificate: the Transferable Secret Keys of RFC 9980,
+    /// Appendix A, are usable if and only if the algorithm of their
+    /// primary key is reported as supported.
+    ///
+    /// Whether we can use the encryption subkeys is not tested here.
+    #[test]
+    fn rfc9980_supported_algorithms() -> openpgp::Result<()> {
+        use crate::features::rnp_supports_feature;
+        use crate::testdata::rfc9980;
+
+        let supports = |name: &str| {
+            let name = CString::new(name).unwrap();
+            get_bool(|b| unsafe {
+                rnp_supports_feature(
+                    b"public key algorithm\x00".as_ptr() as *const c_char,
+                    name.as_ptr(), b)
+            })
+        };
+
+        // The primary keys in Appendix A.
+        let mut seen = std::collections::BTreeSet::new();
+
+        for v in rfc9980::VECTORS {
+            let ctx = new_ctx();
+            assert_eq!(
+                import_keys(ctx, v.tsk, RNP_LOAD_SAVE_PUBLIC_KEYS
+                            | RNP_LOAD_SAVE_SECRET_KEYS).0,
+                RNP_SUCCESS, "{}", v.section);
+
+            let key = locate_by(ctx, "fingerprint", v.primary.fingerprint);
+            assert!(! key.is_null(), "{}", v.section);
+            let alg = get_alg(key);
+            assert_eq!(alg, v.primary.name, "{}", v.section);
+            seen.insert(alg.clone());
+
+            if supports(&alg) {
+                assert_eq!(KeyState::of(key),
+                           KeyState::valid(true, true, false, RFC9980_USERID),
+                           "{}: {} is reported as supported",
+                           v.section, alg);
+            } else {
+                assert_eq!(KeyState::of(key), KeyState::unusable(),
+                           "{}: {} is reported as not supported",
+                           v.section, alg);
+            }
+            let r = unsafe { rnp_key_handle_destroy(key) };
+            assert_eq!(r, RNP_SUCCESS);
+
+            // The subkeys are ML-KEM-768+X25519 or ML-KEM-1024+X448
+            // keys.  We can ask about the name that we report for
+            // them, whether or not the algorithm is supported.
+            let key = locate_by(ctx, "fingerprint", v.subkey.fingerprint);
+            assert!(! key.is_null(), "{}", v.section);
+            let alg = get_alg(key);
+            assert_eq!(alg, v.subkey.name, "{}", v.section);
+            assert!(alg.starts_with("ML-KEM-"), "{}", v.section);
+            let _ = supports(&alg);
+            let r = unsafe { rnp_key_handle_destroy(key) };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let r = unsafe { rnp_ffi_destroy(ctx) };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+
+        // Every signing algorithm of RFC 9980 has been asked about.
+        assert_eq!(seen.into_iter().collect::<Vec<_>>(),
+                   &["ED25519", "ML-DSA-65+ED25519", "ML-DSA-87+ED448",
+                     "SLH-DSA-SHAKE-128f", "SLH-DSA-SHAKE-128s",
+                     "SLH-DSA-SHAKE-256s"]);
+        Ok(())
+    }
+
     /// Exports the keys of RFC 9980, Appendix A, and imports what has
     /// been exported.
     #[test]
