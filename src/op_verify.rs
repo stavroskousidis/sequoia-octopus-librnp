@@ -1785,4 +1785,172 @@ mod tests {
         rnp_try!(rnp_ffi_destroy(ctx));
         Ok(())
     }
+
+    /// RFC 9980, Section 3.5: the signature algorithms of RFC 9980
+    /// are to be used only in v6 keys, and Sections 5.3.1 and 6.2.1:
+    /// only with v6 signatures.
+    ///
+    /// A signature made by a v4 key using such an algorithm is not a
+    /// good signature, although it is cryptographically valid.
+    ///
+    /// Making such a signature requires a cryptographic backend that
+    /// supports the algorithm.  With the other backends, this only
+    /// tests that we cannot make one.
+    #[test]
+    fn rfc9980_key_version_binding_signatures() -> openpgp::Result<()> {
+        use crate::testdata::key_version_binding::*;
+
+        let ok = RNP_SUCCESS.as_u32();
+        let invalid = RNP_ERROR_SIGNATURE_INVALID.as_u32();
+
+        for algo in FAST_SIGNATURE_ALGORITHMS {
+            if ! algo.is_supported() {
+                assert!(v4_cert_with_primary_key(algo).is_err());
+                eprintln!("{} is not supported by the cryptographic \
+                           backend, not testing a v4 signature",
+                          algo);
+                continue;
+            }
+
+            let cert = v4_cert_with_primary_key(algo)?;
+            let keypair = cert.primary_key().key().clone()
+                .parts_into_secret()?.into_keypair()?;
+            let cert = cert.strip_secret_key_material();
+            let ctx = ctx_with_certs(&[&cert]);
+
+            for detached in [false, true] {
+                let mut sink = Vec::new();
+                let message = Message::new(&mut sink);
+                let signer = Signer::new(message, keypair.clone())?;
+                if detached {
+                    let mut message = signer.detached().build()?;
+                    message.write_all(MESSAGE)?;
+                    message.finalize()?;
+                } else {
+                    let mut message =
+                        LiteralWriter::new(signer.build()?).build()?;
+                    message.write_all(MESSAGE)?;
+                    message.finalize()?;
+                }
+
+                // Make sure that we test what we mean to test: this
+                // is a v4 signature using the algorithm, and it is
+                // cryptographically valid.
+                let ppr = openpgp::PacketPile::from_bytes(&sink)?;
+                let sigs = ppr.descendants().filter_map(|p| match p {
+                    openpgp::Packet::Signature(s) => Some(s.clone()),
+                    _ => None,
+                }).collect::<Vec<_>>();
+                assert_eq!(sigs.len(), 1);
+                assert_eq!(sigs[0].version(), 4);
+                assert_eq!(sigs[0].pk_algo(), algo);
+                if detached {
+                    sigs[0].clone().verify_message(
+                        cert.primary_key().key(), MESSAGE)?;
+                }
+
+                let (message, signature) = if detached {
+                    (MESSAGE, Some(&sink[..]))
+                } else {
+                    (&sink[..], None)
+                };
+
+                // The operation succeeds, like it does for any other
+                // signature that is not good, and the signature is
+                // reported as invalid.
+                let outcome = execute(ctx, message, signature, None);
+                assert_eq!(outcome.status, ok,
+                           "{}, detached: {}", algo, detached);
+                assert_eq!(outcome.signatures, vec![invalid],
+                           "{}, detached: {}", algo, detached);
+
+                let outcome = execute(ctx, message, signature,
+                                      Some(RNP_VERIFY_REQUIRE_ALL_SIGS));
+                assert_eq!(outcome.status, invalid,
+                           "{}, detached: {}", algo, detached);
+                assert_eq!(outcome.signatures, vec![invalid],
+                           "{}, detached: {}", algo, detached);
+            }
+
+            rnp_try!(rnp_ffi_destroy(ctx));
+        }
+        Ok(())
+    }
+
+    /// RFC 9980, Section 3.5: ML-KEM-768+X25519 is allowed in v4
+    /// encryption subkeys, ML-KEM-1024+X448 is not.
+    ///
+    /// We do not decrypt with a v4 ML-KEM-1024+X448 subkey, although
+    /// we have the secret key.
+    ///
+    /// Making the keys requires a cryptographic backend that supports
+    /// the algorithms.  With the other backends, this only tests that
+    /// we cannot make them.
+    #[test]
+    fn rfc9980_key_version_binding_decryption() -> openpgp::Result<()> {
+        use openpgp::types::PublicKeyAlgorithm;
+        use crate::testdata::key_version_binding::*;
+
+        for algo in [PublicKeyAlgorithm::MLKEM768_X25519,
+                     PublicKeyAlgorithm::MLKEM1024_X448]
+        {
+            if ! algo.is_supported() {
+                assert!(v4_cert_with_kem_subkey(algo).is_err());
+                eprintln!("{} is not supported by the cryptographic \
+                           backend, not testing decryption with a v4 \
+                           subkey", algo);
+                continue;
+            }
+            let allowed = algo == PublicKeyAlgorithm::MLKEM768_X25519;
+
+            let cert = v4_cert_with_kem_subkey(algo)?;
+            let subkey = cert.keys().subkeys().next().unwrap().key().clone();
+            assert_eq!(subkey.pk_algo(), algo);
+
+            // Encrypt MESSAGE to the subkey, using a v6 PKESK packet
+            // and a v2 SEIPD packet.
+            let recipient = Recipient::new(
+                Features::empty().set_seipdv2(),
+                Some(openpgp::KeyHandle::from(subkey.fingerprint())),
+                &subkey);
+            let mut sink = Vec::new();
+            let message = Message::new(&mut sink);
+            let message =
+                Encryptor::for_recipients(message, vec![recipient]).build()?;
+            let mut message = LiteralWriter::new(message).build()?;
+            message.write_all(MESSAGE)?;
+            message.finalize()?;
+
+            // Make sure that we test what we mean to test.
+            let ppr = openpgp::PacketPile::from_bytes(&sink)?;
+            let pkesks = ppr.descendants().filter_map(|p| match p {
+                openpgp::Packet::PKESK(p) => Some(p.clone()),
+                _ => None,
+            }).collect::<Vec<_>>();
+            assert_eq!(pkesks.len(), 1);
+            assert_eq!(pkesks[0].pk_algo(), algo);
+
+            let ctx = ctx_with_certs(&[&cert]);
+            let outcome = execute(ctx, &sink, None, None);
+            if allowed {
+                assert_eq!(outcome,
+                           Outcome {
+                               status: RNP_SUCCESS.as_u32(),
+                               signatures: vec![],
+                               output: MESSAGE.to_vec(),
+                           },
+                           "{}", algo);
+            } else {
+                assert_eq!(outcome,
+                           Outcome {
+                               status: RNP_ERROR_DECRYPT_FAILED.as_u32(),
+                               signatures: vec![],
+                               output: vec![],
+                           },
+                           "{}", algo);
+            }
+            rnp_try!(rnp_ffi_destroy(ctx));
+        }
+        Ok(())
+    }
 }

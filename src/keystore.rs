@@ -36,7 +36,6 @@ use openpgp::{
     KeyID,
     Cert,
     packet::prelude::*,
-    policy::StandardPolicy,
     serialize::Serialize,
 };
 
@@ -45,6 +44,7 @@ use crate::{
     Keygrip,
     keygrip::keygrip_of,
     parcimonie::Parcimonie,
+    policy::OctopusPolicy,
     wot::{WoT, WoTWorkerHandle},
 };
 
@@ -224,7 +224,7 @@ impl Keystore {
     //
     // If there is already parcimonie instance running, this does
     // nothing.
-    pub fn start_parcimonie(&mut self, policy: StandardPolicy<'static>)
+    pub fn start_parcimonie(&mut self, policy: OctopusPolicy)
                             -> Result<()>
     {
         if self.parcimonie.is_none() {
@@ -285,7 +285,7 @@ impl Keystore {
     // Returns whether or not a thread was started.  That is, if the
     // thread was already running, this returns false.
     fn background_threads_start(&mut self,
-                        policy: Arc<RwLock<StandardPolicy<'static>>>)
+                        policy: Arc<RwLock<OctopusPolicy>>)
         -> openpgp::Result<bool>
     {
         if self.background_sender.is_some() {
@@ -340,7 +340,7 @@ impl Keystore {
     /// This also starts a thread to monitor the gpg store.  This
     /// imports updates from the gpg keyring (XXX: but not removals!).
     pub fn load_gpg_keyring_in_background(&mut self,
-                            policy: Arc<RwLock<StandardPolicy<'static>>>)
+                            policy: Arc<RwLock<OctopusPolicy>>)
         -> openpgp::Result<()>
     {
         rnp_function!(Keystore::load_gpg_keyring, TRACE);
@@ -362,7 +362,7 @@ impl Keystore {
     /// key material.  Otherwise, secret key material is stripped.
     pub fn load_keyring_in_background(&mut self, keyring: Vec<u8>,
                                       import_secret_keys: bool,
-                                      policy: Arc<RwLock<StandardPolicy<'static>>>)
+                                      policy: Arc<RwLock<OctopusPolicy>>)
         -> openpgp::Result<()>
     {
         rnp_function!(Keystore::load_keyring_in_background, TRACE);
@@ -387,7 +387,7 @@ impl Keystore {
 
     /// Updates the Web-of-Trust information in the background.
     pub fn update_wot_in_background(&mut self,
-                                    policy: Arc<RwLock<StandardPolicy<'static>>>)
+                                    policy: Arc<RwLock<OctopusPolicy>>)
                                     -> openpgp::Result<()> {
         rnp_function!(Keystore::update_wot_in_background, super::TRACE);
 

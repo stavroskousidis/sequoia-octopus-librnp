@@ -213,3 +213,285 @@ pub mod rfc9980 {
         },
     ];
 }
+
+/// Keys for testing the key version binding of RFC 9980, Section 3.5.
+pub mod key_version_binding {
+    use std::time::{Duration, SystemTime};
+
+    use sequoia_openpgp as openpgp;
+    use openpgp::{
+        Cert,
+        Fingerprint,
+        Packet,
+        Profile,
+        Result,
+        cert::{
+            CertBuilder,
+            SubkeyBuilder,
+        },
+        crypto::mpi,
+        packet::{
+            Key,
+            UserID,
+            key::{
+                Key4,
+                Key6,
+                PrimaryRole,
+                PublicParts,
+                SecretKeyMaterial,
+                SecretParts,
+                SubordinateRole,
+                UnspecifiedParts,
+            },
+            signature::SignatureBuilder,
+        },
+        types::{
+            KeyFlags,
+            PublicKeyAlgorithm,
+            SignatureType,
+        },
+    };
+
+    /// The user ID of the certificates.
+    pub const USERID: &str = "alice";
+
+    /// The algorithms of RFC 9980, Section 2.1.
+    pub const ALGORITHMS: [PublicKeyAlgorithm; 7] = [
+        PublicKeyAlgorithm::MLDSA65_Ed25519,
+        PublicKeyAlgorithm::MLDSA87_Ed448,
+        PublicKeyAlgorithm::SLHDSA128s,
+        PublicKeyAlgorithm::SLHDSA128f,
+        PublicKeyAlgorithm::SLHDSA256s,
+        PublicKeyAlgorithm::MLKEM768_X25519,
+        PublicKeyAlgorithm::MLKEM1024_X448,
+    ];
+
+    /// The signature algorithms that we make valid v4 certificates
+    /// for, see `v4_cert_with_primary_key`.
+    ///
+    /// SLH-DSA-SHAKE-128s and SLH-DSA-SHAKE-256s are missing: making
+    /// one signature with them takes minutes in a debug build using
+    /// the RustCrypto backend.
+    pub const FAST_SIGNATURE_ALGORITHMS: [PublicKeyAlgorithm; 3] = [
+        PublicKeyAlgorithm::MLDSA65_Ed25519,
+        PublicKeyAlgorithm::MLDSA87_Ed448,
+        PublicKeyAlgorithm::SLHDSA128f,
+    ];
+
+    /// Returns whether the algorithm is one of the two ML-KEM
+    /// composites.
+    pub fn is_kem(algo: PublicKeyAlgorithm) -> bool {
+        matches!(algo,
+                 PublicKeyAlgorithm::MLKEM768_X25519
+                 | PublicKeyAlgorithm::MLKEM1024_X448)
+    }
+
+    /// Returns something that has the form of a public key of the
+    /// given algorithm, but is not a key: all octets are the same.
+    ///
+    /// This is good enough for everything that does not compute with
+    /// the key, and it works with every cryptographic backend.
+    pub fn dummy_public_key(algo: PublicKeyAlgorithm) -> mpi::PublicKey {
+        use mpi::PublicKey::*;
+
+        match algo {
+            PublicKeyAlgorithm::MLDSA65_Ed25519 => MLDSA65_Ed25519 {
+                eddsa: Box::new([0x42; 32]),
+                mldsa: Box::new([0x42; 1952]),
+            },
+            PublicKeyAlgorithm::MLDSA87_Ed448 => MLDSA87_Ed448 {
+                eddsa: Box::new([0x42; 57]),
+                mldsa: Box::new([0x42; 2592]),
+            },
+            PublicKeyAlgorithm::SLHDSA128s =>
+                SLHDSA128s { public: [0x42; 32] },
+            PublicKeyAlgorithm::SLHDSA128f =>
+                SLHDSA128f { public: [0x42; 32] },
+            PublicKeyAlgorithm::SLHDSA256s =>
+                SLHDSA256s { public: Box::new([0x42; 64]) },
+            PublicKeyAlgorithm::MLKEM768_X25519 => MLKEM768_X25519 {
+                ecdh: Box::new([0x42; 32]),
+                mlkem: Box::new([0x42; 1184]),
+            },
+            PublicKeyAlgorithm::MLKEM1024_X448 => MLKEM1024_X448 {
+                ecdh: Box::new([0x42; 56]),
+                mlkem: Box::new([0x42; 1568]),
+            },
+            _ => unreachable!("not an algorithm of RFC 9980"),
+        }
+    }
+
+    fn creation_time() -> SystemTime {
+        SystemTime::now() - Duration::new(60, 0)
+    }
+
+    /// Returns a certificate with keys of the given version: a
+    /// primary key using a classic algorithm, a user ID, and a subkey
+    /// using the given algorithm.  Also returns the fingerprint of
+    /// the subkey.
+    ///
+    /// The subkey is not a key, see `dummy_public_key`, but its
+    /// binding signature is valid.  According to its key flags, it is
+    /// for encryption if it uses a ML-KEM composite, and for nothing
+    /// otherwise: a subkey for signing or authentication would have
+    /// to make a signature itself.
+    pub fn cert_with_subkey(version: u8, algo: PublicKeyAlgorithm)
+                            -> Result<(Cert, Fingerprint)>
+    {
+        let builder = CertBuilder::new().add_userid(USERID);
+        let builder = match version {
+            4 => builder.set_profile(Profile::RFC4880)?,
+            6 => builder.set_profile(Profile::RFC9580)?,
+            _ => unreachable!("neither a v4 nor a v6 key"),
+        };
+        let (cert, _) = builder.generate()?;
+        assert_eq!(cert.primary_key().key().version(), version);
+        assert_eq!(cert.keys().count(), 1);
+
+        let subkey: Key<UnspecifiedParts, SubordinateRole> = match version {
+            4 => Key4::<PublicParts, SubordinateRole>::new(
+                creation_time(), algo, dummy_public_key(algo))?
+                .parts_into_unspecified().into(),
+            6 => Key6::<PublicParts, SubordinateRole>::new(
+                creation_time(), algo, dummy_public_key(algo))?
+                .parts_into_unspecified().into(),
+            _ => unreachable!("neither a v4 nor a v6 key"),
+        };
+        let fp = subkey.fingerprint();
+
+        let flags = if is_kem(algo) {
+            KeyFlags::empty()
+                .set_transport_encryption()
+                .set_storage_encryption()
+        } else {
+            KeyFlags::empty()
+        };
+
+        let signer = cert.primary_key().key().clone()
+            .parts_into_secret()?.into_keypair()?;
+        let cert = SubkeyBuilder::new(
+            cert.with_policy(crate::NP, None)?, subkey, flags)?
+            .set_primary_key_signer(signer)
+            .attach_cert()?;
+        assert_eq!(cert.keys().count(), 2);
+        assert_eq!(cert.keys().subkeys().next().unwrap()
+                   .self_signatures().count(), 1);
+        Ok((cert.strip_secret_key_material(), fp))
+    }
+
+    /// Returns a v4 primary key using the given algorithm, and a user
+    /// ID.
+    ///
+    /// The key is not a key, see `dummy_public_key`, and there is no
+    /// self-signature.
+    pub fn v4_primary_key_without_signature(algo: PublicKeyAlgorithm)
+                                            -> Result<Cert>
+    {
+        let key: Key<PublicParts, PrimaryRole> =
+            Key4::new(creation_time(), algo, dummy_public_key(algo))?.into();
+        let cert = Cert::try_from(vec![
+            Packet::PublicKey(key),
+            Packet::from(UserID::from(USERID)),
+        ])?;
+        assert_eq!(cert.primary_key().key().version(), 4);
+        assert_eq!(cert.userids().count(), 1);
+        Ok(cert)
+    }
+
+    /// Returns a v4 certificate with secret key material: a primary
+    /// key using the given signature algorithm, and a user ID with a
+    /// valid self-signature.
+    ///
+    /// This is a certificate that RFC 9980 forbids, and whose
+    /// self-signature can be verified nevertheless.  Generating it
+    /// requires a cryptographic backend that supports the algorithm.
+    pub fn v4_cert_with_primary_key(algo: PublicKeyAlgorithm)
+                                    -> Result<Cert>
+    {
+        type K6 = Key6<SecretParts, PrimaryRole>;
+
+        // There is no function that generates such a key.  Generate
+        // a v6 key, and put its key material into a v4 key.
+        let k6 = match algo {
+            PublicKeyAlgorithm::MLDSA65_Ed25519 =>
+                K6::generate_mldsa65_ed25519()?,
+            PublicKeyAlgorithm::MLDSA87_Ed448 =>
+                K6::generate_mldsa87_ed448()?,
+            PublicKeyAlgorithm::SLHDSA128s => K6::generate_slhdsa128s()?,
+            PublicKeyAlgorithm::SLHDSA128f => K6::generate_slhdsa128f()?,
+            PublicKeyAlgorithm::SLHDSA256s => K6::generate_slhdsa256s()?,
+            _ => unreachable!("not a signature algorithm of RFC 9980"),
+        };
+        let secret = match k6.secret() {
+            SecretKeyMaterial::Unencrypted(u) => u.clone(),
+            SecretKeyMaterial::Encrypted(_) =>
+                unreachable!("generated keys are not encrypted"),
+        };
+        let key: Key<SecretParts, PrimaryRole> =
+            Key4::with_secret(creation_time(), algo, k6.mpis().clone(),
+                              secret.into())?.into();
+        let mut signer = key.clone().into_keypair()?;
+
+        let userid = UserID::from(USERID);
+        let cert = Cert::try_from(vec![Packet::SecretKey(key)])?;
+        let sig = userid.bind(
+            &mut signer, &cert,
+            SignatureBuilder::new(SignatureType::PositiveCertification)
+                .set_key_flags(
+                    KeyFlags::empty().set_certification().set_signing())?)?;
+        assert_eq!(sig.version(), 4);
+        let (cert, _) =
+            cert.insert_packets(vec![Packet::from(userid), sig.into()])?;
+        assert_eq!(cert.primary_key().key().version(), 4);
+        assert!(cert.is_tsk());
+        Ok(cert)
+    }
+
+    /// Returns a v4 certificate with secret key material: a primary
+    /// key using a classic algorithm, a user ID, and an encryption
+    /// subkey using the given ML-KEM composite.
+    ///
+    /// For ML-KEM-1024+X448, this is a certificate that RFC 9980
+    /// forbids.  Generating the subkey requires a cryptographic
+    /// backend that supports the algorithm.
+    pub fn v4_cert_with_kem_subkey(algo: PublicKeyAlgorithm) -> Result<Cert> {
+        type K6 = Key6<SecretParts, SubordinateRole>;
+
+        let (cert, _) = CertBuilder::new().add_userid(USERID)
+            .set_profile(Profile::RFC4880)?
+            .generate()?;
+        assert_eq!(cert.keys().count(), 1);
+
+        // Generate a v6 key, and put its key material into a v4 key.
+        let k6 = match algo {
+            PublicKeyAlgorithm::MLKEM768_X25519 =>
+                K6::generate_mlkem768_x25519()?,
+            PublicKeyAlgorithm::MLKEM1024_X448 =>
+                K6::generate_mlkem1024_x448()?,
+            _ => unreachable!("not a ML-KEM composite"),
+        };
+        let secret = match k6.secret() {
+            SecretKeyMaterial::Unencrypted(u) => u.clone(),
+            SecretKeyMaterial::Encrypted(_) =>
+                unreachable!("generated keys are not encrypted"),
+        };
+        let subkey: Key<SecretParts, SubordinateRole> =
+            Key4::with_secret(creation_time(), algo, k6.mpis().clone(),
+                              secret.into())?.into();
+
+        let signer = cert.primary_key().key().clone()
+            .parts_into_secret()?.into_keypair()?;
+        let cert = SubkeyBuilder::new(
+            cert.with_policy(crate::NP, None)?,
+            subkey.parts_into_unspecified(),
+            KeyFlags::empty()
+                .set_transport_encryption()
+                .set_storage_encryption())?
+            .set_primary_key_signer(signer)
+            .attach_cert()?;
+        assert_eq!(cert.keys().count(), 2);
+        assert!(cert.keys().all(|ka| ka.key().version() == 4));
+        assert!(cert.keys().all(|ka| ka.key().has_secret()));
+        Ok(cert)
+    }
+}

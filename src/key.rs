@@ -4737,4 +4737,259 @@ Pnn+We1aTBhaGa86AQ==
         assert_eq!(r, RNP_SUCCESS);
         Ok(())
     }
+
+    const RNP_ERROR_KEY_NOT_FOUND: u32 =
+        crate::error::RNP_ERROR_KEY_NOT_FOUND.as_u32();
+
+    /// Returns what rnp_op_encrypt_add_recipient says about the key.
+    fn add_recipient(ctx: *mut RnpContext, key: *mut RnpKey) -> RnpResult {
+        use crate::op_encrypt::*;
+
+        let message = b"Hello";
+        let mut input: *mut RnpInput = std::ptr::null_mut();
+        let r = unsafe {
+            rnp_input_from_memory(
+                &mut input as *mut *mut _,
+                message.as_ptr(), message.len(), false)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        let output = output_to_memory();
+
+        let mut op: *mut RnpOpEncrypt = std::ptr::null_mut();
+        let r = unsafe {
+            rnp_op_encrypt_create(&mut op as *mut *mut _, ctx, input, output)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+
+        let result = unsafe { rnp_op_encrypt_add_recipient(op, key) };
+
+        let r = unsafe { rnp_op_encrypt_destroy(op) };
+        assert_eq!(r, RNP_SUCCESS);
+        let r = unsafe { rnp_input_destroy(input) };
+        assert_eq!(r, RNP_SUCCESS);
+        let r = unsafe { rnp_output_destroy(output) };
+        assert_eq!(r, RNP_SUCCESS);
+        result
+    }
+
+    /// Returns the version of the key packet.
+    fn get_version(key: *mut RnpKey) -> u32 {
+        let mut version: u32 = 0;
+        let r = unsafe { rnp_key_get_version(key, &mut version as *mut _) };
+        assert_eq!(r, RNP_SUCCESS);
+        version
+    }
+
+    /// RFC 9980, Section 3.5: the algorithms of RFC 9980 are to be
+    /// used only in v6 keys, except for ML-KEM-768+X25519, which is
+    /// also allowed in v4 encryption subkeys.
+    ///
+    /// A v4 subkey using one of the other algorithms is kept, it is
+    /// listed, and it is never usable, although its binding signature
+    /// is valid.  The rest of the certificate is not affected.
+    ///
+    /// The subkeys in this test are not keys, so this test does the
+    /// same with every cryptographic backend, with one exception that
+    /// is marked.
+    #[test]
+    fn rfc9980_key_version_binding_subkeys() -> openpgp::Result<()> {
+        use openpgp::types::PublicKeyAlgorithm;
+        use crate::testdata::key_version_binding::*;
+
+        for version in [4, 6] {
+            for algo in ALGORITHMS {
+                let (cert, fp) = cert_with_subkey(version, algo)?;
+                let allowed = version == 6
+                    || algo == PublicKeyAlgorithm::MLKEM768_X25519;
+
+                let ctx = new_ctx();
+                assert_eq!(
+                    import_keys(ctx, &cert.to_vec()?,
+                                RNP_LOAD_SAVE_PUBLIC_KEYS),
+                    (RNP_SUCCESS,
+                     vec![("new".into(), "unknown".into(),
+                           cert.fingerprint().to_hex())]),
+                    "v{} {}", version, algo);
+                assert_eq!(key_counts(ctx), (1, 0));
+
+                // The subkey is there.
+                let key = locate(ctx, &fp);
+                assert!(is_sub(key));
+                assert_eq!(get_version(key), version as u32);
+
+                // Thunderbird shows it, because its binding signature
+                // is valid.  Whether it can be used is a question to
+                // the policy.
+                let state = KeyState::of(key);
+                assert!(state.valid_till > 0, "v{} {}", version, algo);
+                assert_eq!(state.primary_uid.as_deref(), Some(USERID));
+                assert!(! state.sign && ! state.certify);
+                if allowed {
+                    assert!(! state.revoked, "v{} {}", version, algo);
+                    assert_ne!(state.expiration, 1, "v{} {}", version, algo);
+                    assert_eq!(state.encrypt, is_kem(algo),
+                               "v{} {}", version, algo);
+                } else {
+                    // This is how we report a key that the policy
+                    // rejects.
+                    assert!(state.revoked, "v{} {}", version, algo);
+                    assert_eq!(state.expiration, 1, "v{} {}", version, algo);
+                    assert!(! state.encrypt, "v{} {}", version, algo);
+                }
+                let r = unsafe { rnp_key_handle_destroy(key) };
+                assert_eq!(r, RNP_SUCCESS);
+
+                // The primary key is usable either way.
+                let key = locate(ctx, &cert.fingerprint());
+                let state = KeyState::of(key);
+                assert!(! state.revoked, "v{} {}", version, algo);
+                assert_ne!(state.expiration, 1, "v{} {}", version, algo);
+                assert!(state.valid_till > 0, "v{} {}", version, algo);
+                assert!(state.certify, "v{} {}", version, algo);
+                assert_eq!(state.primary_uid.as_deref(), Some(USERID));
+
+                // The subkey is the only key of the certificate that
+                // is for encryption, if it is.  We encrypt to it if
+                // the policy accepts it, and, this is the exception,
+                // if the cryptographic backend supports the
+                // algorithm.
+                assert_eq!(
+                    add_recipient(ctx, key),
+                    if allowed && is_kem(algo) && algo.is_supported() {
+                        RNP_SUCCESS
+                    } else {
+                        RNP_ERROR_KEY_NOT_FOUND
+                    },
+                    "v{} {}", version, algo);
+                let r = unsafe { rnp_key_handle_destroy(key) };
+                assert_eq!(r, RNP_SUCCESS);
+
+                // The certificate is saved as it is, and it is loaded
+                // again.
+                let pubring = save_keys(ctx, RNP_LOAD_SAVE_PUBLIC_KEYS);
+                assert_eq!(parse_keyring(&pubring)?, vec![cert.clone()]);
+                let r = unsafe { rnp_ffi_destroy(ctx) };
+                assert_eq!(r, RNP_SUCCESS);
+
+                let ctx = load_keys(&pubring, &[]);
+                assert_eq!(key_counts(ctx), (1, 0));
+                let key = locate(ctx, &fp);
+                assert_eq!(KeyState::of(key).revoked, ! allowed,
+                           "v{} {}", version, algo);
+                let r = unsafe { rnp_key_handle_destroy(key) };
+                assert_eq!(r, RNP_SUCCESS);
+                let r = unsafe { rnp_ffi_destroy(ctx) };
+                assert_eq!(r, RNP_SUCCESS);
+            }
+        }
+        Ok(())
+    }
+
+    /// RFC 9980, Section 3.5: no algorithm of RFC 9980 is allowed in
+    /// a v4 primary key.
+    ///
+    /// If the cryptographic backend supports the algorithms, a v4
+    /// certificate with such a primary key and valid self-signatures
+    /// can be made.  It is kept, it is listed, and it is never
+    /// usable.
+    ///
+    /// Without valid self-signatures, which is all that we can make
+    /// with the other backends, and all that there can be for the
+    /// ML-KEM composites, such a certificate is not valid in the
+    /// first place.  That is tested with every backend.
+    #[test]
+    fn rfc9980_key_version_binding_primary_keys() -> openpgp::Result<()> {
+        use crate::testdata::key_version_binding::*;
+
+        for algo in ALGORITHMS {
+            // No self-signature.
+            let cert = v4_primary_key_without_signature(algo)?;
+            let ctx = new_ctx();
+            assert_eq!(
+                import_keys(ctx, &cert.to_vec()?, RNP_LOAD_SAVE_PUBLIC_KEYS),
+                (RNP_SUCCESS,
+                 vec![("new".into(), "unknown".into(),
+                       cert.fingerprint().to_hex())]),
+                "{}", algo);
+            let key = locate(ctx, &cert.fingerprint());
+            assert_eq!(get_version(key), 4);
+            assert_eq!(KeyState::of(key), KeyState::unusable(), "{}", algo);
+            assert_eq!(add_recipient(ctx, key), RNP_ERROR_KEY_NOT_FOUND,
+                       "{}", algo);
+            let r = unsafe { rnp_key_handle_destroy(key) };
+            assert_eq!(r, RNP_SUCCESS);
+            assert_eq!(
+                parse_keyring(&save_keys(ctx, RNP_LOAD_SAVE_PUBLIC_KEYS))?,
+                vec![cert]);
+            let r = unsafe { rnp_ffi_destroy(ctx) };
+            assert_eq!(r, RNP_SUCCESS);
+
+            // A valid self-signature.
+            if ! FAST_SIGNATURE_ALGORITHMS.contains(&algo) {
+                // The ML-KEM composites cannot make signatures, and
+                // two of the SLH-DSA variants are too slow.
+                continue;
+            }
+            if ! algo.is_supported() {
+                assert!(v4_cert_with_primary_key(algo).is_err());
+                eprintln!("{} is not supported by the cryptographic \
+                           backend, not testing a valid v4 certificate",
+                          algo);
+                continue;
+            }
+
+            let cert = v4_cert_with_primary_key(algo)?;
+            let fp = cert.fingerprint();
+            let ctx = new_ctx();
+            assert_eq!(
+                import_keys(ctx, &cert.as_tsk().to_vec()?,
+                            RNP_LOAD_SAVE_PUBLIC_KEYS
+                            | RNP_LOAD_SAVE_SECRET_KEYS),
+                (RNP_SUCCESS,
+                 vec![("new".into(), "new".into(), fp.to_hex())]),
+                "{}", algo);
+            assert_eq!(key_counts(ctx), (0, 1));
+
+            let key = locate(ctx, &fp);
+            assert!(! is_sub(key));
+            assert_eq!(get_version(key), 4);
+            assert!(have_secret(key));
+            // The self-signature is valid, so Thunderbird shows the
+            // key.  The policy rejects the key, so it is reported as
+            // revoked and expired, and it allows nothing.
+            assert_eq!(KeyState::of(key),
+                       KeyState {
+                           revoked: true,
+                           expiration: 1,
+                           valid_till: u32::MAX as u64,
+                           sign: false,
+                           certify: false,
+                           encrypt: false,
+                           primary_uid: Some(USERID.into()),
+                       },
+                       "{}", algo);
+            let r = unsafe { rnp_key_handle_destroy(key) };
+            assert_eq!(r, RNP_SUCCESS);
+
+            // It is saved as it is, and it is loaded again.
+            let secring = save_keys(ctx, RNP_LOAD_SAVE_SECRET_KEYS);
+            let saved = parse_keyring(&secring)?;
+            assert_eq!(saved.len(), 1);
+            assert!(saved[0].as_tsk() == cert.as_tsk());
+            let r = unsafe { rnp_ffi_destroy(ctx) };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let ctx = load_keys(&[], &secring);
+            assert_eq!(key_counts(ctx), (0, 1));
+            let key = locate(ctx, &fp);
+            let state = KeyState::of(key);
+            assert!(state.revoked, "{}", algo);
+            assert!(! state.sign && ! state.certify, "{}", algo);
+            let r = unsafe { rnp_key_handle_destroy(key) };
+            assert_eq!(r, RNP_SUCCESS);
+            let r = unsafe { rnp_ffi_destroy(ctx) };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+        Ok(())
+    }
 }
