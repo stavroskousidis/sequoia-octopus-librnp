@@ -1953,4 +1953,713 @@ mod tests {
         }
         Ok(())
     }
+
+    /// What the interface reports about a signature.
+    #[derive(Debug, PartialEq, Eq)]
+    struct SignatureInfo {
+        /// What rnp_op_verify_signature_get_status returned.
+        status: RnpResult,
+        /// The fingerprint of the key that
+        /// rnp_op_verify_signature_get_key returned, if any.
+        key: Option<String>,
+        /// The creation time that rnp_op_verify_signature_get_times
+        /// returned.
+        created: u32,
+        /// What rnp_signature_get_hash_alg returned for the
+        /// signature's handle.
+        hash: String,
+        /// What rnp_signature_get_keyid returned for the signature's
+        /// handle.
+        keyid: Option<String>,
+        /// What rnp_signature_is_valid returned for the signature's
+        /// handle.
+        valid: RnpResult,
+    }
+
+    /// Verifies the detached `signature` over `data`, and returns
+    /// what the interface reports about each signature.
+    fn signature_info(ctx: *mut RnpContext, data: &[u8], signature: &[u8])
+                      -> Vec<SignatureInfo>
+    {
+        use std::ffi::CStr;
+        use crate::buffer::rnp_buffer_destroy;
+        use crate::key::{rnp_key_get_fprint, rnp_key_handle_destroy};
+        use crate::signature::{
+            RnpSignature,
+            rnp_signature_get_hash_alg,
+            rnp_signature_get_keyid,
+            rnp_signature_handle_destroy,
+            rnp_signature_is_valid,
+        };
+
+        // Returns the string, and frees the buffer.
+        let take = |s: *mut c_char| -> Option<String> {
+            if s.is_null() {
+                None
+            } else {
+                let r = unsafe { CStr::from_ptr(s) }.to_str().unwrap()
+                    .to_string();
+                unsafe { rnp_buffer_destroy(s as *mut c_void) };
+                Some(r)
+            }
+        };
+
+        let mut input: *mut RnpInput = null_mut();
+        rnp_try!(rnp_input_from_memory(
+            &mut input as *mut *mut _, data.as_ptr(), data.len(), false));
+        let mut sig_input: *mut RnpInput = null_mut();
+        rnp_try!(rnp_input_from_memory(
+            &mut sig_input as *mut *mut _,
+            signature.as_ptr(), signature.len(), false));
+        let mut op: *mut RnpOpVerify = null_mut();
+        rnp_try!(rnp_op_verify_detached_create(
+            &mut op as *mut *mut _, ctx, input, sig_input));
+        rnp_try!(rnp_op_verify_execute(op));
+
+        let mut count = 0;
+        rnp_try!(rnp_op_verify_get_signature_count(op, &mut count as *mut _));
+        let mut result = Vec::new();
+        for i in 0..count {
+            let mut sig: *const RnpOpVerifySignature = std::ptr::null();
+            rnp_try!(rnp_op_verify_get_signature_at(
+                op, i, &mut sig as *mut *const _));
+            let status = unsafe { rnp_op_verify_signature_get_status(sig) };
+
+            let mut key: *mut RnpKey = null_mut();
+            let r = unsafe {
+                rnp_op_verify_signature_get_key(sig, &mut key as *mut *mut _)
+            };
+            let key = if key.is_null() {
+                assert_eq!(r, RNP_ERROR_KEY_NOT_FOUND.as_u32());
+                None
+            } else {
+                assert_eq!(r, RNP_SUCCESS.as_u32());
+                let mut fp: *mut c_char = null_mut();
+                rnp_try!(rnp_key_get_fprint(key, &mut fp as *mut *mut _));
+                rnp_try!(rnp_key_handle_destroy(key));
+                take(fp)
+            };
+
+            let mut created: u32 = 0;
+            let mut expires: u32 = 0;
+            rnp_try!(rnp_op_verify_signature_get_times(
+                sig, &mut created as *mut _, &mut expires as *mut _));
+            assert_eq!(expires, 0);
+
+            let mut handle: *mut RnpSignature = null_mut();
+            rnp_try!(rnp_op_verify_signature_get_handle(
+                sig, &mut handle as *mut *mut _));
+            let mut hash: *mut c_char = null_mut();
+            rnp_try!(rnp_signature_get_hash_alg(
+                handle, &mut hash as *mut *mut _));
+            let mut keyid: *mut c_char = null_mut();
+            rnp_try!(rnp_signature_get_keyid(
+                handle, &mut keyid as *mut *mut _));
+            let valid = unsafe { rnp_signature_is_valid(handle, 0) };
+            rnp_try!(rnp_signature_handle_destroy(handle));
+
+            result.push(SignatureInfo {
+                status,
+                key,
+                created,
+                hash: take(hash).unwrap(),
+                keyid: take(keyid),
+                valid,
+            });
+        }
+
+        rnp_try!(rnp_op_verify_destroy(op));
+        rnp_try!(rnp_input_destroy(sig_input));
+        rnp_try!(rnp_input_destroy(input));
+        result
+    }
+
+    /// Returns whether the cryptographic backend supports the
+    /// algorithm.  For the algorithms of RFC 9980, this also makes
+    /// sure that this is what we expect where we know the backend.
+    ///
+    /// The tests of the signatures of RFC 9980 show one thing with a
+    /// backend that supports the algorithms, and another with a
+    /// backend that does not.  This makes sure that they show what
+    /// they are meant to show with the backends that we know.
+    fn supported(algo: openpgp::types::PublicKeyAlgorithm) -> bool {
+        let supported = algo.is_supported();
+        if (30..=36).contains(&u8::from(algo)) {
+            if let Some(expected) =
+                crate::testdata::rfc9980::backend_has_rfc9980()
+            {
+                assert_eq!(supported, expected,
+                           "{} with {}", algo, openpgp::crypto::backend());
+            }
+        }
+        supported
+    }
+
+    /// Returns the signature packets in `data`.
+    fn signature_packets(data: &[u8]) -> Vec<Signature> {
+        openpgp::PacketPile::from_bytes(data).unwrap()
+            .descendants().filter_map(|p| match p {
+                openpgp::Packet::Signature(s) => Some(s.clone()),
+                _ => None,
+            }).collect()
+    }
+
+    /// Verifies the detached signatures of RFC 9980, Appendix A.
+    ///
+    /// These are v6 signatures using each of the five signature
+    /// algorithms of RFC 9980.  They are good if the cryptographic
+    /// backend supports the algorithm.  Otherwise we cannot verify
+    /// them, and they are reported as invalid.
+    #[test]
+    fn rfc9980_detached_signatures() -> openpgp::Result<()> {
+        use std::time::UNIX_EPOCH;
+        use openpgp::types::{PublicKeyAlgorithm, SignatureType};
+        use crate::testdata::rfc9980::*;
+
+        let ok = RNP_SUCCESS.as_u32();
+        let invalid = RNP_ERROR_SIGNATURE_INVALID.as_u32();
+        let not_found = RNP_ERROR_KEY_NOT_FOUND.as_u32();
+
+        let mut algos = Vec::new();
+        for s in SIGNATURES {
+            let v = s.signer();
+            let algo = PublicKeyAlgorithm::from(v.primary.algo);
+            algos.push(v.primary.algo);
+
+            // Make sure that we test what we mean to test.
+            let sig = s.packet();
+            assert_eq!(sig.version(), 6, "{}", s.section);
+            // A signature over a text document: the data is hashed
+            // with its line endings converted to CR LF.
+            assert_eq!(sig.typ(), SignatureType::Text, "{}", s.section);
+            assert_eq!(sig.pk_algo(), algo, "{}", s.section);
+            assert_eq!(sig.issuer_fingerprints()
+                       .map(|fp| fp.to_hex()).collect::<Vec<_>>(),
+                       vec![v.primary.fingerprint], "{}", s.section);
+            assert!(sig.hash_algo().digest_size()? * 8 >= 256,
+                    "{}", s.section);
+            let created = sig.signature_creation_time().unwrap()
+                .duration_since(UNIX_EPOCH)?.as_secs() as u32;
+            let binary = openpgp::Packet::from(sig.clone()).to_vec()?;
+
+            let status = if supported(algo) { ok } else { invalid };
+            let info = |status| SignatureInfo {
+                status,
+                key: Some(v.primary.fingerprint.into()),
+                created,
+                hash: sig.hash_algo().to_rnp_id().into(),
+                // The key ID of a v6 key is the first 64 bits of its
+                // fingerprint, RFC 9580, Section 5.5.4.3.
+                keyid: Some(v.primary.fingerprint[..16].into()),
+                valid: status,
+            };
+
+            let ctx = ctx_with_certs(&[&v.cert()]);
+            for signature in [s.signature, &binary[..]] {
+                // The signature over the signed data.
+                assert_eq!(signature_info(ctx, SIGNED_DATA, signature),
+                           vec![info(status)], "{}", s.section);
+
+                let outcome =
+                    execute(ctx, SIGNED_DATA, Some(signature), None);
+                assert_eq!(outcome.status, ok, "{}", s.section);
+                assert_eq!(outcome.signatures, vec![status],
+                           "{}", s.section);
+
+                let outcome = execute(ctx, SIGNED_DATA, Some(signature),
+                                      Some(RNP_VERIFY_REQUIRE_ALL_SIGS));
+                assert_eq!(outcome.status, status, "{}", s.section);
+                assert_eq!(outcome.signatures, vec![status],
+                           "{}", s.section);
+
+                // The signature over other data.
+                for data in [&SIGNED_DATA[..SIGNED_DATA.len() - 1],
+                             &b"Testing\n\n"[..],
+                             &b"testing\n"[..],
+                             &b""[..]]
+                {
+                    assert_eq!(signature_info(ctx, data, signature),
+                               vec![info(invalid)],
+                               "{}, {:?}", s.section, data);
+
+                    let outcome = execute(ctx, data, Some(signature), None);
+                    assert_eq!(outcome.status, ok, "{}", s.section);
+                    assert_eq!(outcome.signatures, vec![invalid],
+                               "{}, {:?}", s.section, data);
+
+                    let outcome = execute(ctx, data, Some(signature),
+                                          Some(RNP_VERIFY_REQUIRE_ALL_SIGS));
+                    assert_eq!(outcome.status, invalid, "{}", s.section);
+                }
+            }
+            rnp_try!(rnp_ffi_destroy(ctx));
+
+            // Without the certificate.
+            let ctx = ctx_with_certs(&[]);
+            assert_eq!(signature_info(ctx, SIGNED_DATA, s.signature),
+                       vec![SignatureInfo {
+                           status: not_found,
+                           key: None,
+                           valid: invalid,
+                           ..info(not_found)
+                       }], "{}", s.section);
+            rnp_try!(rnp_ffi_destroy(ctx));
+        }
+
+        // These are the signature algorithms of RFC 9980, Section 2.1.
+        assert_eq!(algos, vec![30, 31, 32, 33, 34]);
+        Ok(())
+    }
+
+    /// RFC 9980, Section 5.2.3: a composite signature is valid only
+    /// if both of its component signatures are valid.
+    ///
+    /// Modifies the detached signatures of RFC 9980, Appendix A, one
+    /// octet at a time.  For the composites, that is one component
+    /// signature at a time.
+    ///
+    /// With a cryptographic backend that does not support the
+    /// algorithms, this shows nothing: there, the unmodified
+    /// signatures are reported as invalid, too.
+    #[test]
+    fn rfc9980_modified_signatures() -> openpgp::Result<()> {
+        use openpgp::crypto::mpi;
+        use openpgp::types::PublicKeyAlgorithm;
+        use crate::testdata::rfc9980::*;
+        use crate::testdata::signatures::signature_size;
+
+        let ok = RNP_SUCCESS.as_u32();
+        let invalid = RNP_ERROR_SIGNATURE_INVALID.as_u32();
+
+        // Returns the component signatures.
+        let components = |sig: &Signature| -> (Vec<u8>, Vec<u8>) {
+            match sig.mpis() {
+                mpi::Signature::MLDSA65_Ed25519 { eddsa, mldsa } =>
+                    (eddsa.to_vec(), mldsa.to_vec()),
+                mpi::Signature::MLDSA87_Ed448 { eddsa, mldsa } =>
+                    (eddsa.to_vec(), mldsa.to_vec()),
+                mpi::Signature::SLHDSA128s { sig } => (vec![], sig.to_vec()),
+                mpi::Signature::SLHDSA128f { sig } => (vec![], sig.to_vec()),
+                mpi::Signature::SLHDSA256s { sig } => (vec![], sig.to_vec()),
+                s => panic!("unexpected signature: {:?}", s),
+            }
+        };
+
+        let mut composites = 0;
+        for s in SIGNATURES {
+            let v = s.signer();
+            let algo = PublicKeyAlgorithm::from(v.primary.algo);
+            let supported = supported(algo);
+
+            let sig = s.packet();
+            let binary = openpgp::Packet::from(sig.clone()).to_vec()?;
+            let (first, second) = components(&sig);
+            // The sizes are those of RFC 9980, Tables 6, 7, and 8,
+            // and the component signatures are the last octets of the
+            // packet.
+            assert_eq!(Some((first.len(), second.len())),
+                       signature_size(v.primary.algo));
+            let offset_first = binary.len() - second.len() - first.len();
+            let offset_second = binary.len() - second.len();
+            assert_eq!(&binary[offset_first..offset_second], &first[..]);
+            assert_eq!(&binary[offset_second..], &second[..]);
+
+            let ctx = ctx_with_certs(&[&v.cert()]);
+
+            // The signature is good to begin with.
+            let outcome = execute(ctx, SIGNED_DATA, Some(&binary), None);
+            assert_eq!(outcome.signatures,
+                       vec![if supported { ok } else { invalid }],
+                       "{}", s.section);
+
+            // The first, a middle, and the last octet of each
+            // component signature.
+            let mut offsets = vec![
+                (false, offset_second),
+                (false, offset_second + second.len() / 2),
+                (false, binary.len() - 1),
+            ];
+            if ! first.is_empty() {
+                composites += 1;
+                offsets.extend_from_slice(&[
+                    (true, offset_first),
+                    (true, offset_first + first.len() / 2),
+                    (true, offset_second - 1),
+                ]);
+            }
+
+            for (in_first, offset) in offsets {
+                let mut modified = binary.clone();
+                modified[offset] ^= 1;
+
+                // Make sure that we test what we mean to test: only
+                // one of the component signatures differs.
+                let sigs = signature_packets(&modified);
+                assert_eq!(sigs.len(), 1);
+                assert_ne!(sigs[0], sig);
+                let (f, s_) = components(&sigs[0]);
+                assert_eq!(f != first, in_first,
+                           "{}, offset {}", s.section, offset);
+                assert_eq!(s_ != second, ! in_first,
+                           "{}, offset {}", s.section, offset);
+
+                let outcome =
+                    execute(ctx, SIGNED_DATA, Some(&modified), None);
+                assert_eq!(outcome.status, ok,
+                           "{}, offset {}", s.section, offset);
+                assert_eq!(outcome.signatures, vec![invalid],
+                           "{}, offset {}", s.section, offset);
+
+                let outcome =
+                    execute(ctx, SIGNED_DATA, Some(&modified),
+                            Some(RNP_VERIFY_REQUIRE_ALL_SIGS));
+                assert_eq!(outcome.status, invalid,
+                           "{}, offset {}", s.section, offset);
+            }
+            rnp_try!(rnp_ffi_destroy(ctx));
+        }
+
+        // ML-DSA-65+Ed25519 and ML-DSA-87+Ed448.
+        assert_eq!(composites, 2);
+        Ok(())
+    }
+
+    /// Returns the primary key of the Transferable Secret Key of RFC
+    /// 9980, Appendix A with its secret key material.
+    fn rfc9980_primary_key(v: &crate::testdata::rfc9980::TestVector)
+        -> Key<openpgp::packet::key::SecretParts,
+               openpgp::packet::key::PrimaryRole>
+    {
+        let tsk = Cert::from_bytes(v.tsk).unwrap();
+        tsk.primary_key().key().clone().parts_into_secret().unwrap()
+    }
+
+    /// Signs MESSAGE with the key using the hash algorithm.
+    fn sign_with_hash(keypair: openpgp::crypto::KeyPair,
+                      hash_algo: openpgp::types::HashAlgorithm,
+                      detached: bool)
+                      -> openpgp::Result<Vec<u8>>
+    {
+        use openpgp::packet::signature::SignatureBuilder;
+        use openpgp::types::SignatureType;
+
+        if detached {
+            let mut keypair = keypair;
+            let sig = SignatureBuilder::new(SignatureType::Binary)
+                .set_hash_algo(hash_algo)
+                .sign_message(&mut keypair, MESSAGE)?;
+            openpgp::Packet::from(sig).to_vec()
+        } else {
+            let mut sink = Vec::new();
+            let message = Message::new(&mut sink);
+            let signer = Signer::new(message, keypair)?.hash_algo(hash_algo)?;
+            let mut message = LiteralWriter::new(signer.build()?).build()?;
+            message.write_all(MESSAGE)?;
+            message.finalize()?;
+            Ok(sink)
+        }
+    }
+
+    /// RFC 9980, Sections 5.3.1 and 6.2.1: a signature using one of
+    /// the signature algorithms of RFC 9980 and a hash algorithm with
+    /// a digest size of less than 256 bits must be rejected.
+    ///
+    /// SHA2-224 is the one such hash algorithm that Sequoia verifies
+    /// v6 signatures with.  The signatures are made with the sample
+    /// keys of RFC 9980, Appendix A.
+    ///
+    /// Making the signatures requires a cryptographic backend that
+    /// supports the algorithms.  With the other backends, this only
+    /// tests that the rule does not affect other algorithms.
+    #[test]
+    fn rfc9980_digest_size() -> openpgp::Result<()> {
+        use openpgp::types::{HashAlgorithm, PublicKeyAlgorithm};
+        use crate::testdata::rfc9980::*;
+
+        let ok = RNP_SUCCESS.as_u32();
+        let invalid = RNP_ERROR_SIGNATURE_INVALID.as_u32();
+
+        // Verifies MESSAGE and the signatures in `signed`.  Returns
+        // the status of the signatures, with and without
+        // RNP_VERIFY_REQUIRE_ALL_SIGS.
+        let verify = |ctx, signed: &[u8], detached: bool| {
+            let (message, signature) = if detached {
+                (MESSAGE, Some(signed))
+            } else {
+                (signed, None)
+            };
+            let outcome = execute(ctx, message, signature, None);
+            assert_eq!(outcome.status, ok);
+            assert_eq!(outcome.signatures.len(), 1);
+            if ! detached {
+                assert_eq!(outcome.output, MESSAGE);
+            }
+
+            let all = execute(ctx, message, signature,
+                              Some(RNP_VERIFY_REQUIRE_ALL_SIGS));
+            assert_eq!(all.signatures, outcome.signatures);
+            (outcome.signatures[0], all.status)
+        };
+
+        let slow = [PublicKeyAlgorithm::SLHDSA128s,
+                    PublicKeyAlgorithm::SLHDSA256s];
+        let openssl = openpgp::crypto::backend().starts_with("OpenSSL");
+
+        let mut tested = Vec::new();
+        for v in VECTORS {
+            let algo = PublicKeyAlgorithm::from(v.primary.algo);
+            let rfc9980 = (30..=34).contains(&v.primary.algo);
+            if v.version != 6 {
+                // A v4 key makes v4 signatures.
+                assert!(! rfc9980);
+                continue;
+            }
+            if ! supported(algo) {
+                assert!(rfc9980);
+                eprintln!("{} is not supported by the cryptographic \
+                           backend, not testing the digest size", algo);
+                continue;
+            }
+            if slow.contains(&algo) && ! openssl {
+                // Making one signature takes minutes in a debug build
+                // using the RustCrypto backend.
+                eprintln!("{}: signing is too slow with {}, not testing \
+                           the digest size",
+                          algo, openpgp::crypto::backend());
+                continue;
+            }
+
+            let key = rfc9980_primary_key(v);
+            let ctx = ctx_with_certs(&[&v.cert()]);
+
+            // Signing with ML-DSA is fast.  With SLH-DSA, we make as
+            // few signatures as possible.
+            let fast = ! rfc9980 || matches!(
+                algo,
+                PublicKeyAlgorithm::MLDSA65_Ed25519
+                    | PublicKeyAlgorithm::MLDSA87_Ed448);
+            let hashes: &[HashAlgorithm] = if fast {
+                &[HashAlgorithm::SHA224,
+                  HashAlgorithm::SHA256,
+                  HashAlgorithm::SHA384,
+                  HashAlgorithm::SHA512,
+                  HashAlgorithm::SHA3_256,
+                  HashAlgorithm::SHA3_512]
+            } else {
+                &[HashAlgorithm::SHA224, HashAlgorithm::SHA256]
+            };
+            // Inline signatures only with hash algorithms that
+            // Sequoia's streaming signer offers.
+            let inline = |hash_algo| fast && matches!(
+                hash_algo, HashAlgorithm::SHA224 | HashAlgorithm::SHA512);
+
+            for &hash_algo in hashes {
+                if ! hash_algo.is_supported() {
+                    // Nettle does not support SHA3.
+                    assert!(! rfc9980);
+                    continue;
+                }
+                let good = ! rfc9980 || hash_algo != HashAlgorithm::SHA224;
+
+                for detached in [true, false] {
+                    if ! detached && ! inline(hash_algo) {
+                        continue;
+                    }
+                    let signed = sign_with_hash(
+                        key.clone().into_keypair()?, hash_algo, detached)?;
+
+                    // Make sure that we test what we mean to test:
+                    // this is a v6 signature using the algorithms,
+                    // and it is cryptographically valid.
+                    let sigs = signature_packets(&signed);
+                    assert_eq!(sigs.len(), 1);
+                    assert_eq!(sigs[0].version(), 6);
+                    assert_eq!(sigs[0].pk_algo(), algo);
+                    assert_eq!(sigs[0].hash_algo(), hash_algo);
+                    if detached {
+                        sigs[0].clone().verify_message(&key, MESSAGE)?;
+                    }
+
+                    assert_eq!(verify(ctx, &signed, detached),
+                               if good { (ok, ok) } else { (invalid, invalid) },
+                               "{}, {}, detached: {}",
+                               v.section, hash_algo, detached);
+                }
+            }
+
+            rnp_try!(rnp_ffi_destroy(ctx));
+            tested.push(v.primary.algo);
+        }
+
+        // Make sure that we tested what we mean to test.
+        let ed25519 = 27;
+        match backend_has_rfc9980() {
+            Some(true) if openssl =>
+                assert_eq!(tested, vec![ed25519, 30, 31, 32, 33, 34]),
+            Some(true) => assert_eq!(tested, vec![ed25519, 30, 31, 33]),
+            Some(false) => assert_eq!(tested, vec![ed25519]),
+            None => assert!(tested.contains(&ed25519)),
+        }
+        Ok(())
+    }
+
+    /// RFC 9980, Sections 5.3.1 and 6.2.1: the signature algorithms
+    /// of RFC 9980 must be used only with v6 signatures.
+    ///
+    /// A v4 signature that is made with the key material of a v6 key,
+    /// and that names the v6 key as its issuer, is invalid.  (A v4
+    /// signature of a v4 key is invalid because of the key, see
+    /// `rfc9980_key_version_binding_signatures`.)
+    ///
+    /// Making such a signature requires a cryptographic backend that
+    /// supports the algorithm.  With the other backends, this tests
+    /// nothing.
+    #[test]
+    fn rfc9980_signature_version() -> openpgp::Result<()> {
+        use openpgp::packet::signature::SignatureBuilder;
+        use openpgp::types::{PublicKeyAlgorithm, SignatureType};
+        use crate::testdata::rfc9980::*;
+        use crate::testdata::key_version_binding::FAST_SIGNATURE_ALGORITHMS;
+        use crate::testdata::signatures::v4_key_with_material_of;
+
+        let ok = RNP_SUCCESS.as_u32();
+        let invalid = RNP_ERROR_SIGNATURE_INVALID.as_u32();
+
+        let mut tested = 0;
+        for v in VECTORS {
+            let algo = PublicKeyAlgorithm::from(v.primary.algo);
+            if ! FAST_SIGNATURE_ALGORITHMS.contains(&algo) {
+                continue;
+            }
+            if ! supported(algo) {
+                eprintln!("{} is not supported by the cryptographic \
+                           backend, not testing a v4 signature", algo);
+                continue;
+            }
+
+            let v6 = rfc9980_primary_key(v);
+            assert_eq!(v6.version(), 6);
+            let v4 = v4_key_with_material_of(&v6)?;
+            assert_eq!(v4.mpis(), v6.mpis());
+
+            let ctx = ctx_with_certs(&[&v.cert()]);
+
+            // The v6 signature is good.
+            let sig = SignatureBuilder::new(SignatureType::Binary)
+                .sign_message(&mut v6.clone().into_keypair()?, MESSAGE)?;
+            assert_eq!(sig.version(), 6);
+            let sig = openpgp::Packet::from(sig).to_vec()?;
+            let outcome = execute(ctx, MESSAGE, Some(&sig), None);
+            assert_eq!(outcome.signatures, vec![ok], "{}", v.section);
+
+            // The v4 signature.  Make sure that we test what we mean
+            // to test: it is cryptographically valid, and it names
+            // the v6 key as its issuer.
+            let sig = SignatureBuilder::new(SignatureType::Binary)
+                .set_issuer_fingerprint(v6.fingerprint())?
+                .sign_message(&mut v4.clone().into_keypair()?, MESSAGE)?;
+            assert_eq!(sig.version(), 4);
+            assert_eq!(sig.pk_algo(), algo);
+            assert_eq!(sig.get_issuers(),
+                       vec![openpgp::KeyHandle::from(v6.fingerprint())]);
+            sig.clone().verify_message(&v4, MESSAGE)?;
+            // Sequoia refuses to verify it using the v6 key.
+            assert!(sig.clone().verify_message(&v6, MESSAGE).is_err());
+
+            let sig = openpgp::Packet::from(sig).to_vec()?;
+            let outcome = execute(ctx, MESSAGE, Some(&sig), None);
+            assert_eq!(outcome.status, ok, "{}", v.section);
+            assert_eq!(outcome.signatures, vec![invalid], "{}", v.section);
+
+            let outcome = execute(ctx, MESSAGE, Some(&sig),
+                                  Some(RNP_VERIFY_REQUIRE_ALL_SIGS));
+            assert_eq!(outcome.status, invalid, "{}", v.section);
+
+            rnp_try!(rnp_ffi_destroy(ctx));
+            tested += 1;
+        }
+
+        // Make sure that we tested what we mean to test.
+        match backend_has_rfc9980() {
+            Some(true) => assert_eq!(tested, 3),
+            Some(false) => assert_eq!(tested, 0),
+            None => assert!(tested == 0 || tested == 3),
+        }
+        Ok(())
+    }
+
+    /// A signature using an algorithm of RFC 9980 next to other
+    /// signatures over the same data (RFC 9980, Section 8.2), one of
+    /// which uses an algorithm that we do not know.
+    ///
+    /// The signatures do not affect each other: with a cryptographic
+    /// backend that does not support the algorithms of RFC 9980, the
+    /// signature using a classic algorithm is still good, and the
+    /// signature using an unknown algorithm does no harm.
+    #[test]
+    fn rfc9980_signatures_next_to_others() -> openpgp::Result<()> {
+        use openpgp::packet::signature::SignatureBuilder;
+        use openpgp::types::{HashAlgorithm, PublicKeyAlgorithm, SignatureType};
+        use crate::testdata::rfc9980::*;
+        use crate::testdata::signatures::dummy_signature;
+
+        let ok = RNP_SUCCESS.as_u32();
+        let invalid = RNP_ERROR_SIGNATURE_INVALID.as_u32();
+
+        // The v6 certificate with an Ed25519 primary key.
+        let classic = &VECTORS[0];
+        assert_eq!(classic.primary.algo, 27);
+        let classic_key = rfc9980_primary_key(classic);
+        let classic_sig = openpgp::Packet::from(
+            SignatureBuilder::new(SignatureType::Binary)
+                .sign_message(&mut classic_key.clone().into_keypair()?,
+                              SIGNED_DATA)?)
+            .to_vec()?;
+
+        // Something that looks like a signature made by the same key
+        // using ML-DSA-65+ECDSA-NIST-P-256, algorithm ID 37 of
+        // draft-ietf-openpgp-nist-bp-comp, which we do not know.
+        let unknown = dummy_signature(
+            37, HashAlgorithm::SHA512, &classic_key.fingerprint())?;
+        assert!(matches!(unknown.pk_algo(), PublicKeyAlgorithm::Unknown(37)));
+        let unknown_sig = openpgp::Packet::from(unknown).to_vec()?;
+
+        for s in SIGNATURES {
+            let v = s.signer();
+            let algo = PublicKeyAlgorithm::from(v.primary.algo);
+            let pq = if supported(algo) { ok } else { invalid };
+            let pq_sig = openpgp::Packet::from(s.packet()).to_vec()?;
+
+            let ctx = ctx_with_certs(&[&v.cert(), &classic.cert()]);
+
+            let check = |sigs: &[&[u8]], expected: Vec<RnpResult>| {
+                let signature = sigs.concat();
+                let outcome =
+                    execute(ctx, SIGNED_DATA, Some(&signature), None);
+                assert_eq!(outcome.status, ok, "{}", s.section);
+                assert_eq!(outcome.signatures, expected, "{}", s.section);
+
+                let all = execute(ctx, SIGNED_DATA, Some(&signature),
+                                  Some(RNP_VERIFY_REQUIRE_ALL_SIGS));
+                assert_eq!(all.status,
+                           if expected.iter().all(|&s| s == ok) {
+                               ok
+                           } else {
+                               invalid
+                           }, "{}", s.section);
+                assert_eq!(all.signatures, expected, "{}", s.section);
+            };
+
+            check(&[&pq_sig, &classic_sig], vec![pq, ok]);
+            check(&[&classic_sig, &pq_sig], vec![ok, pq]);
+            check(&[&unknown_sig], vec![invalid]);
+            check(&[&pq_sig, &unknown_sig, &classic_sig],
+                  vec![pq, invalid, ok]);
+            check(&[&unknown_sig, &classic_sig, &pq_sig],
+                  vec![invalid, ok, pq]);
+
+            rnp_try!(rnp_ffi_destroy(ctx));
+        }
+        Ok(())
+    }
 }

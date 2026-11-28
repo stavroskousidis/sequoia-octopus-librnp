@@ -165,6 +165,8 @@ mod tests {
     use super::*;
     use std::ffi::CString;
 
+    use crate::testdata::rfc9980::backend_has_rfc9980;
+
     const RNP_SUCCESS: u32 = crate::error::RNP_SUCCESS.as_u32();
     const RNP_ERROR_BAD_PARAMETERS: u32 =
         crate::error::RNP_ERROR_BAD_PARAMETERS.as_u32();
@@ -316,27 +318,6 @@ mod tests {
     /// Calls rnp_supported_features.  Returns the names.
     fn supported(typ: &str) -> std::result::Result<Vec<String>, u32> {
         Ok(serde_json::from_str(&supported_json(typ)?).unwrap())
-    }
-
-    /// Returns whether the cryptographic backend supports the
-    /// algorithms of RFC 9980, if we know that without asking
-    /// Sequoia.
-    fn backend_has_rfc9980() -> Option<bool> {
-        let backend = openpgp::crypto::backend();
-        if backend.starts_with("RustCrypto") {
-            Some(true)
-        } else if let Some(version) = backend.strip_prefix("OpenSSL ") {
-            // OpenSSL has ML-KEM, ML-DSA, and SLH-DSA since version
-            // 3.5.
-            let mut version = version.split('.').map(|c| c.parse::<u32>());
-            match (version.next(), version.next()) {
-                (Some(Ok(major)), Some(Ok(minor))) =>
-                    Some((major, minor) >= (3, 5)),
-                _ => panic!("cannot parse the version: {:?}", backend),
-            }
-        } else {
-            None
-        }
     }
 
     /// The names of the algorithms, and the algorithm that we ask
