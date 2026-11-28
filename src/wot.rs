@@ -15,11 +15,11 @@ use rusqlite::{
 use sequoia_openpgp as openpgp;
 use openpgp::{Cert, Fingerprint};
 use openpgp::packet::UserID;
-use sequoia_openpgp::policy::StandardPolicy;
 use sequoia_wot::{Root, Roots, store::Store};
 
 
 use crate::gpg;
+use crate::policy::OctopusPolicy;
 use crate::gpg::Validity;
 use crate::keystore::KeystoreData;
 use crate::tbprofile::TBProfile;
@@ -62,7 +62,7 @@ pub struct WoT {
     receiver: mpsc::Receiver<WoTCommand>,
 
     ksd: Arc<RwLock<KeystoreData>>,
-    policy: Arc<RwLock<StandardPolicy<'static>>>,
+    policy: Arc<RwLock<OctopusPolicy>>,
 
     conn: rusqlite::Connection,
     _gpg_ctx: gpg::Ctx,
@@ -84,7 +84,7 @@ impl WoT {
     /// `WoTWorkerHandle` which can be notified, but that will have no
     /// effect.
     pub fn background_thread_start(ksd: Arc<RwLock<KeystoreData>>,
-                                   policy: Arc<RwLock<StandardPolicy<'static>>>)
+                                   policy: Arc<RwLock<OctopusPolicy>>)
                                    -> Result<WoTWorkerHandle>
     {
         let (handle, receiver) = WoTWorkerHandle::new();
@@ -105,7 +105,7 @@ impl WoT {
     // If WoT hasn't been initialized, do it now.
     fn new(receiver: mpsc::Receiver<WoTCommand>,
            ksd: Arc<RwLock<KeystoreData>>,
-           policy: Arc<RwLock<StandardPolicy<'static>>>)
+           policy: Arc<RwLock<OctopusPolicy>>)
            -> Result<WoT>
     {
         let gpg_ctx = gpg::Ctx::new()?;

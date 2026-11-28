@@ -74,6 +74,9 @@ use sequoia_ipc::Keygrip;
 
 pub mod keygrip;
 
+pub mod policy;
+use policy::OctopusPolicy;
+
 pub mod keystore;
 use keystore::Keystore;
 
@@ -169,7 +172,7 @@ fn cert_dump(cert: &Cert) {
 
 #[derive(Default)]
 pub struct RnpContext {
-    policy: Arc<RwLock<StandardPolicy<'static>>>,
+    policy: Arc<RwLock<OctopusPolicy>>,
     certs: Keystore,
     unlocked_keys: HashMap<Fingerprint, Key<SecretParts, UnspecifiedRole>>,
     password_cb: Option<(RnpPasswordCb, *mut c_void)>,
@@ -284,7 +287,7 @@ fn rnp_ffi_create(ctx: *mut *mut RnpContext,
     }
 
     *ctx = Box::into_raw(Box::new(RnpContext {
-        policy: Arc::new(RwLock::new(policy)),
+        policy: Arc::new(RwLock::new(policy.into())),
         ..Default::default()
     }));
     rnp_success!()
@@ -321,7 +324,7 @@ fn rnp_ffi_set_pass_provider(ctx: *mut RnpContext,
 }
 
 impl RnpContext {
-    pub fn policy(&self) -> RwLockReadGuard<StandardPolicy<'static>> {
+    pub fn policy(&self) -> RwLockReadGuard<OctopusPolicy> {
         self.policy.read().unwrap()
     }
 

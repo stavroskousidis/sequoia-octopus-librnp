@@ -77,7 +77,7 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
         RNP_FEATURE_PK_ALG => {
             match AsymmetricAlgorithm::from_rnp_id(name) {
                 Ok(algo) => if let Some(cutoff) =
-                    ctx.policy().asymmetric_algo_cutoff(algo)
+                    ctx.policy().standard().asymmetric_algo_cutoff(algo)
                 {
                     // RNP only returns rules that apply to `time`.
                     if time > cutoff {
@@ -97,7 +97,7 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
         RNP_FEATURE_SYMM_ALG => {
             match SymmetricAlgorithm::from_rnp_id(name) {
                 Ok(algo) => if let Some(cutoff) =
-                    ctx.policy().symmetric_algo_cutoff(algo)
+                    ctx.policy().standard().symmetric_algo_cutoff(algo)
                 {
                     // RNP only returns rules that apply to `time`.
                     if time > cutoff {
@@ -132,7 +132,7 @@ fn rnp_get_security_rule(ctx: *const RnpContext,
 
             match HashAlgorithm::from_rnp_id(name) {
                 Ok(hash) => if let Some(cutoff) =
-                    ctx.policy().hash_cutoff(hash, hash_security)
+                    ctx.policy().standard().hash_cutoff(hash, hash_security)
                 {
                     // RNP only returns rules that apply to `time`.
                     if time > cutoff {
@@ -194,13 +194,15 @@ fn rnp_add_security_rule(ctx: *mut RnpContext,
                     if level == RNP_SECURITY_DEFAULT {
                         // XXX: We don't model the time from when the
                         // algorithm should be allowed, unlike RNP.
-                        ctx.policy.write().unwrap().accept_asymmetric_algo(algo);
+                        ctx.policy.write().unwrap().standard_mut()
+                            .accept_asymmetric_algo(algo);
                     } else {
                         // XXX: We lose the distinction between
                         // RNP_SECURITY_INSECURE and
                         // RNP_SECURITY_PROHIBITED here, but currently
                         // RNP treats them the same.
-                        ctx.policy.write().unwrap().reject_asymmetric_algo_at(algo, time);
+                        ctx.policy.write().unwrap().standard_mut()
+                            .reject_asymmetric_algo_at(algo, time);
                     }
                 },
                 Err(_) => {
@@ -215,13 +217,15 @@ fn rnp_add_security_rule(ctx: *mut RnpContext,
                     if level == RNP_SECURITY_DEFAULT {
                         // XXX: We don't model the time from when the
                         // algorithm should be allowed, unlike RNP.
-                        ctx.policy.write().unwrap().accept_symmetric_algo(algo);
+                        ctx.policy.write().unwrap().standard_mut()
+                            .accept_symmetric_algo(algo);
                     } else {
                         // XXX: We lose the distinction between
                         // RNP_SECURITY_INSECURE and
                         // RNP_SECURITY_PROHIBITED here, but currently
                         // RNP treats them the same.
-                        ctx.policy.write().unwrap().reject_symmetric_algo_at(algo, time);
+                        ctx.policy.write().unwrap().standard_mut()
+                            .reject_symmetric_algo_at(algo, time);
                     }
                 },
                 Err(_) => {
@@ -260,15 +264,16 @@ fn rnp_add_security_rule(ctx: *mut RnpContext,
                             .expect("the year 2161 is representable");
                         assert!(openpgp::types::Timestamp::try_from(the_future)
                                 .is_err());
-                        ctx.policy.write().unwrap().reject_hash_property_at(algo, hash_security,
-                                                           the_future);
+                        ctx.policy.write().unwrap().standard_mut()
+                            .reject_hash_property_at(
+                                algo, hash_security, the_future);
                     } else {
                         // XXX: We lose the distinction between
                         // RNP_SECURITY_INSECURE and
                         // RNP_SECURITY_PROHIBITED here, but currently
                         // RNP treats them the same.
-                        ctx.policy.write().unwrap().reject_hash_property_at(algo, hash_security,
-                                                           time);
+                        ctx.policy.write().unwrap().standard_mut()
+                            .reject_hash_property_at(algo, hash_security, time);
                     }
                 },
                 Err(_) => {
