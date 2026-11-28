@@ -9,7 +9,12 @@
 //!
 //! A key that violates a rule is treated like any other key that the
 //! policy rejects: it is kept in the keyring, it is listed, and it is
-//! never used.
+//! not used where the policy is asked.  That is when we report a
+//! key's state, select recipients, verify signatures, and decrypt.
+//!
+//! Note: we do not ask the policy before we sign.  Like for any other
+//! key that the policy rejects, the caller is expected to check that
+//! the key allows signing before it uses the key.
 
 use sequoia_openpgp as openpgp;
 use openpgp::{
