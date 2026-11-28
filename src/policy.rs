@@ -23,6 +23,11 @@
 //! applies the rules for signatures nevertheless, see
 //! `check_signature`.
 //!
+//! Where we want to say something about a certificate that the policy
+//! rejects, for instance to display its user IDs, we use the
+//! [`RelaxedPolicy`].  It accepts whatever is cryptographically
+//! valid, but it applies the rules for signatures, too.
+//!
 //! Note: we do not ask the policy before we sign.  Like for any other
 //! key that the policy rejects, the caller is expected to check that
 //! the key allows signing before it uses the key.
@@ -227,6 +232,52 @@ impl Policy for OctopusPolicy {
     // not have it.  Sequoia only consults it in functions that take a
     // policy for that purpose (e.g. SKESK::decrypt_with_policy), and
     // we call none of them.
+}
+
+/// The policy for looking at certificates that the policy of the
+/// context rejects.
+///
+/// Some functions report properties of a certificate even if the
+/// policy rejects it, so that it can be displayed: its user IDs, and
+/// whether it has ever been valid.  They used to fall back to
+/// Sequoia's [`NullPolicy`](openpgp::policy::NullPolicy), and now
+/// fall back to this policy.  It also accepts everything, with one
+/// exception: it rejects the signatures that violate the rules of RFC
+/// 9980, see [`check_signature`], because a verifying implementation
+/// must reject them.  Hence, a certificate is not valid under this
+/// policy if it depends on such a signature.
+///
+/// Do not use this policy to decide whether something can be used.
+#[derive(Clone, Debug, Default)]
+pub struct RelaxedPolicy(());
+
+/// The relaxed policy.
+pub const RELAXED: &RelaxedPolicy = &RelaxedPolicy(());
+
+impl Policy for RelaxedPolicy {
+    fn signature(&self, sig: &Signature, _sec: HashAlgoSecurity)
+                 -> Result<()>
+    {
+        check_signature(sig)
+    }
+
+    fn key(&self, _ka: &ValidErasedKeyAmalgamation<PublicParts>)
+           -> Result<()>
+    {
+        Ok(())
+    }
+
+    fn symmetric_algorithm(&self, _algo: SymmetricAlgorithm) -> Result<()> {
+        Ok(())
+    }
+
+    fn aead_algorithm(&self, _algo: AEADAlgorithm) -> Result<()> {
+        Ok(())
+    }
+
+    fn packet(&self, _packet: &Packet) -> Result<()> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -669,10 +720,10 @@ mod tests {
         Ok(())
     }
 
-    /// The policy also rejects self-signatures that violate the rule
-    /// on the digest size, so a certificate with a primary key using
-    /// a signature algorithm of RFC 9980 is not valid if all of its
-    /// self-signatures use SHA2-224.
+    /// The policy and the relaxed policy also reject self-signatures
+    /// that violate the rule on the digest size, so a certificate
+    /// with a primary key using a signature algorithm of RFC 9980 is
+    /// not valid if all of its self-signatures use SHA2-224.
     ///
     /// Making such a certificate requires a cryptographic backend
     /// that supports the algorithm.  With the other backends, this
@@ -710,10 +761,15 @@ mod tests {
             let cert = cert_with(HashAlgorithm::SHA256)?;
             assert!(cert.with_policy(standard, None).is_ok());
             assert!(cert.with_policy(p, None).is_ok(), "{}", v.section);
+            assert!(cert.with_policy(RELAXED, None).is_ok(), "{}", v.section);
 
             let cert = cert_with(HashAlgorithm::SHA224)?;
             assert!(cert.with_policy(standard, None).is_ok());
             let e = cert.with_policy(p, None).unwrap_err();
+            assert!(format!("{:?}", e).contains(
+                &format!("RFC 9980, Section {}", section)),
+                    "{}: {:?}", v.section, e);
+            let e = cert.with_policy(RELAXED, None).unwrap_err();
             assert!(format!("{:?}", e).contains(
                 &format!("RFC 9980, Section {}", section)),
                     "{}: {:?}", v.section, e);
@@ -728,6 +784,98 @@ mod tests {
             Some(false) => assert_eq!(tested, 0),
             None => assert!(tested == 0 || tested == 3),
         }
+        Ok(())
+    }
+
+    /// The relaxed policy accepts what the policy rejects, except for
+    /// the signatures that violate the rules of RFC 9980.
+    #[test]
+    fn relaxed_policy() -> Result<()> {
+        use openpgp::packet::Tag;
+        use openpgp::policy::AsymmetricAlgorithm;
+        use crate::testdata::signatures::dummy_signature;
+
+        let secs = [HashAlgoSecurity::SecondPreImageResistance,
+                    HashAlgoSecurity::CollisionResistance];
+        let issuer = rfc9980::VECTORS[0].cert().fingerprint();
+        let v4_issuer = rfc9980::VECTORS[1].cert().fingerprint();
+
+        // A policy that rejects whatever we ask it about.
+        let mut p = OctopusPolicy::default();
+        p.standard_mut().reject_all_hashes();
+        p.standard_mut().reject_asymmetric_algo(AsymmetricAlgorithm::EdDSA);
+        p.standard_mut().reject_symmetric_algo(SymmetricAlgorithm::AES256);
+        p.standard_mut().reject_aead_algo(AEADAlgorithm::OCB);
+        p.standard_mut().reject_packet_tag(Tag::Literal);
+
+        // The signatures.
+        for (pk_algo, section) in SIGNATURE_ALGORITHMS {
+            for (hash_algo, issuer, good) in [
+                (HashAlgorithm::SHA256, &issuer, true),
+                (HashAlgorithm::SHA512, &issuer, true),
+                (HashAlgorithm::SHA224, &issuer, false),
+                (HashAlgorithm::SHA1, &issuer, false),
+                (HashAlgorithm::SHA512, &v4_issuer, false),
+            ] {
+                let sig = dummy_signature(pk_algo, hash_algo, issuer)?;
+                for sec in secs {
+                    assert!(p.signature(&sig, sec).is_err());
+                    let r = RELAXED.signature(&sig, sec);
+                    assert_eq!(r.is_ok(), good,
+                               "{} {} v{}", pk_algo, hash_algo, sig.version());
+                    if let Err(e) = r {
+                        assert!(e.to_string().contains(
+                            &format!("(RFC 9980, Section {})", section)),
+                                "{}", e);
+                    }
+                }
+            }
+        }
+
+        // Signatures using other algorithms are all accepted.
+        for pk_algo in [27, 37] {
+            for hash_algo in [HashAlgorithm::MD5,
+                              HashAlgorithm::SHA1,
+                              HashAlgorithm::SHA224,
+                              HashAlgorithm::SHA512]
+            {
+                for issuer in [&issuer, &v4_issuer] {
+                    let sig = dummy_signature(pk_algo, hash_algo, issuer)?;
+                    for sec in secs {
+                        assert!(p.signature(&sig, sec).is_err());
+                        assert!(RELAXED.signature(&sig, sec).is_ok(),
+                                "{} {}", pk_algo, hash_algo);
+                    }
+                }
+            }
+        }
+
+        // Everything else is accepted.  This includes the keys that
+        // violate the key version binding: the certificate can be
+        // looked at, and we report the key as unusable.
+        for algo in ALGORITHMS {
+            let (cert, _) = cert_with_subkey(4, algo)?;
+            assert_eq!(cert.with_policy(RELAXED, None)?.keys().count(), 2);
+            for ka in cert.with_policy(NP, None)?.keys() {
+                // The policy rejects the primary key because of its
+                // algorithm, and the subkey because of the key
+                // version binding.
+                assert_eq!(p.key(&ka).is_err(),
+                           ka.primary()
+                           || algo != PublicKeyAlgorithm::MLKEM768_X25519,
+                           "{}", algo);
+                assert!(RELAXED.key(&ka).is_ok());
+            }
+        }
+        assert!(p.symmetric_algorithm(SymmetricAlgorithm::AES256).is_err());
+        assert!(RELAXED.symmetric_algorithm(SymmetricAlgorithm::AES256)
+                .is_ok());
+        assert!(p.aead_algorithm(AEADAlgorithm::OCB).is_err());
+        assert!(RELAXED.aead_algorithm(AEADAlgorithm::OCB).is_ok());
+        let literal = Packet::Literal(
+            openpgp::packet::Literal::new(openpgp::types::DataFormat::Binary));
+        assert!(p.packet(&literal).is_err());
+        assert!(RELAXED.packet(&literal).is_ok());
         Ok(())
     }
 

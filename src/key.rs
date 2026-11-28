@@ -607,12 +607,13 @@ fn rnp_key_get_primary_uid(key: *mut RnpKey,
     let policy = (*(key.ctx)).policy().clone();
 
     // If we fail to find a primary userid using the standard policy,
-    // we fall back to using a null policy.  This value is only used
-    // for displaying purposes, and falling back seems reasonable to
-    // me.
+    // we fall back to using the relaxed policy.  This value is only
+    // used for displaying purposes, and falling back seems reasonable
+    // to me.
     rnp_return_status!(if let Some(cert) = (*key).cert().as_ref()
         .and_then(|c| c.with_policy(&policy, None).ok()
-                  .or_else(|| c.with_policy(crate::NP, None).ok()))
+                  .or_else(|| c.with_policy(crate::policy::RELAXED, None)
+                           .ok()))
     {
         if let Ok(u) = cert.primary_userid() {
             *uid = c_str_to_rnp_buffer_lossy(u.userid().value());
@@ -1736,12 +1737,13 @@ fn rnp_key_valid_till64(key: *mut RnpKey,
     // Thunderbird only checks if the result is 0, and if so does not
     // show the key in the OpenPGP Key Manager.  So, if a key was
     // *ever* valid, then we should return a non-zero result.  This
-    // means we want the Null policy (there is a cryptographically
-    // valid signature), not the Standard Policy, which is stricter.
-    let vc = if let Ok(vc) = cert.with_policy(crate::NP, None) {
+    // means we want the relaxed policy (there is a cryptographically
+    // valid signature that we may accept), not the Standard Policy,
+    // which is stricter.
+    let vc = if let Ok(vc) = cert.with_policy(crate::policy::RELAXED, None) {
         vc
     } else {
-        // If it is not even valid with the null policy, return 0.
+        // If it is not even valid with the relaxed policy, return 0.
         *result = 0;
         t!("cert not valid.");
         rnp_return_status!(RNP_SUCCESS);
@@ -1751,7 +1753,7 @@ fn rnp_key_valid_till64(key: *mut RnpKey,
     let ka = if let Some(ka) = vc.keys().filter(|ka| *ka.key() == k).nth(0) {
         ka
     } else {
-        // If it is not even valid with the null policy, return 0.
+        // If it is not even valid with the relaxed policy, return 0.
         *result = 0;
         t!("key not valid.");
         rnp_return_status!(RNP_SUCCESS);
@@ -4257,6 +4259,35 @@ Pnn+We1aTBhaGa86AQ==
         (over_userids, over_key)
     }
 
+    /// Returns what rnp_uid_is_valid and rnp_uid_is_revoked report
+    /// for the key's user IDs.
+    fn userid_states(key: *mut RnpKey) -> Vec<(bool, bool)> {
+        use crate::userid::{
+            rnp_uid_handle_destroy,
+            rnp_uid_is_revoked,
+            rnp_uid_is_valid,
+        };
+
+        let mut states = Vec::new();
+        let mut uids = 0;
+        let r = unsafe { rnp_key_get_uid_count(key, &mut uids as *mut _) };
+        assert_eq!(r, RNP_SUCCESS);
+        for i in 0..uids {
+            let mut uid: *mut RnpUserID = std::ptr::null_mut();
+            let r = unsafe {
+                rnp_key_get_uid_handle_at(key, i, &mut uid as *mut *mut _)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+            states.push((
+                get_bool(|b| unsafe { rnp_uid_is_valid(uid, b) }),
+                get_bool(|b| unsafe { rnp_uid_is_revoked(uid, b) }),
+            ));
+            let r = unsafe { rnp_uid_handle_destroy(uid) };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+        states
+    }
+
     /// rnp_signature_is_valid reports whether Sequoia verified a
     /// signature of a certificate, and does not ask the policy.  It
     /// must reject the signatures that RFC 9980 forbids nevertheless:
@@ -4267,6 +4298,12 @@ Pnn+We1aTBhaGa86AQ==
     ///
     /// Thunderbird uses this function to decide whether a user ID has
     /// a good self-signature.
+    ///
+    /// Likewise, the functions that fall back to the relaxed policy
+    /// to report something about a certificate that the policy
+    /// rejects must not rely on such a signature: a certificate whose
+    /// only self-signature is one is reported like a certificate
+    /// whose self-signature we cannot verify.
     ///
     /// Making the signatures requires a cryptographic backend that
     /// supports the algorithms.  With the other backends, this only
@@ -4361,12 +4398,10 @@ Pnn+We1aTBhaGa86AQ==
                            }], vec![]],
                            "{}, {}", v.section, hash_algo);
 
-                // And what we report about the key.  If the policy
-                // rejects the self-signature, the certificate is not
-                // valid: the key is reported as revoked and expired,
-                // and it allows nothing.  rnp_key_valid_till64 and
-                // rnp_key_get_primary_uid do not ask the policy, see
-                // there.
+                // And what we report about the key and its user ID.
+                // If the policy and the relaxed policy reject the
+                // self-signature, the certificate has never been
+                // valid, and its user ID is not shown.
                 let ctx = ctx_with_certs(&[&cert]);
                 let key = locate(ctx, &cert.fingerprint());
                 let state = KeyState::of(key);
@@ -4374,18 +4409,17 @@ Pnn+We1aTBhaGa86AQ==
                     assert_eq!(state,
                                KeyState::valid(true, true, false, USERID),
                                "{}, {}", v.section, hash_algo);
-                } else {
-                    assert_eq!(state,
-                               KeyState {
-                                   revoked: true,
-                                   expiration: 1,
-                                   valid_till: u32::MAX as u64,
-                                   sign: false,
-                                   certify: false,
-                                   encrypt: false,
-                                   primary_uid: Some(USERID.into()),
-                               },
+                    assert_eq!(userid_states(key), vec![(true, false)],
                                "{}, {}", v.section, hash_algo);
+                    assert_eq!(identifiers(ctx, "userid"), vec![USERID],
+                               "{}, {}", v.section, hash_algo);
+                } else {
+                    assert_eq!(state, KeyState::unusable(),
+                               "{}, {}", v.section, hash_algo);
+                    assert_eq!(userid_states(key), vec![(false, true)],
+                               "{}, {}", v.section, hash_algo);
+                    assert!(identifiers(ctx, "userid").is_empty(),
+                            "{}, {}", v.section, hash_algo);
                 }
                 let r = unsafe { rnp_key_handle_destroy(key) };
                 assert_eq!(r, RNP_SUCCESS);
@@ -4421,6 +4455,16 @@ Pnn+We1aTBhaGa86AQ==
             assert_eq!(validity(&cert),
                        vec![vec![RNP_ERROR_SIGNATURE_INVALID], vec![]],
                        "{}", algo);
+
+            let ctx = ctx_with_certs(&[&cert]);
+            let key = locate(ctx, &cert.fingerprint());
+            assert_eq!(KeyState::of(key), KeyState::unusable(), "{}", algo);
+            assert_eq!(userid_states(key), vec![(false, true)], "{}", algo);
+            assert!(identifiers(ctx, "userid").is_empty(), "{}", algo);
+            let r = unsafe { rnp_key_handle_destroy(key) };
+            assert_eq!(r, RNP_SUCCESS);
+            let r = unsafe { rnp_ffi_destroy(ctx) };
+            assert_eq!(r, RNP_SUCCESS);
             tested += 1;
         }
         match backend_has_rfc9980() {
@@ -5272,21 +5316,13 @@ Pnn+We1aTBhaGa86AQ==
             assert!(! is_sub(key));
             assert_eq!(get_version(key), 4);
             assert!(have_secret(key));
-            // The self-signature is valid, and rnp_key_valid_till64
-            // does not ask the policy, see there.  The policy
-            // rejects the key, so it is reported as revoked and
-            // expired, and it allows nothing.
-            assert_eq!(KeyState::of(key),
-                       KeyState {
-                           revoked: true,
-                           expiration: 1,
-                           valid_till: u32::MAX as u64,
-                           sign: false,
-                           certify: false,
-                           encrypt: false,
-                           primary_uid: Some(USERID.into()),
-                       },
-                       "{}", algo);
+            // The policy rejects the key.  And a v4 key makes v4
+            // signatures, which the policy and the relaxed policy
+            // reject (RFC 9980, Sections 5.3.1 and 6.2.1), so the
+            // certificate has no self-signature that we accept: we
+            // report it like a certificate whose self-signature we
+            // cannot verify.
+            assert_eq!(KeyState::of(key), KeyState::unusable(), "{}", algo);
             let r = unsafe { rnp_key_handle_destroy(key) };
             assert_eq!(r, RNP_SUCCESS);
 
