@@ -120,6 +120,7 @@ use userid::RnpUserID;
 #[allow(dead_code)]
 pub mod import;
 pub mod security_rules;
+pub mod features;
 pub mod dump_packets;
 pub mod armor;
 
