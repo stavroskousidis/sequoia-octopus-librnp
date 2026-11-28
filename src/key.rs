@@ -2031,6 +2031,19 @@ fn rnp_key_remove_signatures(key: *mut RnpKey,
             }
         }
 
+        // The components that we do not understand, e.g. a secret
+        // subkey using an algorithm that we do not know.  We must
+        // not drop them just because signatures are removed.  Their
+        // self-signatures cannot be verified, they are among the bad
+        // signatures.
+        for ub in cert.unknowns() {
+            acc.push(ub.unknown().clone().into());
+            if ! remove_non_selfsig {
+                for s in ub.other_revocations() { acc.push(s.clone().into()); }
+                for s in ub.certifications() { acc.push(s.clone().into()); }
+            }
+        }
+
         if ! remove_invalid {
             for s in cert.bad_signatures() { acc.push(s.clone().into()); }
         }
@@ -3712,6 +3725,1014 @@ Pnn+We1aTBhaGa86AQ==
         let r = unsafe { rnp_key_handle_destroy(key) };
         assert_eq!(r, RNP_SUCCESS);
 
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+        Ok(())
+    }
+
+    use openpgp::Fingerprint;
+    use openpgp::packet::key::PublicParts;
+    use openpgp::parse::Parse;
+
+    /// The user ID of the sample keys of RFC 9980, Appendix A.
+    const RFC9980_USERID: &str =
+        "PQC user (Test Key) <pqc-test-key@example.com>";
+
+    /// Creates a context.
+    fn new_ctx() -> *mut RnpContext {
+        let mut ctx: *mut RnpContext = std::ptr::null_mut();
+        let r = unsafe {
+            rnp_ffi_create(
+                &mut ctx as *mut *mut _,
+                b"GPG\x00".as_ptr() as *const c_char,
+                b"GPG\x00".as_ptr() as *const c_char)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        ctx
+    }
+
+    /// Imports the keys like Thunderbird does.  Returns the status,
+    /// and for every key the state of the public key, the state of
+    /// the secret key, and the fingerprint.
+    fn import_keys(ctx: *mut RnpContext, data: &[u8], flags: u32)
+                   -> (RnpResult, Vec<(String, String, String)>)
+    {
+        let mut input: *mut RnpInput = std::ptr::null_mut();
+        let r = unsafe {
+            rnp_input_from_memory(
+                &mut input as *mut *mut _, data.as_ptr(), data.len(), false)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+
+        let mut results: *mut c_char = std::ptr::null_mut();
+        let status = unsafe {
+            rnp_import_keys(ctx, input, flags, &mut results as *mut *mut _)
+        };
+        let r = unsafe { rnp_input_destroy(input) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        let mut keys = Vec::new();
+        if status == RNP_SUCCESS {
+            assert!(! results.is_null());
+            let json: serde_json::Value = serde_json::from_str(unsafe {
+                std::ffi::CStr::from_ptr(results).to_str().unwrap()
+            }).unwrap();
+            unsafe { crate::buffer::rnp_buffer_destroy(results as *mut _) };
+            for k in json["keys"].as_array().unwrap() {
+                keys.push((k["public"].as_str().unwrap().to_string(),
+                           k["secret"].as_str().unwrap().to_string(),
+                           k["fingerprint"].as_str().unwrap().to_string()));
+            }
+        }
+        (status, keys)
+    }
+
+    /// Creates a memory output.
+    fn output_to_memory() -> *mut RnpOutput<'static> {
+        let mut output: *mut RnpOutput = std::ptr::null_mut();
+        let r = unsafe {
+            rnp_output_to_memory(&mut output as *mut *mut _, 0)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        output
+    }
+
+    /// Returns what has been written to the memory output, and
+    /// destroys it.
+    fn output_into_vec(output: *mut RnpOutput) -> Vec<u8> {
+        let mut buf: *mut u8 = std::ptr::null_mut();
+        let mut len: libc::size_t = 0;
+        let r = unsafe {
+            rnp_output_memory_get_buf(
+                output, &mut buf as *mut *mut _, &mut len as *mut _, false)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        let data = if len == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(buf, len) }.to_vec()
+        };
+        let r = unsafe { rnp_output_destroy(output) };
+        assert_eq!(r, RNP_SUCCESS);
+        data
+    }
+
+    /// Exports the key.
+    fn export_key(key: *mut RnpKey, flags: RnpKeyExportFlags) -> Vec<u8> {
+        let output = output_to_memory();
+        let r = unsafe { rnp_key_export(key, output, flags) };
+        assert_eq!(r, RNP_SUCCESS);
+        output_into_vec(output)
+    }
+
+    /// Saves the public or the secret keyring.
+    fn save_keys(ctx: *mut RnpContext, flags: RnpLoadSaveFlags) -> Vec<u8> {
+        let output = output_to_memory();
+        let r = unsafe {
+            crate::rnp_save_keys(
+                ctx, b"GPG\x00".as_ptr() as *const c_char, output, flags)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        output_into_vec(output)
+    }
+
+    /// Loads a keyring that has been saved by `save_keys` into a new
+    /// context.
+    ///
+    /// The secret keyring is loaded using rnp_load_keys, like
+    /// Thunderbird does.  For the public keyring, we call the
+    /// function that rnp_load_keys calls to load it: in addition,
+    /// rnp_load_keys imports GnuPG's keyring and starts looking for
+    /// updates on the network, and a test must do neither.
+    fn load_keys(pubring: &[u8], secring: &[u8]) -> *mut RnpContext {
+        let ctx = new_ctx();
+
+        let policy = unsafe { &*ctx }.policy.clone();
+        unsafe { &mut *ctx }.certs.load_keyring_in_background(
+            pubring.to_vec(), false, policy).unwrap();
+
+        let mut input: *mut RnpInput = std::ptr::null_mut();
+        let r = unsafe {
+            rnp_input_from_memory(
+                &mut input as *mut *mut _,
+                secring.as_ptr(), secring.len(), false)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        let r = unsafe {
+            crate::rnp_load_keys(
+                ctx, b"GPG\x00".as_ptr() as *const c_char, input,
+                RNP_LOAD_SAVE_SECRET_KEYS)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        let r = unsafe { rnp_input_destroy(input) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        ctx
+    }
+
+    /// Returns the number of public and of secret keys.  This waits
+    /// for the keyrings to be loaded.
+    fn key_counts(ctx: *mut RnpContext) -> (usize, usize) {
+        let mut public: size_t = usize::MAX;
+        let r = unsafe {
+            crate::rnp_get_public_key_count(ctx, &mut public as *mut _)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        let mut secret: size_t = usize::MAX;
+        let r = unsafe {
+            crate::rnp_get_secret_key_count(ctx, &mut secret as *mut _)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        (public, secret)
+    }
+
+    /// Calls a function that returns a boolean.
+    fn get_bool<F>(f: F) -> bool
+        where F: FnOnce(*mut bool) -> RnpResult
+    {
+        let mut result = false;
+        let r = f(&mut result as *mut _);
+        assert_eq!(r, RNP_SUCCESS);
+        result
+    }
+
+    fn have_secret(key: *mut RnpKey) -> bool {
+        get_bool(|b| unsafe { rnp_key_have_secret(key, b) })
+    }
+
+    fn get_protection_type(key: *mut RnpKey) -> String {
+        get_string(|s| unsafe {
+            rnp_key_get_protection_type(key, s as *mut *const c_char)
+        }).unwrap()
+    }
+
+    /// What Thunderbird asks to decide whether a key can be used.
+    #[derive(Debug, PartialEq)]
+    struct KeyState {
+        revoked: bool,
+        /// Seconds after the creation time, zero if the key does not
+        /// expire.
+        expiration: u32,
+        /// Zero if the key has never been valid.
+        valid_till: u64,
+        sign: bool,
+        certify: bool,
+        encrypt: bool,
+        primary_uid: Option<String>,
+    }
+
+    impl KeyState {
+        /// A key that does not expire, of a certificate that is valid
+        /// under the policy.
+        fn valid(sign: bool, certify: bool, encrypt: bool, uid: &str)
+                 -> Self
+        {
+            KeyState {
+                revoked: false,
+                expiration: 0,
+                valid_till: u32::MAX as u64,
+                sign, certify, encrypt,
+                primary_uid: Some(uid.into()),
+            }
+        }
+
+        /// A key of a certificate that is not valid, neither under
+        /// the policy nor at all.  This is what we report if we
+        /// cannot verify the certificate's self-signatures.
+        /// Thunderbird does not show such a certificate.
+        fn unusable() -> Self {
+            KeyState {
+                revoked: true,
+                expiration: 1,
+                valid_till: 0,
+                sign: false,
+                certify: false,
+                encrypt: false,
+                primary_uid: None,
+            }
+        }
+
+        fn of(key: *mut RnpKey) -> Self {
+            let allows = |usage: &str| {
+                let usage = CString::new(usage).unwrap();
+                get_bool(|b| unsafe {
+                    rnp_key_allows_usage(key, usage.as_ptr(), b)
+                })
+            };
+
+            let mut expiration = u32::MAX;
+            let r = unsafe {
+                rnp_key_get_expiration(key, &mut expiration as *mut _)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            let mut valid_till = u64::MAX;
+            let r = unsafe {
+                rnp_key_valid_till64(key, &mut valid_till as *mut _)
+            };
+            assert_eq!(r, RNP_SUCCESS);
+
+            KeyState {
+                revoked: is_revoked(key),
+                expiration,
+                valid_till,
+                sign: allows("sign"),
+                certify: allows("certify"),
+                encrypt: allows("encrypt"),
+                primary_uid:
+                    get_string(|s| unsafe { rnp_key_get_primary_uid(key, s) })
+                    .ok(),
+            }
+        }
+    }
+
+    /// Returns the tags of the packets.
+    fn packet_tags(data: &[u8]) -> Vec<openpgp::packet::Tag> {
+        openpgp::PacketPile::from_bytes(data).unwrap()
+            .children().map(|p| p.tag()).collect()
+    }
+
+    /// Returns whether there is a secret key packet.
+    fn has_secret_key_packets(data: &[u8]) -> bool {
+        use openpgp::packet::Tag;
+        packet_tags(data).into_iter()
+            .any(|t| t == Tag::SecretKey || t == Tag::SecretSubkey)
+    }
+
+    /// Parses a keyring, and returns the certificates sorted by
+    /// fingerprint.
+    fn parse_keyring(data: &[u8]) -> openpgp::Result<Vec<Cert>> {
+        let mut certs = openpgp::cert::CertParser::from_bytes(data)?
+            .collect::<openpgp::Result<Vec<Cert>>>()?;
+        certs.sort_by_key(|c| c.fingerprint());
+        Ok(certs)
+    }
+
+    /// Returns whether Sequoia can verify the self-signatures of the
+    /// test vector's certificate with the cryptographic backend that
+    /// we have been built with.
+    ///
+    /// If it cannot, the certificate is not valid.  The tests assert
+    /// what we report in either case.
+    fn can_verify(v: &crate::testdata::rfc9980::TestVector) -> bool {
+        use openpgp::types::PublicKeyAlgorithm;
+
+        let supported =
+            PublicKeyAlgorithm::from(v.primary.algo).is_supported();
+        // Every backend has Ed25519.
+        assert!(supported || v.primary.algo >= 30, "{}", v.section);
+        supported
+    }
+
+    /// Imports the Transferable Secret Keys of RFC 9980, Appendix A,
+    /// with and without the secret key material, and asks what
+    /// Thunderbird asks about an imported key.
+    #[test]
+    fn rfc9980_import() -> openpgp::Result<()> {
+        use crate::testdata::rfc9980;
+
+        for v in rfc9980::VECTORS {
+            let fp = v.primary.fingerprint.to_string();
+            let expected = |subkey: bool| {
+                if ! can_verify(v) {
+                    KeyState::unusable()
+                } else if subkey {
+                    // The usage is taken from the key flags.  Whether
+                    // the backend supports the algorithm of the
+                    // subkey is not considered here.
+                    KeyState::valid(false, false, true, RFC9980_USERID)
+                } else {
+                    KeyState::valid(true, true, false, RFC9980_USERID)
+                }
+            };
+
+            // With the secret key material.
+            let ctx = new_ctx();
+            assert_eq!(
+                import_keys(ctx, v.tsk, RNP_LOAD_SAVE_PUBLIC_KEYS
+                            | RNP_LOAD_SAVE_SECRET_KEYS),
+                (RNP_SUCCESS, vec![("new".into(), "new".into(), fp.clone())]),
+                "{}", v.section);
+            assert_eq!(
+                import_keys(ctx, v.tsk, RNP_LOAD_SAVE_PUBLIC_KEYS
+                            | RNP_LOAD_SAVE_SECRET_KEYS),
+                (RNP_SUCCESS,
+                 vec![("unchanged".into(), "unchanged".into(), fp.clone())]),
+                "{}", v.section);
+            assert_eq!(key_counts(ctx), (0, 1), "{}", v.section);
+
+            for (i, k) in v.keys().into_iter().enumerate() {
+                let key = locate_by(ctx, "fingerprint", k.fingerprint);
+                assert!(! key.is_null(), "{}", v.section);
+                assert!(have_secret(key), "{}", v.section);
+                assert!(! get_bool(|b| unsafe {
+                    rnp_key_is_protected(key, b)
+                }), "{}", v.section);
+                assert_eq!(get_protection_type(key), "None",
+                           "{}", v.section);
+                assert_eq!(KeyState::of(key), expected(i == 1),
+                           "{}", v.section);
+                let r = unsafe { rnp_key_handle_destroy(key) };
+                assert_eq!(r, RNP_SUCCESS);
+            }
+
+            let r = unsafe { rnp_ffi_destroy(ctx) };
+            assert_eq!(r, RNP_SUCCESS);
+
+            // Without the secret key material.
+            let ctx = new_ctx();
+            assert_eq!(
+                import_keys(ctx, v.tsk, RNP_LOAD_SAVE_PUBLIC_KEYS),
+                (RNP_SUCCESS,
+                 vec![("new".into(), "unknown".into(), fp.clone())]),
+                "{}", v.section);
+            assert_eq!(key_counts(ctx), (1, 0), "{}", v.section);
+
+            for (i, k) in v.keys().into_iter().enumerate() {
+                let key = locate_by(ctx, "fingerprint", k.fingerprint);
+                assert!(! key.is_null(), "{}", v.section);
+                assert!(! have_secret(key), "{}", v.section);
+                assert_eq!(get_protection_type(key), "Unknown",
+                           "{}", v.section);
+                assert_eq!(KeyState::of(key), expected(i == 1),
+                           "{}", v.section);
+                let r = unsafe { rnp_key_handle_destroy(key) };
+                assert_eq!(r, RNP_SUCCESS);
+            }
+
+            // The secret key material can be added later.
+            assert_eq!(
+                import_keys(ctx, v.tsk, RNP_LOAD_SAVE_PUBLIC_KEYS
+                            | RNP_LOAD_SAVE_SECRET_KEYS),
+                (RNP_SUCCESS,
+                 vec![("updated".into(), "updated".into(), fp.clone())]),
+                "{}", v.section);
+            assert_eq!(key_counts(ctx), (0, 1), "{}", v.section);
+
+            let r = unsafe { rnp_ffi_destroy(ctx) };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+        Ok(())
+    }
+
+    /// Exports the keys of RFC 9980, Appendix A, and imports what has
+    /// been exported.
+    #[test]
+    fn rfc9980_export() -> openpgp::Result<()> {
+        use crate::testdata::rfc9980;
+
+        for v in rfc9980::VECTORS {
+            let tsk = Cert::from_bytes(v.tsk)?;
+            assert!(tsk.is_tsk());
+            let fp = v.primary.fingerprint.to_string();
+
+            let ctx = new_ctx();
+            assert_eq!(
+                import_keys(ctx, v.tsk, RNP_LOAD_SAVE_PUBLIC_KEYS
+                            | RNP_LOAD_SAVE_SECRET_KEYS).0,
+                RNP_SUCCESS);
+            let key = locate_by(ctx, "fingerprint", v.primary.fingerprint);
+            assert!(! key.is_null(), "{}", v.section);
+
+            for (armored, secret) in [(false, false), (false, true),
+                                      (true, false), (true, true)]
+            {
+                let what = format!("{}, armored: {}, secret: {}",
+                                   v.section, armored, secret);
+                let flags = RNP_KEY_EXPORT_SUBKEYS
+                    | if secret { RNP_KEY_EXPORT_SECRET }
+                      else { RNP_KEY_EXPORT_PUBLIC }
+                    | if armored { RNP_KEY_EXPORT_ARMORED } else { 0 };
+                let exported = export_key(key, flags);
+
+                if ! can_verify(v) {
+                    // Sequoia does not export what it cannot verify.
+                    // We cannot expect to get the certificate, but we
+                    // must not get anything else, and no secret key
+                    // material unless we asked for it.
+                    if ! exported.is_empty() {
+                        assert_eq!(parse_keyring(&exported)?.iter()
+                                   .map(|c| c.fingerprint().to_hex())
+                                   .collect::<Vec<_>>(),
+                                   &[fp.clone()], "{}", what);
+                        assert!(secret || ! has_secret_key_packets(&exported),
+                                "{}", what);
+                    }
+                    continue;
+                }
+
+                if armored {
+                    let label = if secret { "PRIVATE" } else { "PUBLIC" };
+                    assert!(exported.starts_with(
+                        format!("-----BEGIN PGP {} KEY BLOCK-----\r\n", label)
+                            .as_bytes()), "{}", what);
+                }
+
+                let cert = Cert::from_bytes(&exported)?;
+                if secret {
+                    assert!(cert.is_tsk(), "{}", what);
+                    assert!(cert.as_tsk() == tsk.as_tsk(), "{}", what);
+                } else {
+                    assert!(! has_secret_key_packets(&exported), "{}", what);
+                    assert_eq!(cert, v.cert(), "{}", what);
+                }
+
+                // And back.
+                let other = new_ctx();
+                assert_eq!(
+                    import_keys(other, &exported, RNP_LOAD_SAVE_PUBLIC_KEYS
+                                | RNP_LOAD_SAVE_SECRET_KEYS),
+                    (RNP_SUCCESS,
+                     vec![("new".into(),
+                           if secret { "new" } else { "unknown" }.into(),
+                           fp.clone())]),
+                    "{}", what);
+                assert_eq!(key_counts(other),
+                           if secret { (0, 1) } else { (1, 0) }, "{}", what);
+                assert_eq!(identifiers(other, "grip"), &[v.primary.grip],
+                           "{}", what);
+                let r = unsafe { rnp_ffi_destroy(other) };
+                assert_eq!(r, RNP_SUCCESS);
+            }
+
+            // Without the subkeys.
+            if can_verify(v) {
+                let exported = export_key(key, RNP_KEY_EXPORT_PUBLIC);
+                let cert = Cert::from_bytes(&exported)?;
+                assert_eq!(cert.fingerprint().to_hex(), fp, "{}", v.section);
+                assert_eq!(cert.keys().count(), 1, "{}", v.section);
+                assert_eq!(cert.userids().count(), 1, "{}", v.section);
+            }
+
+            let r = unsafe { rnp_key_handle_destroy(key) };
+            assert_eq!(r, RNP_SUCCESS);
+            let r = unsafe { rnp_ffi_destroy(ctx) };
+            assert_eq!(r, RNP_SUCCESS);
+        }
+        Ok(())
+    }
+
+    /// Saves the keyrings with the keys of RFC 9980, Appendix A, and
+    /// loads them again.
+    ///
+    /// The keyrings are written as they are, whether or not the
+    /// backend supports the algorithms.
+    #[test]
+    fn rfc9980_save_and_load() -> openpgp::Result<()> {
+        use crate::testdata::rfc9980;
+
+        // Every other key is imported without its secret key
+        // material.
+        let with_secret = |i: usize| i % 2 == 0;
+
+        let ctx = new_ctx();
+        let mut expected_pub = Vec::new();
+        let mut expected_sec = Vec::new();
+        for (i, v) in rfc9980::VECTORS.iter().enumerate() {
+            let flags = RNP_LOAD_SAVE_PUBLIC_KEYS
+                | if with_secret(i) { RNP_LOAD_SAVE_SECRET_KEYS } else { 0 };
+            assert_eq!(import_keys(ctx, v.tsk, flags).0, RNP_SUCCESS,
+                       "{}", v.section);
+            if with_secret(i) {
+                expected_sec.push(Cert::from_bytes(v.tsk)?);
+            } else {
+                expected_pub.push(v.cert());
+            }
+        }
+        expected_pub.sort_by_key(|c| c.fingerprint());
+        expected_sec.sort_by_key(|c| c.fingerprint());
+        assert_eq!(expected_pub.len(), 3);
+        assert_eq!(expected_sec.len(), 4);
+
+        let check = |ctx: *mut RnpContext|
+                     -> openpgp::Result<(Vec<u8>, Vec<u8>)>
+        {
+            assert_eq!(key_counts(ctx), (3, 4));
+
+            let pubring = save_keys(ctx, RNP_LOAD_SAVE_PUBLIC_KEYS);
+            assert!(! has_secret_key_packets(&pubring));
+            assert_eq!(parse_keyring(&pubring)?, expected_pub);
+
+            let secring = save_keys(ctx, RNP_LOAD_SAVE_SECRET_KEYS);
+            let certs = parse_keyring(&secring)?;
+            assert_eq!(certs.len(), expected_sec.len());
+            for (cert, expected) in certs.iter().zip(expected_sec.iter()) {
+                assert!(cert.is_tsk());
+                assert!(cert.as_tsk() == expected.as_tsk());
+            }
+
+            let mut grips = identifiers(ctx, "grip");
+            grips.sort();
+            let mut expected_grips = rfc9980::VECTORS.iter()
+                .map(|v| v.primary.grip.to_string()).collect::<Vec<_>>();
+            expected_grips.sort();
+            assert_eq!(grips, expected_grips);
+
+            for (i, v) in rfc9980::VECTORS.iter().enumerate() {
+                for k in v.keys() {
+                    let key = locate_by(ctx, "grip", k.grip);
+                    assert!(! key.is_null(), "{}", v.section);
+                    assert_eq!(get_fprint(key), k.fingerprint,
+                               "{}", v.section);
+                    assert_eq!(get_alg(key), k.name, "{}", v.section);
+                    assert_eq!(have_secret(key), with_secret(i),
+                               "{}", v.section);
+                    let r = unsafe { rnp_key_handle_destroy(key) };
+                    assert_eq!(r, RNP_SUCCESS);
+                }
+            }
+
+            Ok((pubring, secring))
+        };
+
+        let (pubring, secring) = check(ctx)?;
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        // Load what we saved, twice.
+        let ctx = load_keys(&pubring, &secring);
+        let (pubring, secring) = check(ctx)?;
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        let ctx = load_keys(&pubring, &secring);
+        check(ctx)?;
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        // Secret key material in the public keyring is not loaded.
+        let ctx = load_keys(&secring, &[]);
+        assert_eq!(key_counts(ctx), (4, 0));
+        let pubring = save_keys(ctx, RNP_LOAD_SAVE_PUBLIC_KEYS);
+        assert!(! has_secret_key_packets(&pubring));
+        assert_eq!(parse_keyring(&pubring)?,
+                   expected_sec.iter().cloned()
+                   .map(|c| c.strip_secret_key_material())
+                   .collect::<Vec<_>>());
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+        Ok(())
+    }
+
+    /// Returns a v6 certificate with secret key material and a
+    /// subkey using an algorithm that we do not know, and the
+    /// fingerprint of that subkey.
+    ///
+    /// 37 is not assigned by RFC 9580 or RFC 9980.  The key material
+    /// is not key material of any algorithm.
+    fn cert_with_unknown_subkey(secret: bool)
+                                -> openpgp::Result<(Cert, Fingerprint)>
+    {
+        use openpgp::Profile;
+        use openpgp::cert::CertBuilder;
+        use openpgp::cert::SubkeyBuilder;
+        use openpgp::crypto::mpi;
+        use openpgp::packet::key::{Key6, SubordinateRole};
+        use openpgp::types::{KeyFlags, PublicKeyAlgorithm};
+
+        let (cert, _) = CertBuilder::general_purpose(Some("alice"))
+            .set_profile(Profile::RFC9580)?
+            .generate()?;
+        let n = cert.keys().count();
+
+        let creation_time = std::time::SystemTime::now()
+            - std::time::Duration::new(60, 0);
+        let public = mpi::PublicKey::Unknown {
+            mpis: vec![].into_boxed_slice(),
+            rest: vec![0x42; 64].into_boxed_slice(),
+        };
+        let unknown: Key<UnspecifiedParts, SubordinateRole> = if secret {
+            Key6::with_secret(
+                creation_time, PublicKeyAlgorithm::Unknown(37), public,
+                mpi::SecretKeyMaterial::Unknown {
+                    mpis: vec![].into_boxed_slice(),
+                    rest: vec![0x17; 32].into(),
+                }.into())?.parts_into_unspecified().into()
+        } else {
+            Key6::new(creation_time, PublicKeyAlgorithm::Unknown(37), public)?
+                .parts_into_unspecified().into()
+        };
+        let unknown_fp = unknown.fingerprint();
+
+        let signer = cert.primary_key().key().clone()
+            .parts_into_secret()?.into_keypair()?;
+        let cert = SubkeyBuilder::new(
+            cert.with_policy(crate::NP, None)?,
+            unknown,
+            KeyFlags::empty().set_transport_encryption())?
+            .set_primary_key_signer(signer)
+            .attach_cert()?;
+        assert!(cert.is_tsk());
+        assert_eq!(cert.keys().count(), n + 1);
+        Ok((cert, unknown_fp))
+    }
+
+    /// Removes the signatures that are not self-signatures, like
+    /// Thunderbird does.
+    fn remove_non_self_signatures(key: *mut RnpKey) {
+        let r = unsafe {
+            rnp_key_remove_signatures(
+                key, RNP_KEY_SIGNATURE_NON_SELF_SIG,
+                std::ptr::null_mut(), std::ptr::null_mut())
+        };
+        assert_eq!(r, RNP_SUCCESS);
+    }
+
+    /// A subkey using an algorithm that we do not know survives
+    /// import, export, removing signatures, and saving and loading
+    /// the keyring.
+    #[test]
+    fn unknown_algorithm_subkey_is_kept() -> openpgp::Result<()> {
+        use openpgp::cert::CertBuilder;
+        use openpgp::packet::signature::SignatureBuilder;
+        use openpgp::types::SignatureType;
+
+        let (cert, unknown_fp) = cert_with_unknown_subkey(false)?;
+        let n = cert.keys().count();
+
+        // Bob certifies Alice's user ID.
+        let (bob, _) = CertBuilder::general_purpose(Some("bob")).generate()?;
+        let mut bob_signer = bob.primary_key().key().clone()
+            .parts_into_secret()?.into_keypair()?;
+        let certification =
+            SignatureBuilder::new(SignatureType::GenericCertification)
+            .sign_userid_binding(
+                &mut bob_signer, Some(cert.primary_key().key()),
+                cert.userids().next().unwrap().userid())?;
+        let (certified, _) = cert.clone().insert_packets(certification)?;
+        assert_eq!(certified.userids().next().unwrap()
+                   .certifications().count(), 1);
+
+        let ctx = new_ctx();
+        assert_eq!(
+            import_keys(ctx, &certified.as_tsk().to_vec()?,
+                        RNP_LOAD_SAVE_PUBLIC_KEYS | RNP_LOAD_SAVE_SECRET_KEYS),
+            (RNP_SUCCESS, vec![("new".into(), "new".into(),
+                                cert.fingerprint().to_hex())]));
+
+        // The keyring has what we imported.
+        let secring = save_keys(ctx, RNP_LOAD_SAVE_SECRET_KEYS);
+        let saved = parse_keyring(&secring)?;
+        assert_eq!(saved.len(), 1);
+        assert!(saved[0].as_tsk() == certified.as_tsk());
+
+        // The subkey cannot be used, although its binding signature
+        // is valid and says that it is for encryption.
+        let key = locate(ctx, &unknown_fp);
+        let state = KeyState::of(key);
+        assert!(state.revoked);
+        assert_eq!(state.expiration, 1);
+        assert!(! state.sign && ! state.certify && ! state.encrypt);
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        // The others can.
+        let key = locate(ctx, &cert.fingerprint());
+        let state = KeyState::of(key);
+        assert!(! state.revoked);
+        assert!(state.certify);
+        assert_eq!(state.primary_uid.as_deref(), Some("alice"));
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        // It is exported.
+        let key = locate(ctx, &cert.fingerprint());
+        let exported = Cert::from_bytes(&export_key(
+            key, RNP_KEY_EXPORT_PUBLIC | RNP_KEY_EXPORT_SUBKEYS))?;
+        assert_eq!(exported,
+                   certified.clone().strip_secret_key_material());
+        assert!(exported.keys().any(|k| k.key().fingerprint() == unknown_fp));
+
+        // Removing the certification leaves the subkey, and its
+        // binding signature, alone.
+        remove_non_self_signatures(key);
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        let secring = save_keys(ctx, RNP_LOAD_SAVE_SECRET_KEYS);
+        let saved = parse_keyring(&secring)?;
+        assert_eq!(saved.len(), 1);
+        assert!(saved[0].as_tsk() == cert.as_tsk());
+        assert_eq!(saved[0].keys().count(), n);
+        assert_eq!(saved[0].keys().subkeys()
+                   .filter(|k| k.key().fingerprint() == unknown_fp)
+                   .map(|k| k.self_signatures().count())
+                   .collect::<Vec<_>>(),
+                   &[1]);
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        // And it is loaded again.
+        let ctx = load_keys(&[], &secring);
+        assert_eq!(key_counts(ctx), (0, 1));
+        let key = locate(ctx, &unknown_fp);
+        assert!(is_sub(key));
+        assert_eq!(get_alg(key), "unknown");
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+        assert!(parse_keyring(&save_keys(ctx, RNP_LOAD_SAVE_SECRET_KEYS))?[0]
+                .as_tsk() == cert.as_tsk());
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+        Ok(())
+    }
+
+    /// A secret subkey using an algorithm that we do not know is not
+    /// a key to Sequoia, but a packet that it does not understand.
+    /// It stays in the secret keyring, and it is never part of a
+    /// public key that we export.
+    #[test]
+    fn unknown_algorithm_secret_subkey_is_kept() -> openpgp::Result<()> {
+        use openpgp::cert::CertBuilder;
+        use openpgp::packet::Tag;
+
+        let (cert, unknown_fp) = cert_with_unknown_subkey(true)?;
+        let n = cert.keys().count();
+        let tsk = cert.as_tsk().to_vec()?;
+
+        // This is how Sequoia reads it.
+        let parsed = Cert::from_bytes(&tsk)?;
+        assert_eq!(parsed.keys().count(), n - 1);
+        assert_eq!(parsed.unknowns().map(|u| u.unknown().tag())
+                   .collect::<Vec<_>>(),
+                   &[Tag::SecretSubkey]);
+        let count_secret_subkeys = |data: &[u8]| {
+            packet_tags(data).into_iter()
+                .filter(|t| *t == Tag::SecretSubkey).count()
+        };
+        assert_eq!(count_secret_subkeys(&tsk), n - 1);
+
+        let ctx = new_ctx();
+        assert_eq!(
+            import_keys(ctx, &tsk,
+                        RNP_LOAD_SAVE_PUBLIC_KEYS | RNP_LOAD_SAVE_SECRET_KEYS),
+            (RNP_SUCCESS, vec![("new".into(), "new".into(),
+                                cert.fingerprint().to_hex())]));
+        assert_eq!(key_counts(ctx), (0, 1));
+
+        // The keys that we know are there, the other one is not a
+        // key.
+        let key = locate(ctx, &cert.fingerprint());
+        let mut subkeys: usize = 0;
+        let r = unsafe {
+            rnp_key_get_subkey_count(key, &mut subkeys as *mut _)
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        assert_eq!(subkeys, n - 2);
+        assert!(locate_by(ctx, "fingerprint", &unknown_fp.to_hex())
+                .is_null());
+
+        // The secret keyring has all of it.
+        let check_secring = |ctx: *mut RnpContext, expected: &Cert|
+                             -> openpgp::Result<()>
+        {
+            let secring = save_keys(ctx, RNP_LOAD_SAVE_SECRET_KEYS);
+            assert_eq!(count_secret_subkeys(&secring), n - 1);
+            let saved = parse_keyring(&secring)?;
+            assert_eq!(saved.len(), 1);
+            assert!(saved[0].as_tsk() == expected.as_tsk());
+            assert_eq!(saved[0].unknowns().count(), 1);
+            Ok(())
+        };
+        check_secring(ctx, &parsed)?;
+
+        // A public key that we export has no secret key material.
+        for flags in [RNP_KEY_EXPORT_PUBLIC | RNP_KEY_EXPORT_SUBKEYS,
+                      RNP_KEY_EXPORT_PUBLIC | RNP_KEY_EXPORT_SUBKEYS
+                      | RNP_KEY_EXPORT_ARMORED]
+        {
+            let exported = Cert::from_bytes(&export_key(key, flags))?;
+            assert!(! exported.is_tsk());
+            assert!(! has_secret_key_packets(&exported.to_vec()?));
+            assert_eq!(exported.keys().count(), n - 1);
+            assert_eq!(exported.unknowns().count(), 0);
+        }
+
+        // Removing signatures does not remove it.
+        remove_non_self_signatures(key);
+        check_secring(ctx, &parsed)?;
+
+        // A signature that someone else made, and that follows the
+        // packet that we do not understand, is kept with it, unless
+        // we are asked to remove such signatures.
+        let (bob, _) = CertBuilder::general_purpose(Some("bob")).generate()?;
+        let mut with_sig = parsed.as_tsk().to_vec()?;
+        Packet::from(bob.userids().next().unwrap()
+                     .self_signatures().next().unwrap().clone())
+            .serialize(&mut with_sig)?;
+        let with_sig = Cert::from_bytes(&with_sig)?;
+        assert_eq!(with_sig.unknowns().next().unwrap()
+                   .certifications().count(), 1);
+        assert_eq!(
+            import_keys(ctx, &with_sig.as_tsk().to_vec()?,
+                        RNP_LOAD_SAVE_PUBLIC_KEYS | RNP_LOAD_SAVE_SECRET_KEYS),
+            (RNP_SUCCESS, vec![("updated".into(), "updated".into(),
+                                cert.fingerprint().to_hex())]));
+        check_secring(ctx, &with_sig)?;
+
+        let r = unsafe {
+            rnp_key_remove_signatures(
+                key, 0, std::ptr::null_mut(), std::ptr::null_mut())
+        };
+        assert_eq!(r, RNP_SUCCESS);
+        check_secring(ctx, &with_sig)?;
+
+        remove_non_self_signatures(key);
+        check_secring(ctx, &parsed)?;
+
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        // And it is loaded again.
+        let secring = save_keys(ctx, RNP_LOAD_SAVE_SECRET_KEYS);
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        let ctx = load_keys(&[], &secring);
+        assert_eq!(key_counts(ctx), (0, 1));
+        check_secring(ctx, &parsed)?;
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+        Ok(())
+    }
+
+    /// Pretends to sign with an algorithm that we do not know.
+    ///
+    /// What it returns is not a signature of any algorithm, and
+    /// nothing can verify it.
+    struct UnknownAlgorithmSigner(Key<PublicParts, UnspecifiedRole>);
+
+    impl openpgp::crypto::Signer for UnknownAlgorithmSigner {
+        fn public(&self) -> &Key<PublicParts, UnspecifiedRole> {
+            &self.0
+        }
+
+        fn sign(&mut self, _: HashAlgorithm, _: &[u8])
+                -> openpgp::Result<openpgp::crypto::mpi::Signature>
+        {
+            Ok(openpgp::crypto::mpi::Signature::Unknown {
+                mpis: vec![].into_boxed_slice(),
+                rest: vec![0x55; 64].into_boxed_slice(),
+            })
+        }
+    }
+
+    /// A certificate with a primary key using an algorithm that we do
+    /// not know cannot be used, and Thunderbird does not see it.  It
+    /// does not get in the way of the other certificates, and it
+    /// stays in the keyring.
+    #[test]
+    fn unknown_algorithm_primary_key_is_kept() -> openpgp::Result<()> {
+        use openpgp::Profile;
+        use openpgp::cert::CertBuilder;
+        use openpgp::crypto::mpi;
+        use openpgp::packet::UserID;
+        use openpgp::packet::key::{Key6, PrimaryRole};
+        use openpgp::packet::signature::SignatureBuilder;
+        use openpgp::types::{KeyFlags, PublicKeyAlgorithm, SignatureType};
+
+        // 37 is not assigned by RFC 9580 or RFC 9980.
+        let primary: Key<PublicParts, PrimaryRole> =
+            Key6::new(std::time::SystemTime::now()
+                      - std::time::Duration::new(60, 0),
+                      PublicKeyAlgorithm::Unknown(37),
+                      mpi::PublicKey::Unknown {
+                          mpis: vec![].into_boxed_slice(),
+                          rest: vec![0x99; 48].into_boxed_slice(),
+                      })?.into();
+        let mut signer =
+            UnknownAlgorithmSigner(primary.clone().role_into_unspecified());
+        let userid = UserID::from("future <future@example.org>");
+        let direct = SignatureBuilder::new(SignatureType::DirectKey)
+            .set_key_flags(KeyFlags::empty().set_certification())?
+            .sign_direct_key(&mut signer, Some(&primary))?;
+        let binding =
+            SignatureBuilder::new(SignatureType::PositiveCertification)
+            .sign_userid_binding(&mut signer, Some(&primary), &userid)?;
+        let future = Cert::from_packets(
+            vec![Packet::from(primary), direct.into(),
+                 userid.into(), binding.into()].into_iter())?;
+        assert_eq!(future.userids().count(), 1);
+        assert_eq!(future.bad_signatures().count(), 2);
+
+        let (v4, _) = CertBuilder::general_purpose(Some("v4"))
+            .set_profile(Profile::RFC4880)?
+            .generate()?;
+        let (v6, _) = CertBuilder::general_purpose(Some("v6"))
+            .set_profile(Profile::RFC9580)?
+            .generate()?;
+        let v4 = v4.strip_secret_key_material();
+        let v6 = v6.strip_secret_key_material();
+
+        // One keyring, the certificate that we do not understand in
+        // the middle.
+        let mut keyring = v4.to_vec()?;
+        keyring.extend_from_slice(&future.to_vec()?);
+        keyring.extend_from_slice(&v6.to_vec()?);
+
+        let mut expected = vec![v4.clone(), future.clone(), v6.clone()];
+        expected.sort_by_key(|c| c.fingerprint());
+
+        let ctx = new_ctx();
+        assert_eq!(
+            import_keys(ctx, &keyring, RNP_LOAD_SAVE_PUBLIC_KEYS),
+            (RNP_SUCCESS,
+             [&v4, &future, &v6].iter().map(|c| {
+                 ("new".into(), "unknown".into(), c.fingerprint().to_hex())
+             }).collect()));
+
+        let check = |ctx: *mut RnpContext| -> openpgp::Result<Vec<u8>> {
+            assert_eq!(key_counts(ctx), (3, 0));
+
+            // Thunderbird enumerates the keys by keygrip, and there
+            // is none for a key that we do not understand.
+            assert_eq!(identifiers(ctx, "grip").len(), 2);
+            assert_eq!(identifiers(ctx, "fingerprint").len(), 3);
+
+            let key = locate(ctx, &future.fingerprint());
+            assert_eq!(get_alg(key), "unknown");
+            assert_eq!(get_bits(key), Err(RNP_ERROR_NO_SUITABLE_KEY));
+            assert_eq!(get_string(|s| unsafe { rnp_key_get_grip(key, s) }),
+                       Err(RNP_ERROR_GENERIC));
+            assert!(! have_secret(key));
+            assert_eq!(KeyState::of(key), KeyState::unusable());
+            let r = unsafe { rnp_key_handle_destroy(key) };
+            assert_eq!(r, RNP_SUCCESS);
+
+            // The others are as usable as they are without it.
+            for cert in [&v4, &v6] {
+                let key = locate(ctx, &cert.fingerprint());
+                let state = KeyState::of(key);
+                assert!(! state.revoked);
+                assert!(state.certify);
+                assert!(state.valid_till > 0);
+                assert_eq!(state.primary_uid.as_deref(),
+                           Some(if cert == &v4 { "v4" } else { "v6" }));
+                let r = unsafe { rnp_key_handle_destroy(key) };
+                assert_eq!(r, RNP_SUCCESS);
+            }
+
+            // It is saved as it is.
+            let pubring = save_keys(ctx, RNP_LOAD_SAVE_PUBLIC_KEYS);
+            assert_eq!(parse_keyring(&pubring)?, expected);
+            Ok(pubring)
+        };
+
+        let pubring = check(ctx)?;
+
+        // Removing signatures does not remove what we cannot verify.
+        let key = locate(ctx, &future.fingerprint());
+        remove_non_self_signatures(key);
+        let r = unsafe { rnp_key_handle_destroy(key) };
+        assert_eq!(r, RNP_SUCCESS);
+        check(ctx)?;
+
+        let r = unsafe { rnp_ffi_destroy(ctx) };
+        assert_eq!(r, RNP_SUCCESS);
+
+        // And it is loaded again.
+        let ctx = load_keys(&pubring, &[]);
+        check(ctx)?;
         let r = unsafe { rnp_ffi_destroy(ctx) };
         assert_eq!(r, RNP_SUCCESS);
         Ok(())
