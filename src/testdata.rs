@@ -64,6 +64,59 @@ pub mod rfc9980 {
         }
     }
 
+    /// A detached signature over `SIGNED_DATA`.
+    pub struct TestSignature {
+        /// The section of RFC 9980 containing the signature.
+        pub section: &'static str,
+        /// The signature.
+        pub signature: &'static [u8],
+        /// The section of RFC 9980 containing the Transferable Secret
+        /// Key that made the signature.
+        pub signer: &'static str,
+    }
+
+    impl TestSignature {
+        /// Returns the Transferable Secret Key that made the
+        /// signature, and what we expect for its keys.
+        pub fn signer(&self) -> &'static TestVector {
+            VECTORS.iter().find(|v| v.section == self.signer)
+                .expect("the signer is one of the test vectors")
+        }
+
+        /// Returns the signature packet.
+        pub fn packet(&self) -> openpgp::packet::Signature {
+            match openpgp::Packet::from_bytes(self.signature)
+                .expect("valid test vector")
+            {
+                openpgp::Packet::Signature(sig) => sig,
+                p => panic!("expected a signature, got: {:?}", p),
+            }
+        }
+    }
+
+    /// Whether the cryptographic backend supports the algorithms of
+    /// RFC 9980, if we know that without asking Sequoia.
+    ///
+    /// Tests whose outcome depends on the backend use this to make
+    /// sure that they tested what they mean to test.
+    pub fn backend_has_rfc9980() -> Option<bool> {
+        let backend = openpgp::crypto::backend();
+        if backend.starts_with("RustCrypto") {
+            Some(true)
+        } else if let Some(version) = backend.strip_prefix("OpenSSL ") {
+            // OpenSSL has ML-KEM, ML-DSA, and SLH-DSA since version
+            // 3.5.
+            let mut version = version.split('.').map(|c| c.parse::<u32>());
+            match (version.next(), version.next()) {
+                (Some(Ok(major)), Some(Ok(minor))) =>
+                    Some((major, minor) >= (3, 5)),
+                _ => panic!("cannot parse the version: {:?}", backend),
+            }
+        } else {
+            None
+        }
+    }
+
     /// The Transferable Secret Keys of Appendix A.
     pub const VECTORS: &[TestVector] = &[
         TestVector {
@@ -210,6 +263,39 @@ pub mod rfc9980 {
                               BA8A640AABE3AB467C797214844DF15F",
                 grip: "52637724D06BEBF5AC767116409CD3FD8ACF19D6",
             },
+        },
+    ];
+
+    /// The data that the detached signatures of Appendix A are made
+    /// over.
+    pub const SIGNED_DATA: &[u8] = b"Testing\n";
+
+    /// The detached signatures of Appendix A.
+    pub const SIGNATURES: &[TestSignature] = &[
+        TestSignature {
+            section: "A.3.4",
+            signature: include_bytes!("../tests/data/rfc9980/A.3.4.asc"),
+            signer: "A.3.1",
+        },
+        TestSignature {
+            section: "A.4.4",
+            signature: include_bytes!("../tests/data/rfc9980/A.4.4.asc"),
+            signer: "A.4.1",
+        },
+        TestSignature {
+            section: "A.5.4",
+            signature: include_bytes!("../tests/data/rfc9980/A.5.4.asc"),
+            signer: "A.5.1",
+        },
+        TestSignature {
+            section: "A.6.3",
+            signature: include_bytes!("../tests/data/rfc9980/A.6.3.asc"),
+            signer: "A.6.1",
+        },
+        TestSignature {
+            section: "A.7.3",
+            signature: include_bytes!("../tests/data/rfc9980/A.7.3.asc"),
+            signer: "A.7.1",
         },
     ];
 }
@@ -493,5 +579,203 @@ pub mod key_version_binding {
         assert!(cert.keys().all(|ka| ka.key().version() == 4));
         assert!(cert.keys().all(|ka| ka.key().has_secret()));
         Ok(cert)
+    }
+}
+
+/// Signatures for testing the rules of RFC 9980 for signatures.
+pub mod signatures {
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    use sequoia_openpgp as openpgp;
+    use openpgp::{
+        Cert,
+        Fingerprint,
+        Packet,
+        Result,
+        packet::{
+            Key,
+            Signature,
+            UserID,
+            key::{
+                Key4,
+                PrimaryRole,
+                SecretKeyMaterial,
+                SecretParts,
+            },
+            signature::SignatureBuilder,
+        },
+        parse::Parse,
+        types::{
+            HashAlgorithm,
+            KeyFlags,
+            PublicKeyAlgorithm,
+            SignatureType,
+        },
+    };
+
+    /// Returns the size of a signature using the given algorithm in
+    /// octets.
+    ///
+    /// From RFC 9980, Tables 6, 7, and 8.  For the composites, the
+    /// EdDSA signature comes first.
+    pub fn signature_size(pk_algo: u8) -> Option<(usize, usize)> {
+        match pk_algo {
+            30 => Some((64, 3309)),
+            31 => Some((114, 4627)),
+            32 => Some((0, 7856)),
+            33 => Some((0, 17088)),
+            34 => Some((0, 29792)),
+            _ => None,
+        }
+    }
+
+    /// Returns something that has the form of a signature over a
+    /// binary document, but is not a signature: all octets of the
+    /// algorithm-specific part are the same.
+    ///
+    /// This is good enough for everything that does not compute with
+    /// the signature, and it works with every cryptographic backend.
+    /// The signature names `issuer` as its issuer, and it is of
+    /// version 4 if that is a v4 fingerprint, and of version 6
+    /// otherwise.
+    pub fn dummy_signature(pk_algo: u8, hash_algo: HashAlgorithm,
+                           issuer: &Fingerprint)
+                           -> Result<Signature>
+    {
+        let version: u8 = match issuer {
+            Fingerprint::V4(_) => 4,
+            Fingerprint::V6(_) => 6,
+            _ => unreachable!("neither a v4 nor a v6 fingerprint"),
+        };
+
+        // The hashed subpackets (RFC 9580, Section 5.2.3.7): the
+        // signature creation time, and the issuer fingerprint.
+        let creation_time = (SystemTime::now() - Duration::new(60, 0))
+            .duration_since(UNIX_EPOCH)?.as_secs() as u32;
+        let mut hashed = vec![5, 2];
+        hashed.extend_from_slice(&creation_time.to_be_bytes());
+        hashed.push(1 + 1 + issuer.as_bytes().len() as u8);
+        hashed.push(33);
+        hashed.push(version);
+        hashed.extend_from_slice(issuer.as_bytes());
+
+        // The packet body (RFC 9580, Sections 5.2.3).
+        let mut body = vec![version, 0, pk_algo, hash_algo.into()];
+        if version == 4 {
+            body.extend_from_slice(&(hashed.len() as u16).to_be_bytes());
+            body.extend_from_slice(&hashed);
+            body.extend_from_slice(&0u16.to_be_bytes());
+        } else {
+            body.extend_from_slice(&(hashed.len() as u32).to_be_bytes());
+            body.extend_from_slice(&hashed);
+            body.extend_from_slice(&0u32.to_be_bytes());
+        }
+        // The left 16 bits of the digest.
+        body.extend_from_slice(&[0x42, 0x42]);
+        if version == 6 {
+            let salt_size = hash_algo.salt_size().unwrap_or(16);
+            body.push(salt_size as u8);
+            body.extend(std::iter::repeat(0x42).take(salt_size));
+        }
+        let (a, b) = signature_size(pk_algo).unwrap_or((0, 64));
+        body.extend(std::iter::repeat(0x42).take(a + b));
+
+        // The packet header (RFC 9580, Section 4.2.1), using a
+        // five-octet length.
+        let mut packet = vec![0xc0 | 2, 0xff];
+        packet.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        packet.extend_from_slice(&body);
+
+        match Packet::from_bytes(&packet)? {
+            Packet::Signature(sig) => {
+                assert_eq!(sig.version(), version);
+                assert_eq!(u8::from(sig.pk_algo()), pk_algo);
+                assert_eq!(sig.hash_algo(), hash_algo);
+                assert_eq!(sig.issuer_fingerprints().collect::<Vec<_>>(),
+                           vec![issuer]);
+                Ok(sig)
+            },
+            p => Err(anyhow::anyhow!("expected a signature, got: {:?}", p)),
+        }
+    }
+
+    /// Returns whether the tests can make signatures using the
+    /// algorithm: the cryptographic backend supports it, and making a
+    /// signature does not take too long.
+    ///
+    /// Making one signature using SLH-DSA-SHAKE-128s or
+    /// SLH-DSA-SHAKE-256s takes minutes in a debug build using the
+    /// RustCrypto backend.
+    pub fn can_sign_using(algo: PublicKeyAlgorithm) -> bool {
+        let slow = matches!(algo,
+                            PublicKeyAlgorithm::SLHDSA128s
+                            | PublicKeyAlgorithm::SLHDSA256s);
+        algo.is_supported()
+            && (! slow || openpgp::crypto::backend().starts_with("OpenSSL"))
+    }
+
+    /// Returns the algorithm IDs of the primary keys of RFC 9980,
+    /// Appendix A that are v6 keys and that `can_sign_using` must
+    /// have accepted, if we know that without asking Sequoia.
+    pub fn expected_signers() -> Option<Vec<u8>> {
+        let openssl = openpgp::crypto::backend().starts_with("OpenSSL");
+        match super::rfc9980::backend_has_rfc9980() {
+            Some(true) if openssl => Some(vec![27, 30, 31, 32, 33, 34]),
+            Some(true) => Some(vec![27, 30, 31, 33]),
+            Some(false) => Some(vec![27]),
+            None => None,
+        }
+    }
+
+    /// Returns a certificate without secret key material: the
+    /// primary key of the Transferable Secret Key, a user ID, and a
+    /// self-signature using the given hash algorithm.
+    ///
+    /// Making the self-signature requires a cryptographic backend
+    /// that supports the algorithm of the primary key.
+    pub fn cert_with_self_signature(tsk: &[u8], hash_algo: HashAlgorithm)
+                                    -> Result<Cert>
+    {
+        let key = Cert::from_bytes(tsk)?.primary_key().key().clone()
+            .parts_into_secret()?;
+        let mut signer = key.clone().into_keypair()?;
+        let cert = Cert::try_from(vec![Packet::SecretKey(key)])?;
+        let userid = UserID::from(super::key_version_binding::USERID);
+        let sig = userid.bind(
+            &mut signer, &cert,
+            SignatureBuilder::new(SignatureType::PositiveCertification)
+                .set_hash_algo(hash_algo)
+                .set_key_flags(
+                    KeyFlags::empty().set_certification().set_signing())?)?;
+        assert_eq!(sig.pk_algo(), cert.primary_key().key().pk_algo());
+        assert_eq!(sig.hash_algo(), hash_algo);
+        let (cert, _) =
+            cert.insert_packets(vec![Packet::from(userid), sig.into()])?;
+        // The self-signature is valid, and it is the only one.
+        assert_eq!(cert.with_policy(crate::NP, None)?.userids().count(), 1);
+        assert_eq!(cert.userids().next().unwrap().self_signatures().count(),
+                   1);
+        assert_eq!(cert.primary_key().self_signatures().count(), 0);
+        assert_eq!(cert.bad_signatures().count(), 0);
+        Ok(cert.strip_secret_key_material())
+    }
+
+    /// Returns a v4 key with the key material of the given key.
+    ///
+    /// For the signature algorithms of RFC 9980, this is a key that
+    /// RFC 9980 forbids.  It makes v4 signatures.
+    pub fn v4_key_with_material_of(key: &Key<SecretParts, PrimaryRole>)
+                                   -> Result<Key<SecretParts, PrimaryRole>>
+    {
+        let secret = match key.secret() {
+            SecretKeyMaterial::Unencrypted(u) => u.clone(),
+            SecretKeyMaterial::Encrypted(_) =>
+                return Err(anyhow::anyhow!("the secret key is encrypted")),
+        };
+        let key: Key<SecretParts, PrimaryRole> =
+            Key4::with_secret(key.creation_time(), key.pk_algo(),
+                              key.mpis().clone(), secret.into())?.into();
+        assert_eq!(key.version(), 4);
+        Ok(key)
     }
 }

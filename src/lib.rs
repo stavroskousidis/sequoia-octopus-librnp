@@ -33,7 +33,6 @@ use openpgp::{
     },
     policy::{
         HashAlgoSecurity,
-        NullPolicy,
         StandardPolicy,
     },
     serialize::Serialize,
@@ -136,7 +135,14 @@ pub mod parcimonie;
 #[cfg(test)]
 mod testdata;
 
-pub const NP: &NullPolicy = unsafe { &NullPolicy::new() };
+/// The null policy.
+///
+/// Only the tests use it.  Where we need to look at a certificate
+/// that the policy rejects, we use `policy::RELAXED`, which rejects
+/// what RFC 9980 requires us to reject.
+#[cfg(test)]
+pub const NP: &openpgp::policy::NullPolicy =
+    unsafe { &openpgp::policy::NullPolicy::new() };
 
 #[allow(dead_code)]
 fn cert_dump(cert: &Cert) {

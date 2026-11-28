@@ -3,12 +3,12 @@ use libc::{
 };
 
 use crate::{
-    NP,
     RnpContext,
     RnpResult,
     str_to_rnp_buffer,
     error::*,
     conversions::*,
+    policy::RELAXED,
 };
 
 pub struct RnpIdentifierIterator {
@@ -70,11 +70,11 @@ fn rnp_identifier_iterator_create(ctx: *mut RnpContext,
                                        String::from_utf8(
                                            u.userid().value().to_vec()).ok()
                                    }))
-                } else if let Ok(vcert) = cert.with_policy(NP, None) {
+                } else if let Ok(vcert) = cert.with_policy(RELAXED, None) {
                     // cert is not valid under the standard policy.
                     // Thus, it is safe to show User IDs that are
-                    // valid under the Null Policy: they will never be
-                    // used in a security sensitive context, which
+                    // valid under the relaxed policy: they will never
+                    // be used in a security sensitive context, which
                     // requires a cert that *is* valid under the
                     // standard policy.
                     userids.extend(vcert.userids()

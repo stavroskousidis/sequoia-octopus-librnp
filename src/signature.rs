@@ -152,6 +152,16 @@ fn rnp_signature_is_valid(sig: *const RnpSignature,
 
     if let Some(valid) = sig.valid {
         if valid {
+            // We know that the signature is cryptographically valid,
+            // but whoever established that did not necessarily ask
+            // the policy: for the signatures of a certificate, we
+            // report what Sequoia verified.  RFC 9980 requires us to
+            // reject signatures that violate its rules.
+            if let Err(err) = crate::policy::check_signature(sig) {
+                warn!("{}", err);
+                rnp_return_status!(RNP_ERROR_SIGNATURE_INVALID);
+            }
+
             // The signature could have expired in the meantime.  (In
             // fact, the key that created the signature could have
             // expired, but we ignore that :/.)
@@ -246,4 +256,86 @@ pub fn ca_signatures<'a>(sigs: impl Iterator<Item = &'a Signature>)
 
         (sig, valid)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use openpgp::types::HashAlgorithm;
+
+    use crate::testdata::rfc9980;
+    use crate::testdata::signatures::dummy_signature;
+
+    /// rnp_signature_is_valid applies the rules of RFC 9980 for
+    /// signatures (RFC 9980, Sections 5.3.1 and 6.2.1) to a signature
+    /// that is known to be cryptographically valid.
+    ///
+    /// The signatures are not signatures, see `dummy_signature`, so
+    /// this does the same with every cryptographic backend.  See
+    /// `rfc9980_self_signatures` for signatures that Sequoia
+    /// verified.
+    #[test]
+    fn rfc9980_signature_rules() -> openpgp::Result<()> {
+        let issuer = rfc9980::VECTORS[0].cert().fingerprint();
+        let v4_issuer = rfc9980::VECTORS[1].cert().fingerprint();
+
+        // Returns what rnp_signature_is_valid says about the
+        // signature if it is known to be valid, known to be invalid,
+        // and if nothing is known.
+        let is_valid = |sig: &Signature| {
+            [Some(true), Some(false), None].map(|valid| {
+                let sig =
+                    RnpSignature::new(std::ptr::null(), sig.clone(), valid);
+                unsafe { rnp_signature_is_valid(&sig as *const _, 0) }
+            })
+        };
+
+        let ok = RNP_SUCCESS.as_u32();
+        let invalid = RNP_ERROR_SIGNATURE_INVALID.as_u32();
+
+        for pk_algo in [30, 31, 32, 33, 34] {
+            // A v6 signature using a hash algorithm with a digest
+            // size of at least 256 bits.
+            for hash_algo in [HashAlgorithm::SHA256,
+                              HashAlgorithm::SHA384,
+                              HashAlgorithm::SHA512,
+                              HashAlgorithm::SHA3_256,
+                              HashAlgorithm::SHA3_512]
+            {
+                let sig = dummy_signature(pk_algo, hash_algo, &issuer)?;
+                assert_eq!(sig.version(), 6);
+                assert_eq!(is_valid(&sig), [ok, invalid, invalid],
+                           "{} {}", pk_algo, hash_algo);
+            }
+
+            // A smaller digest size.
+            let sig = dummy_signature(pk_algo, HashAlgorithm::SHA224, &issuer)?;
+            assert_eq!(is_valid(&sig), [invalid, invalid, invalid],
+                       "{}", pk_algo);
+
+            // A v4 signature.
+            let sig =
+                dummy_signature(pk_algo, HashAlgorithm::SHA512, &v4_issuer)?;
+            assert_eq!(sig.version(), 4);
+            assert_eq!(is_valid(&sig), [invalid, invalid, invalid],
+                       "{}", pk_algo);
+        }
+
+        // Other algorithms are not affected: Ed25519, and an
+        // algorithm that we do not know.
+        for pk_algo in [27, 37] {
+            for hash_algo in [HashAlgorithm::SHA1,
+                              HashAlgorithm::SHA224,
+                              HashAlgorithm::SHA512]
+            {
+                for issuer in [&issuer, &v4_issuer] {
+                    let sig = dummy_signature(pk_algo, hash_algo, issuer)?;
+                    assert_eq!(is_valid(&sig), [ok, invalid, invalid],
+                               "{} {}", pk_algo, hash_algo);
+                }
+            }
+        }
+        Ok(())
+    }
 }

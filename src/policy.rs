@@ -4,13 +4,29 @@
 //! This is Sequoia's [`StandardPolicy`], configured from the system's
 //! crypto policy and by `rnp_add_security_rule`, plus the rules of
 //! RFC 9980 that are neither cryptography nor encoding, and that
-//! `sequoia-openpgp` therefore does not enforce.  Currently, this is
-//! the key version binding.
+//! `sequoia-openpgp` therefore does not enforce.  Currently, these
+//! are the key version binding, the signature version binding, and
+//! the minimum digest size of signatures.
 //!
 //! A key that violates a rule is treated like any other key that the
 //! policy rejects: it is kept in the keyring, it is listed, and it is
 //! not used where the policy is asked.  That is when we report a
 //! key's state, select recipients, verify signatures, and decrypt.
+//!
+//! A signature that violates a rule is treated like any other
+//! signature that the policy rejects: it is reported as invalid, and
+//! a self-signature or a binding signature is not used to validate
+//! a certificate.
+//!
+//! Note: `rnp_signature_is_valid` does not ask the policy about the
+//! signatures of a certificate, it reports what Sequoia verified.  It
+//! applies the rules for signatures nevertheless, see
+//! `check_signature`.
+//!
+//! Where we want to say something about a certificate that the policy
+//! rejects, for instance to display its user IDs, we use the
+//! [`RelaxedPolicy`].  It accepts whatever is cryptographically
+//! valid, but it applies the rules for signatures, too.
 //!
 //! Note: we do not ask the policy before we sign.  Like for any other
 //! key that the policy rejects, the caller is expected to check that
@@ -33,6 +49,7 @@ use openpgp::{
     },
     types::{
         AEADAlgorithm,
+        HashAlgorithm,
         PublicKeyAlgorithm,
         SymmetricAlgorithm,
     },
@@ -110,10 +127,82 @@ pub fn check_key_version_binding(version: u8,
     }
 }
 
+/// Checks the signature version binding of RFC 9980.
+///
+/// The ML-DSA composites are to be used only with v6 (and newer)
+/// signatures (RFC 9980, Section 5.3.1), and SLH-DSA is to be used
+/// only with v6 signatures (RFC 9980, Section 6.2.1).
+///
+/// This does not constrain any other algorithm, known or unknown.
+pub fn check_signature_version(version: u8, pk_algo: PublicKeyAlgorithm)
+                               -> Result<()>
+{
+    use PublicKeyAlgorithm::*;
+
+    let (ok, section) = match pk_algo {
+        MLDSA65_Ed25519 | MLDSA87_Ed448 => (version >= 6, "5.3.1"),
+        SLHDSA128s | SLHDSA128f | SLHDSA256s => (version == 6, "6.2.1"),
+        _ => return Ok(()),
+    };
+
+    if ok {
+        Ok(())
+    } else {
+        Err(Error::PolicyViolation(
+            format!("v{} signature using {} (RFC 9980, Section {})",
+                    version, pk_algo, section),
+            None).into())
+    }
+}
+
+/// Checks the minimum digest size of RFC 9980.
+///
+/// A signature using one of the signature algorithms of RFC 9980 must
+/// use a hash algorithm with a digest size of at least 256 bits, and
+/// a verifying implementation must reject a signature that uses a
+/// hash algorithm with a smaller digest size (RFC 9980, Section 5.3.1
+/// for the ML-DSA composites, and Section 6.2.1 for SLH-DSA).
+///
+/// This does not constrain any other algorithm, known or unknown.
+pub fn check_digest_size(pk_algo: PublicKeyAlgorithm,
+                         hash_algo: HashAlgorithm)
+                         -> Result<()>
+{
+    use PublicKeyAlgorithm::*;
+
+    let section = match pk_algo {
+        MLDSA65_Ed25519 | MLDSA87_Ed448 => "5.3.1",
+        SLHDSA128s | SLHDSA128f | SLHDSA256s => "6.2.1",
+        _ => return Ok(()),
+    };
+
+    // We do not know the digest size of a hash algorithm that we do
+    // not know, so it does not satisfy the rule.
+    match hash_algo.digest_size() {
+        Ok(octets) if octets * 8 >= 256 => Ok(()),
+        _ => Err(Error::PolicyViolation(
+            format!("{} signature using {} (RFC 9980, Section {})",
+                    pk_algo, hash_algo, section),
+            None).into()),
+    }
+}
+
+/// Checks the rules of RFC 9980 for signatures: the signature version
+/// binding, and the minimum digest size.
+///
+/// The policy checks them.  They are a function of their own for
+/// `rnp_signature_is_valid`, which reports whether Sequoia verified a
+/// signature of a certificate without asking the policy.
+pub fn check_signature(sig: &Signature) -> Result<()> {
+    check_signature_version(sig.version(), sig.pk_algo())?;
+    check_digest_size(sig.pk_algo(), sig.hash_algo())
+}
+
 impl Policy for OctopusPolicy {
     fn signature(&self, sig: &Signature, sec: HashAlgoSecurity)
                  -> Result<()>
     {
+        check_signature(sig)?;
         self.standard.signature(sig, sec)
     }
 
@@ -145,11 +234,55 @@ impl Policy for OctopusPolicy {
     // we call none of them.
 }
 
+/// The policy for looking at certificates that the policy of the
+/// context rejects.
+///
+/// Some functions report properties of a certificate even if the
+/// policy rejects it, so that it can be displayed: its user IDs, and
+/// whether it has ever been valid.  They used to fall back to
+/// Sequoia's [`NullPolicy`](openpgp::policy::NullPolicy), and now
+/// fall back to this policy.  It also accepts everything, with one
+/// exception: it rejects the signatures that violate the rules of RFC
+/// 9980, see [`check_signature`], because a verifying implementation
+/// must reject them.  Hence, a certificate is not valid under this
+/// policy if it depends on such a signature.
+///
+/// Do not use this policy to decide whether something can be used.
+#[derive(Clone, Debug, Default)]
+pub struct RelaxedPolicy(());
+
+/// The relaxed policy.
+pub const RELAXED: &RelaxedPolicy = &RelaxedPolicy(());
+
+impl Policy for RelaxedPolicy {
+    fn signature(&self, sig: &Signature, _sec: HashAlgoSecurity)
+                 -> Result<()>
+    {
+        check_signature(sig)
+    }
+
+    fn key(&self, _ka: &ValidErasedKeyAmalgamation<PublicParts>)
+           -> Result<()>
+    {
+        Ok(())
+    }
+
+    fn symmetric_algorithm(&self, _algo: SymmetricAlgorithm) -> Result<()> {
+        Ok(())
+    }
+
+    fn aead_algorithm(&self, _algo: AEADAlgorithm) -> Result<()> {
+        Ok(())
+    }
+
+    fn packet(&self, _packet: &Packet) -> Result<()> {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use openpgp::types::HashAlgorithm;
 
     use crate::NP;
     use crate::testdata::key_version_binding::*;
@@ -339,9 +472,12 @@ mod tests {
             let ka = np.keys().nth(0).unwrap();
             assert!(ka.primary());
             assert!(p.key(&ka).is_err(), "{}", algo);
-            // ... and so the certificate is not valid.
+            // ... and so the certificate is not valid.  A v4 key
+            // makes v4 signatures, so the policy also rejects the
+            // self-signature, and that is what Sequoia reports.
             let e = cert.with_policy(p, None).unwrap_err();
-            assert!(format!("{:?}", e).contains("RFC 9980, Section 3.5"),
+            assert!(format!("{:?}", e).contains(
+                &format!("v4 signature using {} (RFC 9980, Section ", algo)),
                     "{}: {:?}", algo, e);
             assert_eq!(cert.keys().with_policy(p, None).count(), 0,
                        "{}", algo);
@@ -350,6 +486,396 @@ mod tests {
 
         // All or nothing: a backend has either all of them or none.
         assert!(tested == 0 || tested == 3);
+        Ok(())
+    }
+
+    /// The signature algorithms of RFC 9980, Section 2.1, and the
+    /// section with the rule on the digest size.
+    const SIGNATURE_ALGORITHMS: [(u8, &str); 5] = [
+        (30, "5.3.1"),
+        (31, "5.3.1"),
+        (32, "6.2.1"),
+        (33, "6.2.1"),
+        (34, "6.2.1"),
+    ];
+
+    /// What RFC 9980 says about each signature algorithm and signature
+    /// version.
+    #[test]
+    fn signature_version() {
+        let ok = |version: u8, pk_algo: u8| {
+            check_signature_version(version, pk_algo.into()).is_ok()
+        };
+
+        for pk_algo in 0..=255 {
+            for version in 2..=7 {
+                let expected = match pk_algo {
+                    // RFC 9980, Section 5.3.1: "MUST be used only
+                    // with v6 signatures, [...] or newer versions".
+                    30 | 31 => version >= 6,
+                    // RFC 9980, Section 6.2.1: "MUST be used only
+                    // with v6 signatures".
+                    32 | 33 | 34 => version == 6,
+                    // The rule says nothing about any other
+                    // algorithm, including the ML-KEM composites and
+                    // those that we do not know.
+                    _ => true,
+                };
+                assert_eq!(ok(version, pk_algo), expected,
+                           "v{} {}", version, pk_algo);
+            }
+        }
+    }
+
+    /// The error names what is wrong.
+    #[test]
+    fn signature_version_error() {
+        for (pk_algo, section) in SIGNATURE_ALGORITHMS {
+            let e = check_signature_version(4, pk_algo.into()).unwrap_err();
+            assert!(matches!(e.downcast_ref::<Error>(),
+                             Some(Error::PolicyViolation(_, None))));
+            let e = e.to_string();
+            assert!(e.starts_with("v4 signature using "), "{}", e);
+            assert!(e.contains(&format!("(RFC 9980, Section {})", section)),
+                    "{}", e);
+        }
+    }
+
+    /// What RFC 9980 says about each signature algorithm and hash
+    /// algorithm.
+    #[test]
+    fn digest_size() {
+        let ok = |pk_algo: u8, hash_algo: u8| {
+            check_digest_size(pk_algo.into(), hash_algo.into()).is_ok()
+        };
+
+        // The hash algorithms with a digest size of at least 256
+        // bits, RFC 9580, Section 9.5: SHA2-256, SHA2-384, SHA2-512,
+        // SHA3-256, and SHA3-512.
+        let large = [8, 9, 10, 12, 14];
+        // And those with a smaller digest size: MD5, SHA-1,
+        // RIPEMD-160, and SHA2-224.
+        let small = [1, 2, 3, 11];
+
+        for pk_algo in 0..=255 {
+            let rfc9980 =
+                SIGNATURE_ALGORITHMS.iter().any(|(a, _)| *a == pk_algo);
+            assert_eq!(rfc9980, (30..=34).contains(&pk_algo));
+
+            for hash_algo in 0..=255 {
+                if rfc9980 {
+                    // RFC 9980, Sections 5.3.1 and 6.2.1: "MUST use a
+                    // hash algorithm with a digest size of at least
+                    // 256 bits", and a verifying implementation "MUST
+                    // reject" any other.  That includes the hash
+                    // algorithms that we do not know.
+                    assert_eq!(ok(pk_algo, hash_algo),
+                               large.contains(&hash_algo),
+                               "{} {}", pk_algo, hash_algo);
+                    assert!(! (ok(pk_algo, hash_algo)
+                               && small.contains(&hash_algo)));
+                } else {
+                    // The rule says nothing about any other
+                    // algorithm, including the ML-KEM composites and
+                    // those that we do not know.
+                    assert!(ok(pk_algo, hash_algo),
+                            "{} {}", pk_algo, hash_algo);
+                }
+            }
+        }
+    }
+
+    /// The error names what is wrong.
+    #[test]
+    fn digest_size_error() {
+        for (pk_algo, section) in SIGNATURE_ALGORITHMS {
+            let e = check_digest_size(pk_algo.into(), HashAlgorithm::SHA224)
+                .unwrap_err();
+            assert!(matches!(e.downcast_ref::<Error>(),
+                             Some(Error::PolicyViolation(_, None))));
+            let e = e.to_string();
+            assert!(e.contains(&format!(
+                "signature using SHA224 (RFC 9980, Section {})", section)),
+                    "{}", e);
+        }
+    }
+
+    /// The policy rejects signatures that violate the signature
+    /// version binding or the rule on the digest size, and only
+    /// those.
+    ///
+    /// The signatures are not signatures, see `dummy_signature`.
+    /// Whether a signature that the cryptographic backend can verify
+    /// is rejected is tested at the interface, see
+    /// `rfc9980_digest_size`, `rfc9980_signature_version`, and
+    /// `rfc9980_self_signatures`.
+    #[test]
+    fn policy_checks_signatures() -> Result<()> {
+        use crate::testdata::signatures::dummy_signature;
+
+        let p = &OctopusPolicy::default();
+        let standard = &StandardPolicy::new();
+        let secs = [HashAlgoSecurity::SecondPreImageResistance,
+                    HashAlgoSecurity::CollisionResistance];
+
+        // Any fingerprints will do.  A signature that names a v4
+        // fingerprint is a v4 signature.
+        let issuer = rfc9980::VECTORS[0].cert().fingerprint();
+        let v4_issuer = rfc9980::VECTORS[1].cert().fingerprint();
+        assert!(matches!(v4_issuer, openpgp::Fingerprint::V4(_)));
+
+        // The signature version binding.
+        for (pk_algo, section) in SIGNATURE_ALGORITHMS {
+            // The standard policy accepts a v4 signature, we do not.
+            let sig =
+                dummy_signature(pk_algo, HashAlgorithm::SHA512, &v4_issuer)?;
+            assert_eq!(sig.version(), 4);
+            assert!(check_signature(&sig).is_err());
+            for sec in secs {
+                assert!(standard.signature(&sig, sec).is_ok());
+                let e = p.signature(&sig, sec).unwrap_err().to_string();
+                assert!(e.contains(&format!(
+                    "v4 signature using {} (RFC 9980, Section {})",
+                    sig.pk_algo(), section)),
+                        "{}: {}", pk_algo, e);
+            }
+
+            let sig =
+                dummy_signature(pk_algo, HashAlgorithm::SHA512, &issuer)?;
+            assert_eq!(sig.version(), 6);
+            assert!(check_signature(&sig).is_ok());
+            for sec in secs {
+                assert!(p.signature(&sig, sec).is_ok(), "{}", pk_algo);
+            }
+        }
+
+        // The minimum digest size.
+
+        for (pk_algo, section) in SIGNATURE_ALGORITHMS {
+            // The standard policy accepts SHA2-224, we do not.
+            let sig = dummy_signature(pk_algo, HashAlgorithm::SHA224, &issuer)?;
+            assert_eq!(sig.version(), 6);
+            assert!(check_signature(&sig).is_err());
+            for sec in secs {
+                assert!(standard.signature(&sig, sec).is_ok());
+                let e = p.signature(&sig, sec).unwrap_err().to_string();
+                assert!(e.contains(&format!("RFC 9980, Section {}", section)),
+                        "{}: {}", pk_algo, e);
+            }
+
+            // Hash algorithms that the standard policy rejects, too.
+            for hash_algo in [HashAlgorithm::MD5,
+                              HashAlgorithm::SHA1,
+                              HashAlgorithm::RipeMD]
+            {
+                let sig = dummy_signature(pk_algo, hash_algo, &issuer)?;
+                for sec in secs {
+                    assert!(p.signature(&sig, sec).is_err(),
+                            "{} {}", pk_algo, hash_algo);
+                }
+            }
+
+            for hash_algo in [HashAlgorithm::SHA256,
+                              HashAlgorithm::SHA384,
+                              HashAlgorithm::SHA512,
+                              HashAlgorithm::SHA3_256,
+                              HashAlgorithm::SHA3_512]
+            {
+                let sig = dummy_signature(pk_algo, hash_algo, &issuer)?;
+                for sec in secs {
+                    assert!(standard.signature(&sig, sec).is_ok());
+                    assert!(p.signature(&sig, sec).is_ok(),
+                            "{} {}", pk_algo, hash_algo);
+                }
+            }
+        }
+
+        // Other algorithms are not affected: Ed25519, and an
+        // algorithm that we do not know.
+        for pk_algo in [27, 37] {
+            for issuer in [&issuer, &v4_issuer] {
+                let sig =
+                    dummy_signature(pk_algo, HashAlgorithm::SHA224, issuer)?;
+                assert!(check_signature(&sig).is_ok());
+                for sec in secs {
+                    assert!(p.signature(&sig, sec).is_ok(), "{}", pk_algo);
+                }
+            }
+        }
+
+        // The detached signatures of RFC 9980, Appendix A satisfy the
+        // rule.
+        let mut algos = Vec::new();
+        for s in rfc9980::SIGNATURES {
+            let sig = s.packet();
+            algos.push(u8::from(sig.pk_algo()));
+            assert!(check_signature(&sig).is_ok());
+            for sec in secs {
+                assert!(p.signature(&sig, sec).is_ok(), "{}", s.section);
+            }
+        }
+        assert_eq!(algos,
+                   SIGNATURE_ALGORITHMS.iter().map(|(a, _)| *a)
+                   .collect::<Vec<_>>());
+        Ok(())
+    }
+
+    /// The policy and the relaxed policy also reject self-signatures
+    /// that violate the rule on the digest size, so a certificate
+    /// with a primary key using a signature algorithm of RFC 9980 is
+    /// not valid if all of its self-signatures use SHA2-224.
+    ///
+    /// Making such a certificate requires a cryptographic backend
+    /// that supports the algorithm.  With the other backends, this
+    /// tests nothing.
+    #[test]
+    fn policy_checks_self_signatures() -> Result<()> {
+        use crate::testdata::signatures::cert_with_self_signature;
+
+        let p = &OctopusPolicy::default();
+        let standard = &StandardPolicy::new();
+
+        let mut tested = 0;
+        for v in rfc9980::VECTORS {
+            let algo = PublicKeyAlgorithm::from(v.primary.algo);
+            if ! FAST_SIGNATURE_ALGORITHMS.contains(&algo) {
+                continue;
+            }
+            if ! algo.is_supported() {
+                eprintln!("{} is not supported by the cryptographic \
+                           backend, not testing a self-signature", algo);
+                continue;
+            }
+            let section = SIGNATURE_ALGORITHMS.iter()
+                .find(|(a, _)| *a == v.primary.algo).unwrap().1;
+
+            let cert_with = |hash_algo| -> Result<Cert> {
+                let cert = cert_with_self_signature(v.tsk, hash_algo)?;
+                let sig = cert.userids().next().unwrap()
+                    .self_signatures().next().unwrap();
+                assert_eq!(sig.version(), 6);
+                assert_eq!(sig.pk_algo(), algo);
+                Ok(cert)
+            };
+
+            let cert = cert_with(HashAlgorithm::SHA256)?;
+            assert!(cert.with_policy(standard, None).is_ok());
+            assert!(cert.with_policy(p, None).is_ok(), "{}", v.section);
+            assert!(cert.with_policy(RELAXED, None).is_ok(), "{}", v.section);
+
+            let cert = cert_with(HashAlgorithm::SHA224)?;
+            assert!(cert.with_policy(standard, None).is_ok());
+            let e = cert.with_policy(p, None).unwrap_err();
+            assert!(format!("{:?}", e).contains(
+                &format!("RFC 9980, Section {}", section)),
+                    "{}: {:?}", v.section, e);
+            let e = cert.with_policy(RELAXED, None).unwrap_err();
+            assert!(format!("{:?}", e).contains(
+                &format!("RFC 9980, Section {}", section)),
+                    "{}: {:?}", v.section, e);
+            assert_eq!(cert.keys().with_policy(p, None).count(), 0,
+                       "{}", v.section);
+            tested += 1;
+        }
+
+        // Make sure that we tested what we mean to test.
+        match rfc9980::backend_has_rfc9980() {
+            Some(true) => assert_eq!(tested, 3),
+            Some(false) => assert_eq!(tested, 0),
+            None => assert!(tested == 0 || tested == 3),
+        }
+        Ok(())
+    }
+
+    /// The relaxed policy accepts what the policy rejects, except for
+    /// the signatures that violate the rules of RFC 9980.
+    #[test]
+    fn relaxed_policy() -> Result<()> {
+        use openpgp::packet::Tag;
+        use openpgp::policy::AsymmetricAlgorithm;
+        use crate::testdata::signatures::dummy_signature;
+
+        let secs = [HashAlgoSecurity::SecondPreImageResistance,
+                    HashAlgoSecurity::CollisionResistance];
+        let issuer = rfc9980::VECTORS[0].cert().fingerprint();
+        let v4_issuer = rfc9980::VECTORS[1].cert().fingerprint();
+
+        // A policy that rejects whatever we ask it about.
+        let mut p = OctopusPolicy::default();
+        p.standard_mut().reject_all_hashes();
+        p.standard_mut().reject_asymmetric_algo(AsymmetricAlgorithm::EdDSA);
+        p.standard_mut().reject_symmetric_algo(SymmetricAlgorithm::AES256);
+        p.standard_mut().reject_aead_algo(AEADAlgorithm::OCB);
+        p.standard_mut().reject_packet_tag(Tag::Literal);
+
+        // The signatures.
+        for (pk_algo, section) in SIGNATURE_ALGORITHMS {
+            for (hash_algo, issuer, good) in [
+                (HashAlgorithm::SHA256, &issuer, true),
+                (HashAlgorithm::SHA512, &issuer, true),
+                (HashAlgorithm::SHA224, &issuer, false),
+                (HashAlgorithm::SHA1, &issuer, false),
+                (HashAlgorithm::SHA512, &v4_issuer, false),
+            ] {
+                let sig = dummy_signature(pk_algo, hash_algo, issuer)?;
+                for sec in secs {
+                    assert!(p.signature(&sig, sec).is_err());
+                    let r = RELAXED.signature(&sig, sec);
+                    assert_eq!(r.is_ok(), good,
+                               "{} {} v{}", pk_algo, hash_algo, sig.version());
+                    if let Err(e) = r {
+                        assert!(e.to_string().contains(
+                            &format!("(RFC 9980, Section {})", section)),
+                                "{}", e);
+                    }
+                }
+            }
+        }
+
+        // Signatures using other algorithms are all accepted.
+        for pk_algo in [27, 37] {
+            for hash_algo in [HashAlgorithm::MD5,
+                              HashAlgorithm::SHA1,
+                              HashAlgorithm::SHA224,
+                              HashAlgorithm::SHA512]
+            {
+                for issuer in [&issuer, &v4_issuer] {
+                    let sig = dummy_signature(pk_algo, hash_algo, issuer)?;
+                    for sec in secs {
+                        assert!(p.signature(&sig, sec).is_err());
+                        assert!(RELAXED.signature(&sig, sec).is_ok(),
+                                "{} {}", pk_algo, hash_algo);
+                    }
+                }
+            }
+        }
+
+        // Everything else is accepted.  This includes the keys that
+        // violate the key version binding: the certificate can be
+        // looked at, and we report the key as unusable.
+        for algo in ALGORITHMS {
+            let (cert, _) = cert_with_subkey(4, algo)?;
+            assert_eq!(cert.with_policy(RELAXED, None)?.keys().count(), 2);
+            for ka in cert.with_policy(NP, None)?.keys() {
+                // The policy rejects the primary key because of its
+                // algorithm, and the subkey because of the key
+                // version binding.
+                assert_eq!(p.key(&ka).is_err(),
+                           ka.primary()
+                           || algo != PublicKeyAlgorithm::MLKEM768_X25519,
+                           "{}", algo);
+                assert!(RELAXED.key(&ka).is_ok());
+            }
+        }
+        assert!(p.symmetric_algorithm(SymmetricAlgorithm::AES256).is_err());
+        assert!(RELAXED.symmetric_algorithm(SymmetricAlgorithm::AES256)
+                .is_ok());
+        assert!(p.aead_algorithm(AEADAlgorithm::OCB).is_err());
+        assert!(RELAXED.aead_algorithm(AEADAlgorithm::OCB).is_ok());
+        let literal = Packet::Literal(
+            openpgp::packet::Literal::new(openpgp::types::DataFormat::Binary));
+        assert!(p.packet(&literal).is_err());
+        assert!(RELAXED.packet(&literal).is_ok());
         Ok(())
     }
 

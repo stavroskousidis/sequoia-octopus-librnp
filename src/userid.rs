@@ -68,8 +68,8 @@ impl RnpUserID {
     /// A User ID is considered revoked:
     /// - if it is valid under the standard policy and is revoked
     /// - it is not valid under the standard policy, but is valid under the
-    ///   null policy, and is revoked
-    /// - is not valid under either the standard or null policy.
+    ///   relaxed policy, and is revoked
+    /// - is not valid under either the standard or relaxed policy.
     fn revoked<'a>(&'a self) -> bool {
         let ctx = unsafe { &*self.ctx };
 
@@ -78,7 +78,7 @@ impl RnpUserID {
 
         if let Ok(vu) = userid.clone()
             .with_policy(&*ctx.policy(), None)
-            .or_else(|_| userid.with_policy(crate::NP, None)) {
+            .or_else(|_| userid.with_policy(crate::policy::RELAXED, None)) {
             // The certificate is valid under a policy
 
             use openpgp::types::RevocationStatus::*;
@@ -89,7 +89,7 @@ impl RnpUserID {
                 NotAsFarAsWeKnow => false,
             }
         } else {
-            // The certificate is not even valid under the null
+            // The certificate is not even valid under the relaxed
             // policy.  Treat it as invalid.
             true
         }
@@ -182,10 +182,10 @@ fn rnp_uid_is_valid(uid: *const RnpUserID,
         .expect("we know it's there");
 
     // A User ID is safe to display if it is valid under the standard
-    // policy or the null policy.
+    // policy or the relaxed policy.
     *result = userid.clone()
         .with_policy(&*ctx.policy(), None)
-        .or_else(|_| userid.with_policy(crate::NP, None))
+        .or_else(|_| userid.with_policy(crate::policy::RELAXED, None))
         .is_ok();
 
     t!("{}:{:?}: is{} valid",
